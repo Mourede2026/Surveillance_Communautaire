@@ -90,28 +90,25 @@
       </section>
 
       <section id="tab-assign" style="display:none">
-        <div class="grid grid-2">
-          <div class="card">
-            <h2>Assigner des villages à un ASCQ</h2>
-            <form id="formAssignAscq">
-              <div class="field"><label>ASCQ</label><select name="userId" id="selAscq" required></select></div>
-              <div class="field"><label>Département</label><select id="asDep"></select></div>
-              <div class="field"><label>Commune</label><select id="asCom"></select></div>
-              <div class="field"><label>Arrondissement</label><select id="asArr"></select></div>
-              <div class="field"><label>Village</label><select id="asVil" required></select></div>
-              <button type="submit">Assigner</button>
-            </form>
-          </div>
-          <div class="card">
-            <h2>Assigner des arrondissements à un PF CCLS-TP</h2>
-            <form id="formAssignPf">
-              <div class="field"><label>PF CCLS-TP</label><select name="userId" id="selPf" required></select></div>
-              <div class="field"><label>Département</label><select id="apDep"></select></div>
-              <div class="field"><label>Commune</label><select id="apCom"></select></div>
-              <div class="field"><label>Arrondissement</label><select id="apArr" required></select></div>
-              <button type="submit">Assigner</button>
-            </form>
-          </div>
+        <div class="card">
+          <p style="font-size:.85rem;color:var(--ink-soft)">
+            Un ASCQ couvre automatiquement tout son arrondissement de rattachement (choisi par le
+            PF CCLS-TP à la création du compte) — aucune assignation de villages n'est nécessaire.
+            Plusieurs ASCQ peuvent être rattachés au même arrondissement : ils partagent alors le
+            même périmètre de données et le même rapport hebdomadaire. Il reste donc uniquement à
+            assigner des <strong>arrondissements</strong> aux comptes <strong>PF CCLS-TP</strong>
+            ci-dessous.
+          </p>
+        </div>
+        <div class="card">
+          <h2>Assigner des arrondissements à un PF CCLS-TP</h2>
+          <form id="formAssignPf">
+            <div class="field"><label>PF CCLS-TP</label><select name="userId" id="selPf" required></select></div>
+            <div class="field"><label>Département</label><select id="apDep"></select></div>
+            <div class="field"><label>Commune</label><select id="apCom"></select></div>
+            <div class="field"><label>Arrondissement</label><select id="apArr" required></select></div>
+            <button type="submit">Assigner</button>
+          </form>
         </div>
         <div class="card"><h2>Assignations actuelles</h2><div id="assignTable">Chargement…</div></div>
       </section>
@@ -260,29 +257,23 @@ formVillage.addEventListener('submit', async (e) => { e.preventDefault();
   fd.arrondissementNom = arr ? arr.Nom : '';
   try { await Api.call('createVillage', fd); toast('Village ajouté.'); formVillage.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
 
-let assignAscqIds = null, assignPfIds = null;
-wireCascadingGeo(document.getElementById('asDep'), document.getElementById('asCom'), document.getElementById('asArr'), document.getElementById('asVil'), ids => assignAscqIds = ids);
+let assignPfIds = null;
 wireCascadingGeo(document.getElementById('apDep'), document.getElementById('apCom'), document.getElementById('apArr'), null, ids => assignPfIds = ids);
 
 async function loadAssignData() {
   assignTable.innerHTML = 'Chargement…';
   try {
     const [{ users }, { geo }, { perimetres }] = await Promise.all([Api.call('listUsers', {}), Api.call('listGeo', {}), Api.call('listPerimetres', {})]);
-    selAscq.innerHTML = users.filter(u => u.Role === 'ASCQ').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     selPf.innerHTML = users.filter(u => u.Role === 'PF_CNLS_TP').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     let html = '<table><thead><tr><th>Type</th><th>Cible</th><th>Assigné à</th><th>Date</th></tr></thead><tbody>';
     perimetres.forEach(p => {
       const u = users.find(x => x.ID === p.UserId);
-      const cible = p.TypeCible === 'Village' ? geo.villages.find(v => v.ID === p.CibleId) : geo.arrondissements.find(a => a.ID === p.CibleId);
+      const cible = geo.arrondissements.find(a => a.ID === p.CibleId);
       html += `<tr><td>${p.TypeCible}</td><td>${cible ? cible.Nom : p.CibleId}</td><td>${u ? u.Prenom+' '+u.Nom : p.UserId}</td><td>${fmtDate(p.Date)}</td></tr>`;
     });
     assignTable.innerHTML = html + '</tbody></table>';
   } catch (e) { assignTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
-formAssignAscq.addEventListener('submit', async (e) => { e.preventDefault();
-  if (!assignAscqIds || !assignAscqIds.vilNom) { toast('Sélectionnez un village complet (département → village).', true); return; }
-  const fd = { userId: selAscq.value, typeCible: 'Village', cibleId: assignAscqIds.vilId };
-  try { await Api.call('assignPerimetre', fd); toast('Village assigné.'); loadAssignData(); } catch (err) { toast(err.message, true); } });
 formAssignPf.addEventListener('submit', async (e) => { e.preventDefault();
   if (!assignPfIds || !assignPfIds.arrNom) { toast('Sélectionnez un arrondissement complet (département → arrondissement).', true); return; }
   const fd = { userId: selPf.value, typeCible: 'Arrondissement', cibleId: assignPfIds.arrId };

@@ -39,13 +39,24 @@
             <div class="field"><label>Prénom</label><input name="prenom" required></div>
             <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
             <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
-            <div class="field"><label>Département</label><select id="ascqDep"></select></div>
-            <div class="field"><label>Commune</label><select id="ascqCom"></select></div>
-            <div class="field" style="grid-column:1/-1"><label>Arrondissement de rattachement</label><select id="ascqArr" required></select></div>
+            <div class="field" style="grid-column:1/-1">
+              <label>Arrondissement de rattachement (commune : <strong id="ascqCommuneLabel"></strong>)</label>
+              <select id="ascqArr" required></select>
+              <p style="font-size:.8rem;color:var(--ink-soft);margin:6px 0 0">Plusieurs ASCQ peuvent être rattachés au même arrondissement : ils partagent alors le même rapport hebdomadaire.</p>
+            </div>
             <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
           </form>
         </div>
         <div class="card"><h2>Mes ASCQ</h2><div id="ascqTable">Chargement…</div></div>
+        <div class="card">
+          <h2>Assigner un arrondissement supplémentaire à un ASCQ</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Un ASCQ peut couvrir plusieurs arrondissements ; il reçoit alors un rapport hebdomadaire distinct pour chacun.</p>
+          <form id="formAssignArrAscq" class="grid grid-2">
+            <div class="field"><label>ASCQ</label><select id="selAscqForAssign" required></select></div>
+            <div class="field"><label>Arrondissement (commune : <strong id="ascqCommuneLabel2"></strong>)</label><select id="arrToAssign" required></select></div>
+            <div style="grid-column:1/-1"><button type="submit">Assigner</button></div>
+          </form>
+        </div>
       </section>
 
       <section id="tab-suivi" style="display:none">
@@ -93,13 +104,19 @@ async function loadDashboard() {
 async function loadASCQ() {
   ascqTable.innerHTML = 'Chargement…';
   try {
-    const { users } = await Api.call('listUsers', {});
+    const [{ users }, { perimetres }, { geo }] = await Promise.all([
+      Api.call('listUsers', {}), Api.call('listArrondissementsAscq', {}), Api.call('listGeo', {})
+    ]);
     const ascqs = users.filter(u => u.Role === 'ASCQ');
+    selAscqForAssign.innerHTML = ascqs.map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     if (!ascqs.length) { ascqTable.innerHTML = '<div class="empty-state">Aucun ASCQ créé pour le moment.</div>'; return; }
-    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement</th><th>Statut</th><th></th></tr></thead><tbody>';
+    const arrNomById = {}; geo.arrondissements.forEach(a => arrNomById[a.ID] = a.Nom);
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement(s)</th><th>Statut</th><th></th></tr></thead><tbody>';
     ascqs.forEach(u => {
       const actif = u.Actif === true || u.Actif === 'TRUE';
-      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.ArrondissementNom||''}</td>
+      const mesArrs = perimetres.filter(p => p.UserId === u.ID).map(p => arrNomById[p.CibleId] || p.CibleId);
+      const arrLabel = mesArrs.length ? mesArrs.join(', ') : (u.ArrondissementNom || '');
+      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${arrLabel}</td>
         <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
         <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
     });
@@ -112,19 +129,56 @@ async function loadASCQ() {
   } catch (e) { ascqTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
-let ascqGeoSelection = null;
-wireCascadingGeo(document.getElementById('ascqDep'), document.getElementById('ascqCom'), document.getElementById('ascqArr'), null, ids => ascqGeoSelection = ids);
+// Le département et la commune du PF sont déjà connus depuis son propre compte : il ne reste
+// qu'à choisir l'arrondissement de rattachement de l'ASCQ, parmi les arrondissements de sa commune.
+ascqCommuneLabel.textContent = user.CommuneNom || '';
+async function loadAscqArrOptions() {
+  try {
+    const { geo } = await Api.call('listGeo', {});
+    const arrs = geo.arrondissements.filter(a => a.CommuneId === user.CommuneId);
+    ascqArr.innerHTML = arrs.length
+      ? arrs.map(a => `<option value="${a.ID}">${a.Nom}</option>`).join('')
+      : '<option value="">Aucun arrondissement trouvé pour votre commune — importez la géographie ou contactez le RCSE</option>';
+  } catch (e) { toast(e.message, true); }
+}
+loadAscqArrOptions();
 
 formCreateASCQ.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(formCreateASCQ).entries());
-  if (!ascqGeoSelection || !ascqGeoSelection.arrNom) { toast('Sélectionnez département / commune / arrondissement.', true); return; }
+  if (!ascqArr.value) { toast('Sélectionnez un arrondissement.', true); return; }
+  const arrNom = ascqArr.options[ascqArr.selectedIndex].textContent;
   fd.role = 'ASCQ';
-  fd.departementId = ascqGeoSelection.depId; fd.departementNom = ascqGeoSelection.depNom;
-  fd.communeId = ascqGeoSelection.comId; fd.communeNom = ascqGeoSelection.comNom;
-  fd.arrondissementId = ascqGeoSelection.arrId; fd.arrondissementNom = ascqGeoSelection.arrNom;
+  fd.departementId = user.DepartementId; fd.departementNom = user.DepartementNom;
+  fd.communeId = user.CommuneId; fd.communeNom = user.CommuneNom;
+  fd.arrondissementId = ascqArr.value; fd.arrondissementNom = arrNom;
   try { await Api.call('createUser', fd); toast('Compte ASCQ créé.'); formCreateASCQ.reset(); loadASCQ(); }
   catch (err) { toast(err.message, true); }
+});
+
+// Assignation d'un arrondissement supplémentaire à un ASCQ existant (un ASCQ peut en couvrir
+// plusieurs ; le département et la commune restent ceux du PF, seul l'arrondissement varie).
+ascqCommuneLabel2.textContent = user.CommuneNom || '';
+async function loadArrToAssignOptions() {
+  try {
+    const { geo } = await Api.call('listGeo', {});
+    const arrs = geo.arrondissements.filter(a => a.CommuneId === user.CommuneId);
+    arrToAssign.innerHTML = arrs.length
+      ? arrs.map(a => `<option value="${a.ID}">${a.Nom}</option>`).join('')
+      : '<option value="">Aucun arrondissement trouvé pour votre commune</option>';
+  } catch (e) { toast(e.message, true); }
+}
+loadArrToAssignOptions();
+
+formAssignArrAscq.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!selAscqForAssign.value || !arrToAssign.value) { toast('Sélectionnez un ASCQ et un arrondissement.', true); return; }
+  try {
+    await Api.call('assignArrondissementAscq', { userId: selAscqForAssign.value, arrondissementId: arrToAssign.value });
+    toast('Arrondissement assigné.');
+    formAssignArrAscq.reset();
+    loadASCQ();
+  } catch (err) { toast(err.message, true); }
 });
 
 async function loadSuivi() {

@@ -51,7 +51,7 @@
             <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
             <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
             <div class="field"><label>Village</label><select id="rcVillageSelect" required></select></div>
-            <div style="grid-column:1/-1"><p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">Seuls les villages qui vous ont été assignés par le RCSE apparaissent ici.</p></div>
+            <div style="grid-column:1/-1"><p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">Le(s) arrondissement(s) qui vous ont été assignés sont déjà connus depuis votre compte : choisissez simplement le village.</p></div>
             <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
           </form>
         </div>
@@ -60,6 +60,7 @@
 
       <section id="tab-rapport" style="display:none">
         <div class="card">
+          <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">Ce rapport porte sur un arrondissement. S'il existe plusieurs ASCQ dans le même arrondissement, ils partagent exactement le même rapport ; si vous couvrez plusieurs arrondissements, vous recevez un rapport distinct pour chacun (naviguez avec les boutons Précédent / Suivant).</p>
           <button id="genRapportBtn" class="btn-secondary">Générer / actualiser le rapport de la semaine en cours</button>
         </div>
         <div class="card"><h2>Support 4 — Rapport hebdomadaire (auto-généré)</h2><div id="rapportTable">Chargement…</div></div>
@@ -169,16 +170,17 @@ function todayISO_() { return new Date().toISOString().slice(0,10); }
 async function loadRC() {
   rcTable.innerHTML = 'Chargement…';
   try {
-    const [{ users }, { perimetres }, { geo }] = await Promise.all([
-      Api.call('listUsers', {}), Api.call('listPerimetres', {}), Api.call('listGeo', {})
+    const [{ users }, { geo }, { perimetres }] = await Promise.all([
+      Api.call('listUsers', {}), Api.call('listGeo', {}), Api.call('listArrondissementsAscq', {})
     ]);
-    // Villages assignés à cet ASCQ (pour le formulaire de création de RC)
-    const myVillageIds = perimetres.filter(p => p.TypeCible === 'Village').map(p => p.CibleId);
-    const myVillages = geo.villages.filter(v => myVillageIds.includes(v.ID));
+    // Villages des arrondissements couverts par cet ASCQ (pour le formulaire de création de RC) :
+    // ils sont déjà connus depuis son compte, il ne reste qu'à choisir le village.
+    const mesArrIds = perimetres.map(p => p.CibleId);
+    const myVillages = geo.villages.filter(v => mesArrIds.includes(v.ArrondissementId));
     if (!myVillages.length) {
-      rcVillageSelect.innerHTML = '<option value="">Aucun village ne vous a été assigné — contactez le RCSE</option>';
+      rcVillageSelect.innerHTML = '<option value="">Aucun village trouvé dans votre/vos arrondissement(s) — importez la géographie ou contactez votre PF CCLS-TP</option>';
     } else {
-      rcVillageSelect.innerHTML = myVillages.map(v => `<option value="${v.ID}">${v.Nom}${v.ArrondissementNom ? ' (' + v.ArrondissementNom + ')' : ''}</option>`).join('');
+      rcVillageSelect.innerHTML = myVillages.map(v => `<option value="${v.ID}">${v.Nom}${mesArrIds.length > 1 && v.ArrondissementNom ? ' (' + v.ArrondissementNom + ')' : ''}</option>`).join('');
     }
     window.GEO_LOOKUP = { villages: geo.villages, arrondissements: geo.arrondissements, communes: geo.communes };
 

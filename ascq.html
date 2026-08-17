@@ -50,10 +50,8 @@
             <div class="field"><label>Prénom</label><input name="prenom" required></div>
             <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
             <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
-            <div class="field"><label>Village</label><input name="village" placeholder="Nom du village couvert" required></div>
-            <div class="field"><label>Arrondissement</label><input name="arrondissement"></div>
-            <div class="field"><label>Commune</label><input name="commune"></div>
-            <div class="field"><label>Département</label><input name="departement"></div>
+            <div class="field"><label>Village</label><select id="rcVillageSelect" required></select></div>
+            <div style="grid-column:1/-1"><p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">Seuls les villages qui vous ont été assignés par le RCSE apparaissent ici.</p></div>
             <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
           </form>
         </div>
@@ -71,6 +69,8 @@
   </main>
 </div>
 
+<script src="assets/geo-benin-data.js"></script>
+<script src="assets/geo-utils.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
@@ -168,11 +168,23 @@ function todayISO_() { return new Date().toISOString().slice(0,10); }
 async function loadRC() {
   rcTable.innerHTML = 'Chargement…';
   try {
-    const { users } = await Api.call('listUsers', {});
+    const [{ users }, { perimetres }, { geo }] = await Promise.all([
+      Api.call('listUsers', {}), Api.call('listPerimetres', {}), Api.call('listGeo', {})
+    ]);
+    // Villages assignés à cet ASCQ (pour le formulaire de création de RC)
+    const myVillageIds = perimetres.filter(p => p.TypeCible === 'Village').map(p => p.CibleId);
+    const myVillages = geo.villages.filter(v => myVillageIds.includes(v.ID));
+    if (!myVillages.length) {
+      rcVillageSelect.innerHTML = '<option value="">Aucun village ne vous a été assigné — contactez le RCSE</option>';
+    } else {
+      rcVillageSelect.innerHTML = myVillages.map(v => `<option value="${v.ID}">${v.Nom}${v.ArrondissementNom ? ' (' + v.ArrondissementNom + ')' : ''}</option>`).join('');
+    }
+    window.GEO_LOOKUP = { villages: geo.villages, arrondissements: geo.arrondissements, communes: geo.communes };
+
     const rcs = users.filter(u => u.Role === 'RC');
     if (!rcs.length) { rcTable.innerHTML = '<div class="empty-state">Aucun relais créé pour le moment.</div>'; return; }
     let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Village</th><th>Statut</th></tr></thead><tbody>';
-    rcs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.Village||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    rcs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.VillageNom||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
     rcTable.innerHTML = html + '</tbody></table>';
   } catch (e) { rcTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
@@ -180,7 +192,16 @@ async function loadRC() {
 formCreateRC.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(formCreateRC).entries());
+  const villageId = rcVillageSelect.value;
+  if (!villageId) { toast('Sélectionnez un village.', true); return; }
+  const village = window.GEO_LOOKUP.villages.find(v => v.ID === villageId);
+  const arr = village ? window.GEO_LOOKUP.arrondissements.find(a => a.ID === village.ArrondissementId) : null;
+  const com = arr ? window.GEO_LOOKUP.communes.find(c => c.ID === arr.CommuneId) : null;
   fd.role = 'RC';
+  fd.villageId = villageId; fd.villageNom = village ? village.Nom : '';
+  fd.arrondissementId = arr ? arr.ID : ''; fd.arrondissementNom = arr ? arr.Nom : '';
+  fd.communeId = com ? com.ID : ''; fd.communeNom = com ? com.Nom : '';
+  fd.departementId = com ? com.DepartementId : ''; fd.departementNom = com ? com.DepartementNom : '';
   try {
     await Api.call('createUser', fd);
     toast('Compte relais créé.');

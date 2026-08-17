@@ -39,9 +39,9 @@
             <div class="field"><label>Prénom</label><input name="prenom" required></div>
             <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
             <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
-            <div class="field"><label>Arrondissement de rattachement</label><input name="arrondissement"></div>
-            <div class="field"><label>Commune</label><input name="commune" value=""></div>
-            <div class="field"><label>Département</label><input name="departement"></div>
+            <div class="field"><label>Département</label><select id="ascqDep"></select></div>
+            <div class="field"><label>Commune</label><select id="ascqCom"></select></div>
+            <div class="field" style="grid-column:1/-1"><label>Arrondissement de rattachement</label><select id="ascqArr" required></select></div>
             <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
           </form>
         </div>
@@ -60,6 +60,8 @@
   </main>
 </div>
 
+<script src="assets/geo-benin-data.js"></script>
+<script src="assets/geo-utils.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['PF_CNLS_TP']);
@@ -94,15 +96,22 @@ async function loadASCQ() {
     const ascqs = users.filter(u => u.Role === 'ASCQ');
     if (!ascqs.length) { ascqTable.innerHTML = '<div class="empty-state">Aucun ASCQ créé pour le moment.</div>'; return; }
     let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement</th><th>Statut</th></tr></thead><tbody>';
-    ascqs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.Arrondissement||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    ascqs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.ArrondissementNom||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
     ascqTable.innerHTML = html + '</tbody></table>';
   } catch (e) { ascqTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
+let ascqGeoSelection = null;
+wireCascadingGeo(document.getElementById('ascqDep'), document.getElementById('ascqCom'), document.getElementById('ascqArr'), null, ids => ascqGeoSelection = ids);
+
 formCreateASCQ.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(formCreateASCQ).entries());
+  if (!ascqGeoSelection || !ascqGeoSelection.arrNom) { toast('Sélectionnez département / commune / arrondissement.', true); return; }
   fd.role = 'ASCQ';
+  fd.departementId = ascqGeoSelection.depId; fd.departementNom = ascqGeoSelection.depNom;
+  fd.communeId = ascqGeoSelection.comId; fd.communeNom = ascqGeoSelection.comNom;
+  fd.arrondissementId = ascqGeoSelection.arrId; fd.arrondissementNom = ascqGeoSelection.arrNom;
   try { await Api.call('createUser', fd); toast('Compte ASCQ créé.'); formCreateASCQ.reset(); loadASCQ(); }
   catch (err) { toast(err.message, true); }
 });

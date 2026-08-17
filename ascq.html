@@ -183,9 +183,19 @@ async function loadRC() {
 
     const rcs = users.filter(u => u.Role === 'RC');
     if (!rcs.length) { rcTable.innerHTML = '<div class="empty-state">Aucun relais créé pour le moment.</div>'; return; }
-    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Village</th><th>Statut</th></tr></thead><tbody>';
-    rcs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.VillageNom||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Village</th><th>Statut</th><th></th></tr></thead><tbody>';
+    rcs.forEach(u => {
+      const actif = u.Actif === true || u.Actif === 'TRUE';
+      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.VillageNom||''}</td>
+        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
+        <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
+    });
     rcTable.innerHTML = html + '</tbody></table>';
+    rcTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
+      const [id, active] = b.dataset.toggle.split('|');
+      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadRC(); }
+      catch (err) { toast(err.message, true); }
+    }));
   } catch (e) { rcTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 

@@ -95,9 +95,19 @@ async function loadASCQ() {
     const { users } = await Api.call('listUsers', {});
     const ascqs = users.filter(u => u.Role === 'ASCQ');
     if (!ascqs.length) { ascqTable.innerHTML = '<div class="empty-state">Aucun ASCQ créé pour le moment.</div>'; return; }
-    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement</th><th>Statut</th></tr></thead><tbody>';
-    ascqs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.ArrondissementNom||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement</th><th>Statut</th><th></th></tr></thead><tbody>';
+    ascqs.forEach(u => {
+      const actif = u.Actif === true || u.Actif === 'TRUE';
+      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.ArrondissementNom||''}</td>
+        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
+        <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
+    });
     ascqTable.innerHTML = html + '</tbody></table>';
+    ascqTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
+      const [id, active] = b.dataset.toggle.split('|');
+      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadASCQ(); }
+      catch (err) { toast(err.message, true); }
+    }));
   } catch (e) { ascqTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 

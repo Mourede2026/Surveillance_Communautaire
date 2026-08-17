@@ -184,9 +184,19 @@ async function loadPF() {
     const { users } = await Api.call('listUsers', {});
     const pfs = users.filter(u => u.Role === 'PF_CNLS_TP');
     if (!pfs.length) { pfTable.innerHTML = '<div class="empty-state">Aucun compte PF créé pour le moment.</div>'; return; }
-    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Commune</th><th>Statut</th></tr></thead><tbody>';
-    pfs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CommuneNom||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Commune</th><th>Statut</th><th></th></tr></thead><tbody>';
+    pfs.forEach(u => {
+      const actif = u.Actif === true || u.Actif === 'TRUE';
+      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CommuneNom||''}</td>
+        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
+        <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
+    });
     pfTable.innerHTML = html + '</tbody></table>';
+    pfTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
+      const [id, active] = b.dataset.toggle.split('|');
+      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadPF(); }
+      catch (err) { toast(err.message, true); }
+    }));
   } catch (e) { pfTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 let pfGeoSelection = null;
@@ -325,9 +335,20 @@ async function loadUsers() {
   usersTable.innerHTML = 'Chargement…';
   try {
     const { users } = await Api.call('listUsers', {});
-    let html = '<table><thead><tr><th>Rôle</th><th>Nom</th><th>Téléphone</th><th>Créé par</th><th>Statut</th></tr></thead><tbody>';
-    users.forEach(u => html += `<tr><td>${u.Role}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CreePar}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    let html = '<table><thead><tr><th>Rôle</th><th>Nom</th><th>Téléphone</th><th>Créé par</th><th>Statut</th><th></th></tr></thead><tbody>';
+    users.forEach(u => {
+      const actif = u.Actif === true || u.Actif === 'TRUE';
+      const isSelf = u.ID === user.ID;
+      html += `<tr><td>${u.Role}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CreePar}</td>
+        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
+        <td>${isSelf ? '' : `<button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button>`}</td></tr>`;
+    });
     usersTable.innerHTML = html + '</tbody></table>';
+    usersTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
+      const [id, active] = b.dataset.toggle.split('|');
+      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadUsers(); }
+      catch (err) { toast(err.message, true); }
+    }));
   } catch (e) { usersTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relais Communautaire — Surveillance</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><strong>Surveillance RC</strong><span>Relais Communautaire</span></div>
+    <nav>
+      <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
+      <a href="#" data-tab="alerte">Notifier une alerte</a>
+      <a href="#" data-tab="deces">Notifier un décès</a>
+      <a href="#" data-tab="historique">Historique</a>
+    </nav>
+    <div class="user-box">
+      <div id="userName"></div>
+      <button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <h1>Espace Relais Communautaire</h1>
+      <span class="week-pill" id="weekPill">Semaine —</span>
+    </div>
+    <div class="content">
+
+      <section id="tab-dashboard">
+        <div class="grid grid-4">
+          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes notifiées</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès notifiés</div></div>
+          <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">En attente d'investigation</div></div>
+          <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <h2>Que faire ?</h2>
+          <p>Utilisez <strong>« Notifier une alerte »</strong> pour tout événement de santé inhabituel (maladie, morsure, décès d'animaux, etc.) et <strong>« Notifier un décès »</strong> pour tout décès survenu dans votre village. Votre ASCQ recevra automatiquement la notification pour investigation.</p>
+        </div>
+      </section>
+
+      <section id="tab-alerte" style="display:none">
+        <div class="card">
+          <h2>Formulaire de notification des alertes en communauté</h2>
+          <form id="formAlerte"></form>
+        </div>
+      </section>
+
+      <section id="tab-deces" style="display:none">
+        <div class="card">
+          <h2>Formulaire de notification des décès en communauté</h2>
+          <form id="formDeces"></form>
+        </div>
+      </section>
+
+      <section id="tab-historique" style="display:none">
+        <div class="tabs">
+          <button class="active" data-hist="alertes">Alertes</button>
+          <button data-hist="deces">Décès</button>
+        </div>
+        <div class="card"><div id="histTable">Chargement…</div></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="assets/api.js"></script>
+<script src="assets/forms.js"></script>
+<script>
+const user = Session.requireRole(['RC']);
+document.getElementById('userName').textContent = user.Prenom + ' ' + user.Nom;
+document.getElementById('logoutBtn').onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+
+// Navigation par onglets
+document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
+  a.classList.add('active');
+  ['dashboard','alerte','deces','historique'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
+  if (a.dataset.tab === 'historique') loadHistorique('alertes');
+}));
+
+document.querySelectorAll('[data-hist]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-hist]').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  loadHistorique(b.dataset.hist);
+}));
+
+async function loadDashboard() {
+  try {
+    const { dashboard } = await Api.call('getDashboard', {});
+    statAlertes.textContent = dashboard.totalAlertes;
+    statDeces.textContent = dashboard.totalDeces;
+    statNonInv.textContent = dashboard.alertesNonInvestiguees;
+    statNotif.textContent = dashboard.notificationsNonLues;
+    const cal = await Api.call('listCalendrier', {});
+    const today = new Date();
+    const cur = (cal.calendrier || []).find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+    if (cur) weekPill.textContent = `Semaine ${cur.SemaineEpi} / ${cur.Annee}`;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadHistorique(type) {
+  histTable.innerHTML = 'Chargement…';
+  try {
+    const res = type === 'alertes' ? await Api.call('listAlertes', {}) : await Api.call('listDeces', {});
+    const rows = type === 'alertes' ? res.alertes : res.deces;
+    if (!rows.length) { histTable.innerHTML = '<div class="empty-state">Aucune donnée pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Date</th><th>' + (type === 'alertes' ? 'Type d\'alerte' : 'Nom du défunt') + '</th><th>Statut</th></tr></thead><tbody>';
+    rows.slice().reverse().forEach(r => {
+      html += `<tr><td>${fmtDate(r.DateSaisie)}</td><td>${type === 'alertes' ? (r.AutrePreciser || r.TypeAlerte) : r.Nom}</td>
+        <td><span class="badge ${r.Statut === 'Investigué' ? 'badge-done' : 'badge-new'}">${r.Statut}</span></td></tr>`;
+    });
+    histTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { histTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+buildAlerteForm(document.getElementById('formAlerte'), user);
+buildDecesForm(document.getElementById('formDeces'), user);
+loadDashboard();
+</script>
+</body>
+</html>

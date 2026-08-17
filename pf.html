@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PF CNLS-TP — Surveillance</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><strong>Surveillance</strong><span>Point Focal CNLS-TP</span></div>
+    <nav>
+      <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
+      <a href="#" data-tab="ascq">Mes ASCQ</a>
+      <a href="#" data-tab="suivi">Suivi alertes / décès</a>
+      <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
+    </nav>
+    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><h1>Espace Point Focal CNLS-TP (Commune)</h1><span class="week-pill" id="weekPill">Semaine —</span></div>
+    <div class="content">
+
+      <section id="tab-dashboard">
+        <div class="grid grid-4">
+          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes (commune)</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (commune)</div></div>
+          <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
+          <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+        </div>
+      </section>
+
+      <section id="tab-ascq" style="display:none">
+        <div class="card">
+          <h2>Créer un compte ASCQ</h2>
+          <form id="formCreateASCQ" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Prénom</label><input name="prenom" required></div>
+            <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
+            <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
+            <div class="field"><label>Arrondissement de rattachement</label><input name="arrondissement"></div>
+            <div class="field"><label>Commune</label><input name="commune" value=""></div>
+            <div class="field"><label>Département</label><input name="departement"></div>
+            <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Mes ASCQ</h2><div id="ascqTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-suivi" style="display:none">
+        <div class="card"><h2>Alertes et décès de la commune (via arrondissements assignés)</h2><div id="suiviTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-rapport" style="display:none">
+        <div class="card"><h2>Support 4 — Rapport hebdomadaire (auto-généré au niveau commune)</h2><div id="rapportTable">Chargement…</div></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+const user = Session.requireRole(['PF_CNLS_TP']);
+userName.textContent = user.Prenom + ' ' + user.Nom;
+logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+
+document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
+  a.classList.add('active');
+  ['dashboard','ascq','suivi','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
+  if (a.dataset.tab === 'ascq') loadASCQ();
+  if (a.dataset.tab === 'suivi') loadSuivi();
+  if (a.dataset.tab === 'rapport') loadRapports();
+}));
+
+async function loadDashboard() {
+  try {
+    const { dashboard } = await Api.call('getDashboard', {});
+    statAlertes.textContent = dashboard.totalAlertes;
+    statDeces.textContent = dashboard.totalDeces;
+    statNonInv.textContent = dashboard.alertesNonInvestiguees;
+    statNotif.textContent = dashboard.notificationsNonLues;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadASCQ() {
+  ascqTable.innerHTML = 'Chargement…';
+  try {
+    const { users } = await Api.call('listUsers', {});
+    const ascqs = users.filter(u => u.Role === 'ASCQ');
+    if (!ascqs.length) { ascqTable.innerHTML = '<div class="empty-state">Aucun ASCQ créé pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement</th><th>Statut</th></tr></thead><tbody>';
+    ascqs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.Arrondissement||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    ascqTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { ascqTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+formCreateASCQ.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formCreateASCQ).entries());
+  fd.role = 'ASCQ';
+  try { await Api.call('createUser', fd); toast('Compte ASCQ créé.'); formCreateASCQ.reset(); loadASCQ(); }
+  catch (err) { toast(err.message, true); }
+});
+
+async function loadSuivi() {
+  suiviTable.innerHTML = 'Chargement…';
+  try {
+    const [a, d] = await Promise.all([Api.call('listAlertes', {}), Api.call('listDeces', {})]);
+    const rows = [...a.alertes.map(x => ({...x, t: 'Alerte'})), ...d.deces.map(x => ({...x, t: 'Décès'}))];
+    if (!rows.length) { suiviTable.innerHTML = '<div class="empty-state">Aucune donnée pour le moment. Vérifiez que le RCSE vous a assigné des arrondissements.</div>'; return; }
+    let html = '<table><thead><tr><th>Type</th><th>Date</th><th>Nom / description</th><th>Statut</th></tr></thead><tbody>';
+    rows.slice().reverse().forEach(r => html += `<tr><td>${r.t}</td><td>${fmtDate(r.DateSaisie)}</td><td>${r.Nom || r.TypeAlerte}</td>
+      <td><span class="badge ${r.Statut === 'Investigué' ? 'badge-done' : 'badge-new'}">${r.Statut}</span></td></tr>`);
+    suiviTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { suiviTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+async function loadRapports() {
+  rapportTable.innerHTML = 'Chargement…';
+  try {
+    const { rapports } = await Api.call('listRapports', {});
+    if (!rapports.length) { rapportTable.innerHTML = '<div class="empty-state">Aucun rapport généré pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Semaine</th><th>Alertes</th><th>Pers. touchées</th><th>Décès</th><th>Vérifiées 24-48h</th><th>Avérées</th></tr></thead><tbody>';
+    rapports.slice().reverse().forEach(r => html += `<tr><td>S${r.SemaineEpi}/${r.Annee}</td><td>${r.NbAlertesDetectees}</td>
+      <td>${r.NbPersonnesTouchees}</td><td>${r.NbPersonnesDecedees}</td><td>${r.NbAlertesVerifiees24_48h}</td><td>${r.NbAlertesAverees}</td></tr>`);
+    rapportTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { rapportTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+loadDashboard();
+loadWeekPill();
+</script>
+</body>
+</html>

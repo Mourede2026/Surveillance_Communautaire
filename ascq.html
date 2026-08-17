@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCQ — Surveillance</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><strong>Surveillance</strong><span>Espace ASCQ</span></div>
+    <nav>
+      <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
+      <a href="#" data-tab="investiguer">À investiguer</a>
+      <a href="#" data-tab="relais">Mes relais (RC)</a>
+      <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
+    </nav>
+    <div class="user-box">
+      <div id="userName"></div>
+      <button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><h1>Espace Agent de Santé Communautaire Qualifié</h1><span class="week-pill" id="weekPill">Semaine —</span></div>
+    <div class="content">
+
+      <section id="tab-dashboard">
+        <div class="grid grid-4">
+          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes reçues</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès reçus</div></div>
+          <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">En attente d'investigation</div></div>
+          <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+        </div>
+      </section>
+
+      <section id="tab-investiguer" style="display:none">
+        <div class="card"><h2>Alertes / décès en attente d'investigation</h2><div id="pendingTable">Chargement…</div></div>
+        <div class="card" id="invFormCard" style="display:none">
+          <h2>Fiche d'investigation (ASCQ)</h2>
+          <form id="formInvestigation"></form>
+        </div>
+      </section>
+
+      <section id="tab-relais" style="display:none">
+        <div class="card">
+          <h2>Créer un compte Relais Communautaire</h2>
+          <form id="formCreateRC" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Prénom</label><input name="prenom" required></div>
+            <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
+            <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
+            <div class="field"><label>Village</label><input name="village" placeholder="Nom du village couvert" required></div>
+            <div class="field"><label>Arrondissement</label><input name="arrondissement"></div>
+            <div class="field"><label>Commune</label><input name="commune"></div>
+            <div class="field"><label>Département</label><input name="departement"></div>
+            <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Mes relais communautaires</h2><div id="rcTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-rapport" style="display:none">
+        <div class="card">
+          <button id="genRapportBtn" class="btn-secondary">Générer / actualiser le rapport de la semaine en cours</button>
+        </div>
+        <div class="card"><h2>Support 4 — Rapport hebdomadaire (auto-généré)</h2><div id="rapportTable">Chargement…</div></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+const user = Session.requireRole(['ASCQ']);
+userName.textContent = user.Prenom + ' ' + user.Nom;
+logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+
+document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
+  a.classList.add('active');
+  ['dashboard','investiguer','relais','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
+  if (a.dataset.tab === 'investiguer') loadPending();
+  if (a.dataset.tab === 'relais') loadRC();
+  if (a.dataset.tab === 'rapport') loadRapports();
+}));
+
+async function loadDashboard() {
+  try {
+    const { dashboard } = await Api.call('getDashboard', {});
+    statAlertes.textContent = dashboard.totalAlertes;
+    statDeces.textContent = dashboard.totalDeces;
+    statNonInv.textContent = dashboard.alertesNonInvestiguees;
+    statNotif.textContent = dashboard.notificationsNonLues;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadPending() {
+  pendingTable.innerHTML = 'Chargement…';
+  try {
+    const [a, d] = await Promise.all([Api.call('listAlertes', {}), Api.call('listDeces', {})]);
+    const rows = [...a.alertes.map(x => ({...x, refType: 'ALERTE'})), ...d.deces.map(x => ({...x, refType: 'DECES'}))]
+      .filter(x => x.Statut !== 'Investigué');
+    if (!rows.length) { pendingTable.innerHTML = '<div class="empty-state">Aucun dossier en attente. 👍</div>'; return; }
+    let html = '<table><thead><tr><th>Type</th><th>Date</th><th>Nom / description</th><th></th></tr></thead><tbody>';
+    rows.forEach(r => {
+      html += `<tr><td>${r.refType === 'ALERTE' ? 'Alerte' : 'Décès'}</td><td>${fmtDate(r.DateSaisie)}</td>
+        <td>${r.Nom || r.TypeAlerte}</td>
+        <td><button data-inv="${r.refType}|${r.ID}">Investiguer</button></td></tr>`;
+    });
+    pendingTable.innerHTML = html + '</tbody></table>';
+    pendingTable.querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => openInvestigation(b.dataset.inv)));
+  } catch (e) { pendingTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+function openInvestigation(key) {
+  const [refType, refId] = key.split('|');
+  invFormCard.style.display = 'block';
+  invFormCard.scrollIntoView({ behavior: 'smooth' });
+  const CAT = ['0-11 mois masculin','0-11 mois féminin','1 à 5 ans masculin','1 à 5 ans féminin',
+    '6 à 15 ans masculin','6 à 15 ans féminin','>15 ans masculin','>15 ans féminin'];
+  formInvestigation.innerHTML = `
+    <input type="hidden" name="refType" value="${refType}"><input type="hidden" name="refId" value="${refId}">
+    <div class="grid grid-2">
+      <div class="field"><label>Nom et prénom du relais</label><input name="relais"></div>
+      <div class="field"><label>Téléphone du relais</label><input name="telRelais"></div>
+    </div>
+    <div class="field"><label>Événement avéré ?</label><select name="evenementAvere"><option value="Oui">Oui</option><option value="Non">Non</option></select></div>
+    <div class="field"><label>Source d'information sur l'événement</label><input name="source"></div>
+    <div class="field"><label>Maladie / événement concerné</label><input name="maladie" required></div>
+    <div class="field"><label>Décrire l'événement (signes, symptômes, date de début, personnes touchées)</label><textarea name="description"></textarea></div>
+    <div class="field"><label>Circonstances de survenue</label><textarea name="circonstances"></textarea></div>
+    <div class="grid grid-2">
+      <div class="field"><label>Date de survenue</label><input name="dateSurvenue" type="date"></div>
+      <div class="field"><label>Date d'investigation</label><input name="dateInvestigation" type="date" value="${todayISO_()}"></div>
+    </div>
+    <fieldset><legend>Nombre total de cas par catégorie</legend>
+      <div class="grid grid-4">${CAT.map(c => `<div class="field"><label>${c}</label><input type="number" min="0" value="0" data-cas="${c}"></div>`).join('')}</div>
+    </fieldset>
+    <fieldset><legend>Nombre total de décès par catégorie</legend>
+      <div class="grid grid-4">${CAT.map(c => `<div class="field"><label>${c}</label><input type="number" min="0" value="0" data-deces="${c}"></div>`).join('')}</div>
+    </fieldset>
+    <div class="field"><label>Synthèse des actions menées</label><textarea name="actions"></textarea></div>
+    <button type="submit">Envoyer la fiche d'investigation</button>
+  `;
+  formInvestigation.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(formInvestigation);
+    const casParCategorie = {}, decesParCategorie = {};
+    formInvestigation.querySelectorAll('[data-cas]').forEach(i => casParCategorie[i.dataset.cas] = Number(i.value) || 0);
+    formInvestigation.querySelectorAll('[data-deces]').forEach(i => decesParCategorie[i.dataset.deces] = Number(i.value) || 0);
+    const payload = Object.fromEntries(fd.entries());
+    payload.casParCategorie = casParCategorie;
+    payload.decesParCategorie = decesParCategorie;
+    try {
+      await Api.call('submitInvestigation', payload);
+      toast('Fiche d\'investigation envoyée.');
+      invFormCard.style.display = 'none';
+      loadPending(); loadDashboard();
+    } catch (err) { toast(err.message, true); }
+  };
+}
+function todayISO_() { return new Date().toISOString().slice(0,10); }
+
+async function loadRC() {
+  rcTable.innerHTML = 'Chargement…';
+  try {
+    const { users } = await Api.call('listUsers', {});
+    const rcs = users.filter(u => u.Role === 'RC');
+    if (!rcs.length) { rcTable.innerHTML = '<div class="empty-state">Aucun relais créé pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Village</th><th>Statut</th></tr></thead><tbody>';
+    rcs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.Village||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    rcTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { rcTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+formCreateRC.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formCreateRC).entries());
+  fd.role = 'RC';
+  try {
+    await Api.call('createUser', fd);
+    toast('Compte relais créé.');
+    formCreateRC.reset();
+    loadRC();
+  } catch (err) { toast(err.message, true); }
+});
+
+genRapportBtn.addEventListener('click', async () => {
+  try { await Api.call('genererRapportHebdo', {}); toast('Rapport généré.'); loadRapports(); }
+  catch (e) { toast(e.message, true); }
+});
+
+async function loadRapports() {
+  rapportTable.innerHTML = 'Chargement…';
+  try {
+    const { rapports } = await Api.call('listRapports', {});
+    if (!rapports.length) { rapportTable.innerHTML = '<div class="empty-state">Aucun rapport généré pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Semaine</th><th>Alertes</th><th>Pers. touchées</th><th>Décès</th><th>Vérifiées 24-48h</th><th>Avérées</th></tr></thead><tbody>';
+    rapports.slice().reverse().forEach(r => html += `<tr><td>S${r.SemaineEpi}/${r.Annee}</td><td>${r.NbAlertesDetectees}</td>
+      <td>${r.NbPersonnesTouchees}</td><td>${r.NbPersonnesDecedees}</td><td>${r.NbAlertesVerifiees24_48h}</td><td>${r.NbAlertesAverees}</td></tr>`);
+    rapportTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { rapportTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+loadDashboard();
+loadWeekPill();
+</script>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCSE — Administration</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><strong>Surveillance</strong><span>RCSE — Administrateur principal</span></div>
+    <nav>
+      <a href="#" data-tab="dashboard" class="active">Tableau de bord national</a>
+      <a href="#" data-tab="pf">Comptes PF CNLS-TP</a>
+      <a href="#" data-tab="geo">Géographie</a>
+      <a href="#" data-tab="assign">Assignations</a>
+      <a href="#" data-tab="calendrier">Calendrier épidémiologique</a>
+      <a href="#" data-tab="utilisateurs">Tous les utilisateurs</a>
+      <a href="#" data-tab="rapport">Rapport hebdomadaire national</a>
+    </nav>
+    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><h1>Administration nationale — RCSE</h1><span class="week-pill" id="weekPill">Semaine —</span></div>
+    <div class="content">
+
+      <section id="tab-dashboard">
+        <div class="grid grid-4">
+          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes (national)</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (national)</div></div>
+          <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
+          <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+        </div>
+      </section>
+
+      <section id="tab-pf" style="display:none">
+        <div class="card">
+          <h2>Créer un compte Point Focal CNLS-TP</h2>
+          <form id="formCreatePF" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Prénom</label><input name="prenom" required></div>
+            <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
+            <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
+            <div class="field"><label>Commune</label><input name="commune" required></div>
+            <div class="field"><label>Département</label><input name="departement"></div>
+            <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Points focaux CNLS-TP</h2><div id="pfTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-geo" style="display:none">
+        <div class="grid grid-2">
+          <div class="card">
+            <h2>Ajouter une commune</h2>
+            <form id="formCommune"><div class="field"><label>Nom</label><input name="nom" required></div>
+              <div class="field"><label>Département</label><input name="departement" required></div>
+              <button type="submit">Ajouter</button></form>
+          </div>
+          <div class="card">
+            <h2>Ajouter un arrondissement</h2>
+            <form id="formArr"><div class="field"><label>Nom</label><input name="nom" required></div>
+              <div class="field"><label>Commune</label><select name="communeId" id="selCommuneArr" required></select></div>
+              <button type="submit">Ajouter</button></form>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Ajouter un village</h2>
+          <form id="formVillage" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Arrondissement</label><select name="arrondissementId" id="selArrVillage" required></select></div>
+            <div style="grid-column:1/-1"><button type="submit">Ajouter</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Structure administrative enregistrée</h2><div id="geoTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-assign" style="display:none">
+        <div class="grid grid-2">
+          <div class="card">
+            <h2>Assigner des villages à un ASCQ</h2>
+            <form id="formAssignAscq">
+              <div class="field"><label>ASCQ</label><select name="userId" id="selAscq" required></select></div>
+              <div class="field"><label>Village</label><select name="cibleId" id="selVillageAssign" required></select></div>
+              <button type="submit">Assigner</button>
+            </form>
+          </div>
+          <div class="card">
+            <h2>Assigner des arrondissements à un PF CNLS-TP</h2>
+            <form id="formAssignPf">
+              <div class="field"><label>PF CNLS-TP</label><select name="userId" id="selPf" required></select></div>
+              <div class="field"><label>Arrondissement</label><select name="cibleId" id="selArrAssign" required></select></div>
+              <button type="submit">Assigner</button>
+            </form>
+          </div>
+        </div>
+        <div class="card"><h2>Assignations actuelles</h2><div id="assignTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-calendrier" style="display:none">
+        <div class="card">
+          <h2>Importer le calendrier épidémiologique de l'année</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Génère automatiquement 52 semaines de lundi à dimanche à partir d'une date de départ.</p>
+          <form id="formCalendrier" class="grid grid-2">
+            <div class="field"><label>Année</label><input name="annee" type="number" id="anneeCalInput" required></div>
+            <div class="field"><label>Date du lundi de la semaine 1</label><input name="debut" type="date" required></div>
+            <div style="grid-column:1/-1"><button type="submit">Importer 52 semaines</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Calendrier importé</h2><div id="calTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-utilisateurs" style="display:none">
+        <div class="card"><h2>Tous les comptes de la plateforme</h2><div id="usersTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-rapport" style="display:none">
+        <div class="card"><button id="genRapportBtn" class="btn-secondary">Générer / actualiser le rapport de la semaine en cours</button></div>
+        <div class="card"><h2>Support 4 — Rapport hebdomadaire national</h2><div id="rapportTable">Chargement…</div></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+const user = Session.requireRole(['RCSE']);
+userName.textContent = user.Prenom + ' ' + user.Nom;
+logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+
+document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
+  a.classList.add('active');
+  ['dashboard','pf','geo','assign','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
+  const loaders = { pf: loadPF, geo: loadGeo, assign: loadAssignData, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: loadRapports };
+  if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
+}));
+
+async function loadDashboard() {
+  try {
+    const { dashboard } = await Api.call('getDashboard', {});
+    statAlertes.textContent = dashboard.totalAlertes;
+    statDeces.textContent = dashboard.totalDeces;
+    statNonInv.textContent = dashboard.alertesNonInvestiguees;
+    statNotif.textContent = dashboard.notificationsNonLues;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadPF() {
+  pfTable.innerHTML = 'Chargement…';
+  try {
+    const { users } = await Api.call('listUsers', {});
+    const pfs = users.filter(u => u.Role === 'PF_CNLS_TP');
+    if (!pfs.length) { pfTable.innerHTML = '<div class="empty-state">Aucun compte PF créé pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Commune</th><th>Statut</th></tr></thead><tbody>';
+    pfs.forEach(u => html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.Commune||''}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    pfTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { pfTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+formCreatePF.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formCreatePF).entries());
+  fd.role = 'PF_CNLS_TP';
+  try { await Api.call('createUser', fd); toast('Compte PF créé.'); formCreatePF.reset(); loadPF(); }
+  catch (err) { toast(err.message, true); }
+});
+
+let GEO_CACHE = { communes: [], arrondissements: [], villages: [] };
+async function loadGeo() {
+  geoTable.innerHTML = 'Chargement…';
+  try {
+    const { geo } = await Api.call('listGeo', {});
+    GEO_CACHE = geo;
+    selCommuneArr.innerHTML = geo.communes.map(c => `<option value="${c.ID}">${c.Nom}</option>`).join('');
+    selArrVillage.innerHTML = geo.arrondissements.map(a => `<option value="${a.ID}">${a.Nom}</option>`).join('');
+    let html = '<table><thead><tr><th>Commune</th><th>Arrondissement</th><th>Village</th></tr></thead><tbody>';
+    geo.villages.forEach(v => {
+      const arr = geo.arrondissements.find(a => a.ID === v.ArrondissementId);
+      const com = arr ? geo.communes.find(c => c.ID === arr.CommuneId) : null;
+      html += `<tr><td>${com ? com.Nom : ''}</td><td>${arr ? arr.Nom : ''}</td><td>${v.Nom}</td></tr>`;
+    });
+    geoTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { geoTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+formCommune.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formCommune).entries());
+  try { await Api.call('createCommune', fd); toast('Commune ajoutée.'); formCommune.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
+formArr.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formArr).entries());
+  try { await Api.call('createArrondissement', fd); toast('Arrondissement ajouté.'); formArr.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
+formVillage.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formVillage).entries());
+  try { await Api.call('createVillage', fd); toast('Village ajouté.'); formVillage.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
+
+async function loadAssignData() {
+  assignTable.innerHTML = 'Chargement…';
+  try {
+    const [{ users }, { geo }, { perimetres }] = await Promise.all([Api.call('listUsers', {}), Api.call('listGeo', {}), Api.call('listPerimetres', {})]);
+    selAscq.innerHTML = users.filter(u => u.Role === 'ASCQ').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
+    selPf.innerHTML = users.filter(u => u.Role === 'PF_CNLS_TP').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
+    selVillageAssign.innerHTML = geo.villages.map(v => `<option value="${v.ID}">${v.Nom}</option>`).join('');
+    selArrAssign.innerHTML = geo.arrondissements.map(a => `<option value="${a.ID}">${a.Nom}</option>`).join('');
+    let html = '<table><thead><tr><th>Type</th><th>Cible</th><th>Assigné à</th><th>Date</th></tr></thead><tbody>';
+    perimetres.forEach(p => {
+      const u = users.find(x => x.ID === p.UserId);
+      const cible = p.TypeCible === 'Village' ? geo.villages.find(v => v.ID === p.CibleId) : geo.arrondissements.find(a => a.ID === p.CibleId);
+      html += `<tr><td>${p.TypeCible}</td><td>${cible ? cible.Nom : p.CibleId}</td><td>${u ? u.Prenom+' '+u.Nom : p.UserId}</td><td>${fmtDate(p.Date)}</td></tr>`;
+    });
+    assignTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { assignTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+formAssignAscq.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formAssignAscq).entries());
+  fd.typeCible = 'Village';
+  try { await Api.call('assignPerimetre', fd); toast('Village assigné.'); loadAssignData(); } catch (err) { toast(err.message, true); } });
+formAssignPf.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formAssignPf).entries());
+  fd.typeCible = 'Arrondissement';
+  try { await Api.call('assignPerimetre', fd); toast('Arrondissement assigné.'); loadAssignData(); } catch (err) { toast(err.message, true); } });
+
+async function loadCalendrier() {
+  calTable.innerHTML = 'Chargement…';
+  try {
+    const { calendrier } = await Api.call('listCalendrier', {});
+    if (!calendrier.length) { calTable.innerHTML = '<div class="empty-state">Aucun calendrier importé.</div>'; return; }
+    let html = '<table><thead><tr><th>Année</th><th>Semaine</th><th>Début</th><th>Fin</th></tr></thead><tbody>';
+    calendrier.forEach(c => html += `<tr><td>${c.Annee}</td><td>${c.SemaineEpi}</td><td>${fmtDate(c.DateDebut)}</td><td>${fmtDate(c.DateFin)}</td></tr>`);
+    calTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { calTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+formCalendrier.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formCalendrier).entries());
+  const start = new Date(fd.debut);
+  const rows = [];
+  for (let s = 1; s <= 52; s++) {
+    const debut = new Date(start); debut.setDate(start.getDate() + (s - 1) * 7);
+    const fin = new Date(debut); fin.setDate(debut.getDate() + 6);
+    rows.push({ annee: fd.annee, semaine: s, dateDebut: debut.toISOString().slice(0,10), dateFin: fin.toISOString().slice(0,10) });
+  }
+  try { await Api.call('importCalendrier', { rows }); toast('Calendrier importé (52 semaines).'); formCalendrier.reset(); loadCalendrier(); }
+  catch (err) { toast(err.message, true); }
+});
+
+async function loadUsers() {
+  usersTable.innerHTML = 'Chargement…';
+  try {
+    const { users } = await Api.call('listUsers', {});
+    let html = '<table><thead><tr><th>Rôle</th><th>Nom</th><th>Téléphone</th><th>Créé par</th><th>Statut</th></tr></thead><tbody>';
+    users.forEach(u => html += `<tr><td>${u.Role}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CreePar}</td><td>${u.Actif ? 'Actif' : 'Désactivé'}</td></tr>`);
+    usersTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { usersTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+genRapportBtn.addEventListener('click', async () => {
+  try { await Api.call('genererRapportHebdo', {}); toast('Rapport généré.'); loadRapports(); } catch (e) { toast(e.message, true); }
+});
+async function loadRapports() {
+  rapportTable.innerHTML = 'Chargement…';
+  try {
+    const { rapports } = await Api.call('listRapports', {});
+    const nat = rapports.filter(r => r.Niveau === 'RCSE');
+    if (!nat.length) { rapportTable.innerHTML = '<div class="empty-state">Aucun rapport généré pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Semaine</th><th>Alertes</th><th>Pers. touchées</th><th>Décès</th><th>Vérifiées 24-48h</th><th>Avérées</th></tr></thead><tbody>';
+    nat.slice().reverse().forEach(r => html += `<tr><td>S${r.SemaineEpi}/${r.Annee}</td><td>${r.NbAlertesDetectees}</td>
+      <td>${r.NbPersonnesTouchees}</td><td>${r.NbPersonnesDecedees}</td><td>${r.NbAlertesVerifiees24_48h}</td><td>${r.NbAlertesAverees}</td></tr>`);
+    rapportTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { rapportTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+document.getElementById('anneeCalInput').value = new Date().getFullYear();
+loadDashboard();
+loadWeekPill();
+</script>
+</body>
+</html>

@@ -12,7 +12,7 @@
     <div class="brand"><strong>Surveillance</strong><span>RCSE — Administrateur principal</span></div>
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord national</a>
-      <a href="#" data-tab="pf">Comptes PF CNLS-TP</a>
+      <a href="#" data-tab="pf">Comptes PF CCLS-TP</a>
       <a href="#" data-tab="geo">Géographie</a>
       <a href="#" data-tab="assign">Assignations</a>
       <a href="#" data-tab="calendrier">Calendrier épidémiologique</a>
@@ -36,7 +36,7 @@
 
       <section id="tab-pf" style="display:none">
         <div class="card">
-          <h2>Créer un compte Point Focal CNLS-TP</h2>
+          <h2>Créer un compte Point Focal CCLS-TP</h2>
           <form id="formCreatePF" class="grid grid-2">
             <div class="field"><label>Nom</label><input name="nom" required></div>
             <div class="field"><label>Prénom</label><input name="prenom" required></div>
@@ -47,7 +47,7 @@
             <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
           </form>
         </div>
-        <div class="card"><h2>Points focaux CNLS-TP</h2><div id="pfTable">Chargement…</div></div>
+        <div class="card"><h2>Points focaux CCLS-TP</h2><div id="pfTable">Chargement…</div></div>
       </section>
 
       <section id="tab-geo" style="display:none">
@@ -103,9 +103,9 @@
             </form>
           </div>
           <div class="card">
-            <h2>Assigner des arrondissements à un PF CNLS-TP</h2>
+            <h2>Assigner des arrondissements à un PF CCLS-TP</h2>
             <form id="formAssignPf">
-              <div class="field"><label>PF CNLS-TP</label><select name="userId" id="selPf" required></select></div>
+              <div class="field"><label>PF CCLS-TP</label><select name="userId" id="selPf" required></select></div>
               <div class="field"><label>Département</label><select id="apDep"></select></div>
               <div class="field"><label>Commune</label><select id="apCom"></select></div>
               <div class="field"><label>Arrondissement</label><select id="apArr" required></select></div>

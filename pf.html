@@ -62,6 +62,7 @@
 
 <script src="assets/geo-benin-data.js"></script>
 <script src="assets/geo-utils.js"></script>
+<script src="assets/rapport.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['PF_CNLS_TP']);
@@ -76,7 +77,7 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'ascq') loadASCQ();
   if (a.dataset.tab === 'suivi') loadSuivi();
-  if (a.dataset.tab === 'rapport') loadRapports();
+  if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
 }));
 
 async function loadDashboard() {
@@ -139,17 +140,7 @@ async function loadSuivi() {
   } catch (e) { suiviTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
-async function loadRapports() {
-  rapportTable.innerHTML = 'Chargement…';
-  try {
-    const { rapports } = await Api.call('listRapports', {});
-    if (!rapports.length) { rapportTable.innerHTML = '<div class="empty-state">Aucun rapport généré pour le moment.</div>'; return; }
-    let html = '<table><thead><tr><th>Semaine</th><th>Alertes</th><th>Pers. touchées</th><th>Décès</th><th>Vérifiées 24-48h</th><th>Avérées</th></tr></thead><tbody>';
-    rapports.slice().reverse().forEach(r => html += `<tr><td>S${r.SemaineEpi}/${r.Annee}</td><td>${r.NbAlertesDetectees}</td>
-      <td>${r.NbPersonnesTouchees}</td><td>${r.NbPersonnesDecedees}</td><td>${r.NbAlertesVerifiees24_48h}</td><td>${r.NbAlertesAverees}</td></tr>`);
-    rapportTable.innerHTML = html + '</tbody></table>';
-  } catch (e) { rapportTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
-}
+async function loadRapports() { /* remplacé par renderRapportModule (assets/rapport.js) */ }
 
 loadDashboard();
 loadWeekPill();

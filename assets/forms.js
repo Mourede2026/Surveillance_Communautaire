@@ -40,10 +40,10 @@ function geoHeader_(user) {
   <fieldset>
     <legend>Localisation (pré-remplie depuis votre compte)</legend>
     <div class="grid grid-2">
-      <div class="field"><label>Département</label><input value="${user.Departement||''}" disabled></div>
-      <div class="field"><label>Commune</label><input value="${user.Commune||''}" disabled></div>
-      <div class="field"><label>Arrondissement</label><input value="${user.Arrondissement||''}" disabled></div>
-      <div class="field"><label>Village</label><input value="${user.Village||''}" disabled></div>
+      <div class="field"><label>Département</label><input value="${user.DepartementNom||''}" disabled></div>
+      <div class="field"><label>Commune</label><input value="${user.CommuneNom||''}" disabled></div>
+      <div class="field"><label>Arrondissement</label><input value="${user.ArrondissementNom||''}" disabled></div>
+      <div class="field"><label>Village</label><input value="${user.VillageNom||''}" disabled></div>
     </div>
   </fieldset>`;
 }
@@ -113,8 +113,8 @@ function buildAlerteForm(form, user) {
     const signes = fd.getAll('signes');
     const payload = {
       annee: fd.get('annee'), semaineEpi: fd.get('semaineEpi'), mois: new Date().getMonth() + 1,
-      departement: user.Departement, zoneSanitaire: '', communeId: user.Commune, arrondissementId: user.Arrondissement,
-      villageId: user.Village, adresse: fd.get('adresse'), nom: fd.get('nom'), sexe: fd.get('sexe'),
+      departement: user.DepartementNom, zoneSanitaire: '', communeId: user.CommuneId, arrondissementId: user.ArrondissementId,
+      villageId: user.VillageId, adresse: fd.get('adresse'), nom: fd.get('nom'), sexe: fd.get('sexe'),
       telephone: fd.get('telephone'), dateNaissance: fd.get('dateNaissance'), age: fd.get('age'),
       typeAlerte: fd.get('typeAlerte'), autrePreciser: fd.get('autrePreciser'),
       dateDebutMaladie: fd.get('dateDebutMaladie'), dateNotification: fd.get('dateNotification'),
@@ -181,8 +181,8 @@ function buildDecesForm(form, user) {
     const fd = new FormData(form);
     const payload = {
       annee: fd.get('annee'), semaineEpi: fd.get('semaineEpi'), mois: new Date().getMonth() + 1,
-      departement: user.Departement, zoneSanitaire: '', communeId: user.Commune, arrondissementId: user.Arrondissement,
-      villageId: user.Village, nom: fd.get('nom'), nomParent: fd.get('nomParent'), telephoneParent: fd.get('telephoneParent'),
+      departement: user.DepartementNom, zoneSanitaire: '', communeId: user.CommuneId, arrondissementId: user.ArrondissementId,
+      villageId: user.VillageId, nom: fd.get('nom'), nomParent: fd.get('nomParent'), telephoneParent: fd.get('telephoneParent'),
       sexe: fd.get('sexe'), dateNaissance: fd.get('dateNaissance'), ageAnnees: fd.get('ageAnnees'), ageMois: fd.get('ageMois'),
       typeDeces: fd.get('typeDeces'), dateDeces: fd.get('dateDeces'), dateNotification: fd.get('dateNotification'),
       lieuDeces: fd.get('lieuDeces'), circonstances: fd.get('circonstances'), titre: 'Relais Communautaire'

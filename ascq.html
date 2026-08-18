@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ASCQ — Surveillance</title>
 <link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/briefing.css">
 </head>
 <body>
 <div class="app-shell">
@@ -15,6 +16,7 @@
       <a href="#" data-tab="investiguer">À investiguer</a>
       <a href="#" data-tab="relais">Mes relais (RC)</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
+      <a href="#" data-tab="briefing">📋 Briefing maladies</a>
     </nav>
     <div class="user-box">
       <div id="userName"></div>
@@ -66,6 +68,10 @@
         <div class="card"><h2>Support 4 — Rapport hebdomadaire (auto-généré)</h2><div id="rapportTable">Chargement…</div></div>
       </section>
 
+      <section id="tab-briefing" style="display:none">
+        <div id="briefingContainer">Chargement…</div>
+      </section>
+
     </div>
   </main>
 </div>
@@ -73,21 +79,26 @@
 <script src="assets/geo-benin-data.js"></script>
 <script src="assets/geo-utils.js"></script>
 <script src="assets/rapport.js"></script>
+<script src="assets/briefing-data.js"></script>
+<script src="assets/briefing.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
 userName.textContent = user.Prenom + ' ' + user.Nom;
 logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
 
+let briefingLoaded = false;
+
 document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','investiguer','relais','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','investiguer','relais','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'investiguer') loadPending();
   if (a.dataset.tab === 'relais') loadRC();
   if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
+  if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
 }));
 
 async function loadDashboard() {

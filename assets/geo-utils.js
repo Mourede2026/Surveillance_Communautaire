@@ -71,3 +71,67 @@ function wireCascadingGeo(depSel, comSel, arrSel, vilSel, onChange) {
   });
   if (vilSel) vilSel.addEventListener('change', emit);
 }
+
+/**
+ * Variante de wireCascadingGeo qui cascade sur les données RÉELLEMENT enregistrées dans le
+ * Google Sheet (celles renvoyées par l'action listGeo), plutôt que sur la seule liste nationale
+ * statique GEO_BENIN. Utile pour les formulaires qui doivent aussi proposer les communes /
+ * arrondissements / villages ajoutés manuellement ("hors liste nationale"), qui n'existent pas
+ * dans GEO_BENIN. Le département reste choisi dans la liste nationale (toujours les 12 mêmes,
+ * aucun département personnalisé n'existe dans l'application).
+ *
+ * liveGeo : { communes, arrondissements, villages } tel que renvoyé par Api.call('listGeo', {}).
+ * onChange(sel) est appelé à chaque changement avec
+ * { depId, depNom, comId, comNom, arrId, arrNom, vilId, vilNom } — comId/arrId/vilId sont les
+ * identifiants réels du Sheet (nécessaires pour les appels API), depId est déterministe.
+ */
+function wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, liveGeo, onChange) {
+  function fillNational(select, items, placeholder) {
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>` + items.map(d => `<option value="DEP-${slugGeo(d.nom)}">${d.nom}</option>`).join('');
+  }
+  function fillLive(select, items, placeholder) {
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>` + items.map(it => `<option value="${it.ID}">${it.Nom}</option>`).join('');
+  }
+
+  fillNational(depSel, GEO_BENIN, 'Sélectionner un département');
+  if (comSel) fillLive(comSel, [], 'Sélectionner une commune');
+  if (arrSel) fillLive(arrSel, [], 'Sélectionner un arrondissement');
+  if (vilSel) fillLive(vilSel, [], 'Sélectionner un village');
+
+  function selectedLabel(select) {
+    if (!select || !select.value) return '';
+    const opt = select.options[select.selectedIndex];
+    return opt ? opt.textContent : '';
+  }
+
+  function emit() {
+    if (onChange) onChange({
+      depId: depSel ? depSel.value : '', depNom: selectedLabel(depSel),
+      comId: comSel ? comSel.value : '', comNom: selectedLabel(comSel),
+      arrId: arrSel ? arrSel.value : '', arrNom: selectedLabel(arrSel),
+      vilId: vilSel ? vilSel.value : '', vilNom: selectedLabel(vilSel)
+    });
+  }
+
+  if (depSel) depSel.addEventListener('change', () => {
+    const coms = (liveGeo.communes || []).filter(c => c.DepartementId === depSel.value);
+    if (comSel) fillLive(comSel, coms, 'Sélectionner une commune');
+    if (arrSel) fillLive(arrSel, [], 'Sélectionner un arrondissement');
+    if (vilSel) fillLive(vilSel, [], 'Sélectionner un village');
+    emit();
+  });
+  if (comSel) comSel.addEventListener('change', () => {
+    const arrs = (liveGeo.arrondissements || []).filter(a => a.CommuneId === comSel.value);
+    if (arrSel) fillLive(arrSel, arrs, 'Sélectionner un arrondissement');
+    if (vilSel) fillLive(vilSel, [], 'Sélectionner un village');
+    emit();
+  });
+  if (arrSel) arrSel.addEventListener('change', () => {
+    const vils = (liveGeo.villages || []).filter(v => v.ArrondissementId === arrSel.value);
+    if (vilSel) fillLive(vilSel, vils, 'Sélectionner un village');
+    emit();
+  });
+  if (vilSel) vilSel.addEventListener('change', emit);
+}

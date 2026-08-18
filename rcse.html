@@ -3,32 +3,31 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RCSE — Administration</title>
+<title>RCSE — Coordination départementale</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand"><strong>Surveillance</strong><span>RCSE — Administrateur principal</span></div>
+    <div class="brand"><strong>Surveillance</strong><span>RCSE — Coordination départementale</span></div>
     <nav>
-      <a href="#" data-tab="dashboard" class="active">Tableau de bord national</a>
+      <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="pf">Comptes PF CCLS-TP</a>
-      <a href="#" data-tab="geo">Géographie</a>
+      <a href="#" data-tab="geo">Géographie (mon périmètre)</a>
       <a href="#" data-tab="assign">Assignations</a>
-      <a href="#" data-tab="calendrier">Calendrier épidémiologique</a>
-      <a href="#" data-tab="utilisateurs">Tous les utilisateurs</a>
-      <a href="#" data-tab="rapport">Rapport hebdomadaire national</a>
+      <a href="#" data-tab="utilisateurs">Mes utilisateurs</a>
+      <a href="#" data-tab="rapport">Rapport hebdomadaire départemental</a>
     </nav>
     <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
   </aside>
   <main class="main">
-    <div class="topbar"><h1>Administration nationale — RCSE</h1><span class="week-pill" id="weekPill">Semaine —</span></div>
+    <div class="topbar"><h1>Coordination — <span id="mesDepsLabel">…</span></h1><span class="week-pill" id="weekPill">Semaine —</span></div>
     <div class="content">
 
       <section id="tab-dashboard">
         <div class="grid grid-4">
-          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes (national)</div></div>
-          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (national)</div></div>
+          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes (mon périmètre)</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (mon périmètre)</div></div>
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
@@ -37,6 +36,7 @@
       <section id="tab-pf" style="display:none">
         <div class="card">
           <h2>Créer un compte Point Focal CCLS-TP</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Un PF CCLS-TP est rattaché à une seule commune.</p>
           <form id="formCreatePF" class="grid grid-2">
             <div class="field"><label>Nom</label><input name="nom" required></div>
             <div class="field"><label>Prénom</label><input name="prenom" required></div>
@@ -55,16 +55,11 @@
       </section>
 
       <section id="tab-geo" style="display:none">
-        <div class="card">
-          <h2>Importer la structure administrative nationale</h2>
-          <p style="font-size:.85rem;color:var(--ink-soft)">
-            Charge en une seule fois les 12 départements, 77 communes, 546 arrondissements et
-            3 769 villages du Bénin (issus du fichier officiel). Les éléments déjà présents ne
-            sont jamais dupliqués — vous pouvez relancer l'import sans risque.
-          </p>
-          <button id="importGeoBtn" class="btn-secondary">Importer la structure nationale</button>
-          <span id="importGeoStatus" style="margin-left:10px;font-size:.85rem;color:var(--ink-soft)"></span>
-        </div>
+        <p style="font-size:.85rem;color:var(--ink-soft)">
+          La structure administrative nationale (départements/communes/arrondissements/villages) est
+          importée par le compte national. Vous pouvez ici ajouter des communes, arrondissements ou
+          villages "hors liste nationale" à l'intérieur de votre/vos département(s) uniquement.
+        </p>
         <div class="grid grid-2">
           <div class="card">
             <h2>Ajouter une commune (hors liste nationale)</h2>
@@ -91,8 +86,8 @@
             <div style="grid-column:1/-1"><button type="submit">Ajouter</button></div>
           </form>
         </div>
-        <div class="card"><h2>Structure administrative enregistrée</h2>
-          <p style="font-size:.85rem;color:var(--ink-soft)">Le tableau ci-dessous est limité aux 200 premières lignes pour rester lisible ; la liste complète est dans le Google Sheet (feuilles Communes / Arrondissements / Villages).</p>
+        <div class="card"><h2>Structure administrative de mon périmètre</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Limité aux 200 premières lignes ; la liste complète est dans le Google Sheet.</p>
           <div id="geoTable">Chargement…</div>
         </div>
       </section>
@@ -104,8 +99,8 @@
             PF CCLS-TP à la création du compte) — aucune assignation de villages n'est nécessaire.
             Plusieurs ASCQ peuvent être rattachés au même arrondissement : ils partagent alors le
             même périmètre de données et le même rapport hebdomadaire. Il reste donc uniquement à
-            assigner des <strong>arrondissements</strong> aux comptes <strong>PF CCLS-TP</strong>
-            ci-dessous.
+            assigner des <strong>arrondissements</strong> (dans votre/vos département(s)) aux
+            comptes <strong>PF CCLS-TP</strong> ci-dessous.
           </p>
         </div>
         <div class="card">
@@ -121,34 +116,13 @@
         <div class="card"><h2>Assignations actuelles</h2><div id="assignTable">Chargement…</div></div>
       </section>
 
-      <section id="tab-calendrier" style="display:none">
-        <div class="card">
-          <h2>Importer le calendrier épidémiologique de l'année</h2>
-          <p style="font-size:.85rem;color:var(--ink-soft)">Génère automatiquement 52 semaines de lundi à dimanche à partir d'une date de départ. Si des semaines existent déjà pour cette année, elles sont d'abord supprimées pour éviter les doublons.</p>
-          <form id="formCalendrier" class="grid grid-2">
-            <div class="field"><label>Année</label><input name="annee" type="number" id="anneeCalInput" required></div>
-            <div class="field"><label>Date du lundi de la semaine 1</label><input name="debut" type="date" required></div>
-            <div style="grid-column:1/-1"><button type="submit">Importer 52 semaines</button></div>
-          </form>
-        </div>
-        <div class="card">
-          <h2>Supprimer des semaines importées</h2>
-          <div class="grid grid-2">
-            <div class="field"><label>Année à supprimer</label><input type="number" id="anneeSupprimer" placeholder="Ex: 2026"></div>
-            <div style="align-self:end"><button class="btn-danger" id="supprimerAnneeBtn">Supprimer cette année</button></div>
-          </div>
-          <button class="btn-danger" id="supprimerToutBtn" style="margin-top:10px">Supprimer tout le calendrier</button>
-        </div>
-        <div class="card"><h2>Calendrier importé</h2><div id="calTable">Chargement…</div></div>
-      </section>
-
       <section id="tab-utilisateurs" style="display:none">
-        <div class="card"><h2>Tous les comptes de la plateforme</h2><div id="usersTable">Chargement…</div></div>
+        <div class="card"><h2>Comptes de mon périmètre (PF, ASCQ, RC)</h2><div id="usersTable">Chargement…</div></div>
       </section>
 
       <section id="tab-rapport" style="display:none">
         <div class="card"><button id="genRapportBtn" class="btn-secondary">Générer / actualiser le rapport de la semaine en cours</button></div>
-        <div class="card"><h2>Support 4 — Rapport hebdomadaire national</h2><div id="rapportTable">Chargement…</div></div>
+        <div class="card"><h2>Support 4 — Rapport hebdomadaire départemental</h2><div id="rapportTable">Chargement…</div></div>
       </section>
 
     </div>
@@ -165,15 +139,35 @@ const user = Session.requireRole(['RCSE']);
 userName.textContent = user.Prenom + ' ' + user.Nom;
 logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
 
+// Départements assignés à ce RCSE (un ou plusieurs) — détermine tout ce qui est proposé/visible
+// dans ce tableau de bord (visibilité en cascade : on ne voit que ce qui est sous son périmètre).
+let MES_DEPS = []; // [{id, nom}]
+
 document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','pf','geo','assign','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','pf','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { pf: loadPF, geo: loadGeo, assign: loadAssignData, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { pf: loadPF, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
+
+async function loadMesDeps() {
+  const { perimetres } = await Api.call('listPerimetres', {});
+  const depIds = perimetres.filter(p => p.TypeCible === 'Departement').map(p => p.CibleId);
+  MES_DEPS = GEO_BENIN.filter(d => depIds.includes('DEP-' + slugGeo(d.nom))).map(d => ({ id: 'DEP-' + slugGeo(d.nom), nom: d.nom }));
+  mesDepsLabel.textContent = MES_DEPS.length ? MES_DEPS.map(d => d.nom).join(', ') : '(aucun département assigné — contactez le compte national)';
+}
+
+// Filtre les <option> d'un <select> "département" pour ne garder que ceux de MES_DEPS, puis
+// déclenche l'événement change pour rafraîchir les select en cascade.
+function restrictDepSelect(selectEl) {
+  if (!selectEl) return;
+  Array.from(selectEl.options).forEach(opt => {
+    if (opt.value && !MES_DEPS.some(d => d.id === opt.value)) opt.remove();
+  });
+}
 
 async function loadDashboard() {
   try {
@@ -208,6 +202,7 @@ async function loadPF() {
 }
 let pfGeoSelection = null;
 wireCascadingGeo(document.getElementById('pfDep'), document.getElementById('pfCom'), null, null, ids => pfGeoSelection = ids);
+restrictDepSelect(document.getElementById('pfDep'));
 formCreatePF.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(formCreatePF).entries());
@@ -219,7 +214,7 @@ formCreatePF.addEventListener('submit', async (e) => {
   catch (err) { toast(err.message, true); }
 });
 
-let GEO_CACHE = { communes: [], arrondissements: [], villages: [] };
+let GEO_CACHE = { communes: [], arrondissements: [], villages: [], grappes: [] };
 let arrGeoSelection = null, vilGeoSelection = null;
 async function loadGeo() {
   geoTable.innerHTML = 'Chargement…';
@@ -227,31 +222,23 @@ async function loadGeo() {
     const { geo } = await Api.call('listGeo', {});
     GEO_CACHE = geo;
     wireCascadingGeo(document.getElementById('selDepCommune'), null, null, null, () => {});
-    // Cascade Département → Commune → Arrondissement (→ Village) sur les données réellement
-    // enregistrées dans le Sheet, pour que les communes/arrondissements ajoutés manuellement
-    // apparaissent eux aussi comme parents possibles.
+    restrictDepSelect(document.getElementById('selDepCommune'));
     wireCascadingGeoLive(document.getElementById('arrDep'), document.getElementById('selCommuneArr'), null, null, GEO_CACHE, ids => arrGeoSelection = ids);
+    restrictDepSelect(document.getElementById('arrDep'));
     wireCascadingGeoLive(document.getElementById('vilDep'), document.getElementById('vilCom'), document.getElementById('selArrVillage'), null, GEO_CACHE, ids => vilGeoSelection = ids);
-    let html = `<p style="font-size:.85rem;color:var(--ink-soft)">${geo.communes.length} communes · ${geo.arrondissements.length} arrondissements · ${geo.villages.length} villages enregistrés.</p>`;
-    html += '<table><thead><tr><th>Commune</th><th>Arrondissement</th><th>Village</th></tr></thead><tbody>';
-    geo.villages.slice(0, 200).forEach(v => {
-      html += `<tr><td>${''}</td><td>${v.ArrondissementNom||''}</td><td>${v.Nom}</td></tr>`;
-    });
+    restrictDepSelect(document.getElementById('vilDep'));
+    const depIds = new Set(MES_DEPS.map(d => d.id));
+    const mesCommunes = geo.communes.filter(c => depIds.has(c.DepartementId));
+    const comIds = new Set(mesCommunes.map(c => c.ID));
+    const mesArrs = geo.arrondissements.filter(a => comIds.has(a.CommuneId));
+    const arrIds = new Set(mesArrs.map(a => a.ID));
+    const mesVillages = geo.villages.filter(v => arrIds.has(v.ArrondissementId));
+    let html = `<p style="font-size:.85rem;color:var(--ink-soft)">${mesCommunes.length} communes · ${mesArrs.length} arrondissements · ${mesVillages.length} villages dans votre périmètre.</p>`;
+    html += '<table><thead><tr><th>Arrondissement</th><th>Village</th></tr></thead><tbody>';
+    mesVillages.slice(0, 200).forEach(v => { html += `<tr><td>${v.ArrondissementNom||''}</td><td>${v.Nom}</td></tr>`; });
     geoTable.innerHTML = html + '</tbody></table>';
   } catch (e) { geoTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
-
-importGeoBtn.addEventListener('click', async () => {
-  importGeoBtn.disabled = true;
-  importGeoStatus.textContent = 'Import en cours (peut prendre une à deux minutes)…';
-  try {
-    const res = await Api.call('importGeoBulk', { departements: GEO_BENIN });
-    importGeoStatus.textContent = `Importé : ${res.communes} communes, ${res.arrondissements} arrondissements, ${res.villages} villages ajoutés (doublons ignorés).`;
-    toast('Structure nationale importée.');
-    loadGeo();
-  } catch (e) { toast(e.message, true); importGeoStatus.textContent = ''; }
-  importGeoBtn.disabled = false;
-});
 
 formCommune.addEventListener('submit', async (e) => { e.preventDefault();
   const fd = Object.fromEntries(new FormData(formCommune).entries());
@@ -277,9 +264,10 @@ async function loadAssignData() {
   try {
     const [{ users }, { geo }, { perimetres }] = await Promise.all([Api.call('listUsers', {}), Api.call('listGeo', {}), Api.call('listPerimetres', {})]);
     wireCascadingGeoLive(document.getElementById('apDep'), document.getElementById('apCom'), document.getElementById('apArr'), null, geo, ids => assignPfIds = ids);
+    restrictDepSelect(document.getElementById('apDep'));
     selPf.innerHTML = users.filter(u => u.Role === 'PF_CNLS_TP').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     let html = '<table><thead><tr><th>Type</th><th>Cible</th><th>Assigné à</th><th>Date</th></tr></thead><tbody>';
-    perimetres.forEach(p => {
+    perimetres.filter(p => p.TypeCible === 'Arrondissement').forEach(p => {
       const u = users.find(x => x.ID === p.UserId);
       const cible = geo.arrondissements.find(a => a.ID === p.CibleId);
       html += `<tr><td>${p.TypeCible}</td><td>${cible ? cible.Nom : p.CibleId}</td><td>${u ? u.Prenom+' '+u.Nom : p.UserId}</td><td>${fmtDate(p.Date)}</td></tr>`;
@@ -291,50 +279,6 @@ formAssignPf.addEventListener('submit', async (e) => { e.preventDefault();
   if (!assignPfIds || !assignPfIds.arrNom) { toast('Sélectionnez un arrondissement complet (département → arrondissement).', true); return; }
   const fd = { userId: selPf.value, typeCible: 'Arrondissement', cibleId: assignPfIds.arrId };
   try { await Api.call('assignPerimetre', fd); toast('Arrondissement assigné.'); loadAssignData(); } catch (err) { toast(err.message, true); } });
-
-async function loadCalendrier() {
-  calTable.innerHTML = 'Chargement…';
-  try {
-    const { calendrier } = await Api.call('listCalendrier', {});
-    if (!calendrier.length) { calTable.innerHTML = '<div class="empty-state">Aucun calendrier importé.</div>'; return; }
-    let html = '<table><thead><tr><th>Année</th><th>Semaine</th><th>Début</th><th>Fin</th></tr></thead><tbody>';
-    calendrier.forEach(c => html += `<tr><td>${c.Annee}</td><td>${c.SemaineEpi}</td><td>${fmtDate(c.DateDebut)}</td><td>${fmtDate(c.DateFin)}</td></tr>`);
-    calTable.innerHTML = html + '</tbody></table>';
-  } catch (e) { calTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
-}
-formCalendrier.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = Object.fromEntries(new FormData(formCalendrier).entries());
-  const start = new Date(fd.debut);
-  const rows = [];
-  const NB_SEMAINES = 52; // plafond volontaire — une année épidémiologique ne dépasse pas 52 semaines
-  for (let s = 1; s <= NB_SEMAINES; s++) {
-    const debut = new Date(start); debut.setDate(start.getDate() + (s - 1) * 7);
-    const fin = new Date(debut); fin.setDate(debut.getDate() + 6);
-    rows.push({ annee: fd.annee, semaine: s, dateDebut: debut.toISOString().slice(0,10), dateFin: fin.toISOString().slice(0,10) });
-  }
-  try {
-    await Api.call('clearCalendrier', { annee: fd.annee }); // évite les doublons si déjà importé
-    await Api.call('importCalendrier', { rows });
-    toast('Calendrier importé (52 semaines).');
-    formCalendrier.reset();
-    document.getElementById('anneeCalInput').value = new Date().getFullYear();
-    loadCalendrier();
-  } catch (err) { toast(err.message, true); }
-});
-
-supprimerAnneeBtn.addEventListener('click', async () => {
-  const annee = document.getElementById('anneeSupprimer').value;
-  if (!annee) { toast('Indiquez une année à supprimer.', true); return; }
-  if (!confirm(`Supprimer toutes les semaines de l'année ${annee} ?`)) return;
-  try { const r = await Api.call('clearCalendrier', { annee }); toast(`${r.removed} semaine(s) supprimée(s).`); loadCalendrier(); }
-  catch (err) { toast(err.message, true); }
-});
-supprimerToutBtn.addEventListener('click', async () => {
-  if (!confirm('Supprimer tout le calendrier importé, pour toutes les années ?')) return;
-  try { const r = await Api.call('clearCalendrier', {}); toast(`${r.removed} semaine(s) supprimée(s).`); loadCalendrier(); }
-  catch (err) { toast(err.message, true); }
-});
 
 async function loadUsers() {
   usersTable.innerHTML = 'Chargement…';
@@ -361,15 +305,17 @@ genRapportBtn.addEventListener('click', async () => {
   try { await Api.call('genererRapportHebdo', {}); toast('Rapport généré.'); renderRapportModule('rapportTable'); } catch (e) { toast(e.message, true); }
 });
 
-document.getElementById('anneeCalInput').value = new Date().getFullYear();
 renderImportActeurs({
   containerId: 'importPfContainer', role: 'PF_CNLS_TP',
-  columns: [{ key: 'departementNom', label: 'Département' }, { key: 'communeNom', label: 'Commune' }],
+  columns: [{ key: 'communeNom', label: 'Commune (dans votre/vos département(s))' }],
   onDone: loadPF
 });
 
-loadDashboard();
-loadWeekPill();
+(async () => {
+  await loadMesDeps();
+  loadDashboard();
+  loadWeekPill();
+})();
 </script>
 </body>
 </html>

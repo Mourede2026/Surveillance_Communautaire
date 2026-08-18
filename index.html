@@ -33,7 +33,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   try {
     const data = await Api.call('login', { telephone, motDePasse });
     Session.setSession(data.token, data.user);
-    const dest = { RC: 'rc.html', ASCQ: 'ascq.html', PF_CNLS_TP: 'pf.html', RCSE: 'rcse.html' }[data.user.Role];
+    const dest = { RC: 'rc.html', ASCQ: 'ascq.html', PF_CNLS_TP: 'pf.html', RCSE: 'rcse.html', NATIONAL: 'national.html' }[data.user.Role];
     window.location.href = dest || 'index.html';
   } catch (err) {
     toast(err.message, true);

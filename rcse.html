@@ -48,6 +48,10 @@
           </form>
         </div>
         <div class="card"><h2>Points focaux CCLS-TP</h2><div id="pfTable">Chargement…</div></div>
+        <div class="card">
+          <h2>Importer des PF CCLS-TP par site d'intervention (commune)</h2>
+          <div id="importPfContainer"></div>
+        </div>
       </section>
 
       <section id="tab-geo" style="display:none">
@@ -70,8 +74,10 @@
           </div>
           <div class="card">
             <h2>Ajouter un arrondissement (hors liste nationale)</h2>
-            <form id="formArr"><div class="field"><label>Nom</label><input name="nom" required></div>
-              <div class="field"><label>Commune</label><select name="communeId" id="selCommuneArr" required></select></div>
+            <form id="formArr">
+              <div class="field"><label>Nom</label><input name="nom" required></div>
+              <div class="field"><label>Département</label><select id="arrDep" required></select></div>
+              <div class="field"><label>Commune</label><select id="selCommuneArr" required></select></div>
               <button type="submit">Ajouter</button></form>
           </div>
         </div>
@@ -79,7 +85,9 @@
           <h2>Ajouter un village (hors liste nationale)</h2>
           <form id="formVillage" class="grid grid-2">
             <div class="field"><label>Nom</label><input name="nom" required></div>
-            <div class="field"><label>Arrondissement</label><select name="arrondissementId" id="selArrVillage" required></select></div>
+            <div class="field"><label>Département</label><select id="vilDep" required></select></div>
+            <div class="field"><label>Commune</label><select id="vilCom" required></select></div>
+            <div class="field"><label>Arrondissement</label><select id="selArrVillage" required></select></div>
             <div style="grid-column:1/-1"><button type="submit">Ajouter</button></div>
           </form>
         </div>
@@ -150,6 +158,7 @@
 <script src="assets/geo-benin-data.js"></script>
 <script src="assets/geo-utils.js"></script>
 <script src="assets/rapport.js"></script>
+<script src="assets/bulk-import.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
@@ -211,14 +220,18 @@ formCreatePF.addEventListener('submit', async (e) => {
 });
 
 let GEO_CACHE = { communes: [], arrondissements: [], villages: [] };
+let arrGeoSelection = null, vilGeoSelection = null;
 async function loadGeo() {
   geoTable.innerHTML = 'Chargement…';
   try {
     const { geo } = await Api.call('listGeo', {});
     GEO_CACHE = geo;
     wireCascadingGeo(document.getElementById('selDepCommune'), null, null, null, () => {});
-    selCommuneArr.innerHTML = geo.communes.map(c => `<option value="${c.ID}">${c.Nom} (${c.DepartementNom})</option>`).join('');
-    selArrVillage.innerHTML = geo.arrondissements.map(a => `<option value="${a.ID}">${a.Nom} (${a.CommuneNom})</option>`).join('');
+    // Cascade Département → Commune → Arrondissement (→ Village) sur les données réellement
+    // enregistrées dans le Sheet, pour que les communes/arrondissements ajoutés manuellement
+    // apparaissent eux aussi comme parents possibles.
+    wireCascadingGeoLive(document.getElementById('arrDep'), document.getElementById('selCommuneArr'), null, null, GEO_CACHE, ids => arrGeoSelection = ids);
+    wireCascadingGeoLive(document.getElementById('vilDep'), document.getElementById('vilCom'), document.getElementById('selArrVillage'), null, GEO_CACHE, ids => vilGeoSelection = ids);
     let html = `<p style="font-size:.85rem;color:var(--ink-soft)">${geo.communes.length} communes · ${geo.arrondissements.length} arrondissements · ${geo.villages.length} villages enregistrés.</p>`;
     html += '<table><thead><tr><th>Commune</th><th>Arrondissement</th><th>Village</th></tr></thead><tbody>';
     geo.villages.slice(0, 200).forEach(v => {
@@ -248,22 +261,22 @@ formCommune.addEventListener('submit', async (e) => { e.preventDefault();
   try { await Api.call('createCommune', fd); toast('Commune ajoutée.'); formCommune.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
 formArr.addEventListener('submit', async (e) => { e.preventDefault();
   const fd = Object.fromEntries(new FormData(formArr).entries());
-  const com = GEO_CACHE.communes.find(c => c.ID === fd.communeId);
-  fd.communeNom = com ? com.Nom : '';
+  if (!arrGeoSelection || !arrGeoSelection.comId) { toast('Sélectionnez un département puis une commune.', true); return; }
+  fd.communeId = arrGeoSelection.comId; fd.communeNom = arrGeoSelection.comNom;
   try { await Api.call('createArrondissement', fd); toast('Arrondissement ajouté.'); formArr.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
 formVillage.addEventListener('submit', async (e) => { e.preventDefault();
   const fd = Object.fromEntries(new FormData(formVillage).entries());
-  const arr = GEO_CACHE.arrondissements.find(a => a.ID === fd.arrondissementId);
-  fd.arrondissementNom = arr ? arr.Nom : '';
+  if (!vilGeoSelection || !vilGeoSelection.arrId) { toast('Sélectionnez un département, une commune puis un arrondissement.', true); return; }
+  fd.arrondissementId = vilGeoSelection.arrId; fd.arrondissementNom = vilGeoSelection.arrNom;
   try { await Api.call('createVillage', fd); toast('Village ajouté.'); formVillage.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
 
 let assignPfIds = null;
-wireCascadingGeo(document.getElementById('apDep'), document.getElementById('apCom'), document.getElementById('apArr'), null, ids => assignPfIds = ids);
 
 async function loadAssignData() {
   assignTable.innerHTML = 'Chargement…';
   try {
     const [{ users }, { geo }, { perimetres }] = await Promise.all([Api.call('listUsers', {}), Api.call('listGeo', {}), Api.call('listPerimetres', {})]);
+    wireCascadingGeoLive(document.getElementById('apDep'), document.getElementById('apCom'), document.getElementById('apArr'), null, geo, ids => assignPfIds = ids);
     selPf.innerHTML = users.filter(u => u.Role === 'PF_CNLS_TP').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     let html = '<table><thead><tr><th>Type</th><th>Cible</th><th>Assigné à</th><th>Date</th></tr></thead><tbody>';
     perimetres.forEach(p => {
@@ -349,6 +362,12 @@ genRapportBtn.addEventListener('click', async () => {
 });
 
 document.getElementById('anneeCalInput').value = new Date().getFullYear();
+renderImportActeurs({
+  containerId: 'importPfContainer', role: 'PF_CNLS_TP',
+  columns: [{ key: 'departementNom', label: 'Département' }, { key: 'communeNom', label: 'Commune' }],
+  onDone: loadPF
+});
+
 loadDashboard();
 loadWeekPill();
 </script>

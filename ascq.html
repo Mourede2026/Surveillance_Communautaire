@@ -58,6 +58,10 @@
           </form>
         </div>
         <div class="card"><h2>Mes relais communautaires</h2><div id="rcTable">Chargement…</div></div>
+        <div class="card">
+          <h2>Importer des RC par site d'intervention (village)</h2>
+          <div id="importRcContainer"></div>
+        </div>
       </section>
 
       <section id="tab-rapport" style="display:none">
@@ -81,6 +85,7 @@
 <script src="assets/rapport.js"></script>
 <script src="assets/briefing-data.js"></script>
 <script src="assets/briefing.js"></script>
+<script src="assets/bulk-import.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
@@ -237,6 +242,12 @@ formCreateRC.addEventListener('submit', async (e) => {
 genRapportBtn.addEventListener('click', async () => {
   try { await Api.call('genererRapportHebdo', {}); toast('Rapport généré.'); renderRapportModule('rapportTable'); }
   catch (e) { toast(e.message, true); }
+});
+
+renderImportActeurs({
+  containerId: 'importRcContainer', role: 'RC',
+  columns: [{ key: 'villageNom', label: 'Village' }, { key: 'arrondissementNom', label: 'Arrondissement (si ambiguïté)' }],
+  onDone: loadRC
 });
 
 loadDashboard();

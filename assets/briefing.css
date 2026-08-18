@@ -1,0 +1,261 @@
+
+  /* INTRO BOX */
+  .intro-box {
+    background: white;
+    border-radius: var(--card-radius);
+    padding: 20px;
+    margin-bottom: 24px;
+    border-left: 5px solid var(--green);
+    box-shadow: var(--card-shadow);
+  }
+  .intro-box h2 {
+    font-family: 'Baloo 2', cursive;
+    font-size: 1.1rem;
+    color: var(--green);
+    margin-bottom: 8px;
+  }
+  .intro-box p { font-size: 0.92rem; color: #374151; }
+
+  /* DISEASE SECTION */
+  .disease-section {
+    margin-bottom: 28px;
+    scroll-margin-top: 70px;
+  }
+
+  .disease-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-radius: var(--card-radius) var(--card-radius) 0 0;
+    color: white;
+  }
+  .disease-header .d-icon { font-size: 2rem; }
+  .disease-header h2 {
+    font-family: 'Baloo 2', cursive;
+    font-size: 1.3rem;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .disease-header .d-num {
+    margin-left: auto;
+    background: rgba(255,255,255,0.22);
+    border-radius: 12px;
+    padding: 2px 12px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .disease-body {
+    background: white;
+    border-radius: 0 0 var(--card-radius) var(--card-radius);
+    box-shadow: var(--card-shadow);
+    overflow: hidden;
+  }
+
+  .block {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .block:last-child { border-bottom: none; }
+
+  .block-title {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .block-content { font-size: 0.91rem; color: #374151; }
+
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .tag {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* CAT BLOCK – special highlight */
+  .block-cat {
+    background: linear-gradient(135deg, #fff8e1, #fffbea);
+    border-left: 4px solid var(--yellow);
+  }
+  .block-cat .block-title { color: #b45309; }
+
+  .block-role {
+    background: linear-gradient(135deg, #e8f5ee, #f0faf4);
+    border-left: 4px solid var(--green);
+  }
+  .block-role .block-title { color: var(--green); }
+
+  .block-alert {
+    background: linear-gradient(135deg, #fdecea, #fff5f5);
+    border-left: 4px solid var(--red);
+  }
+  .block-alert .block-title { color: var(--red); }
+
+  .block-transmission {
+    background: linear-gradient(135deg, #e3f0ff, #f0f8ff);
+    border-left: 4px solid var(--blue);
+  }
+  .block-transmission .block-title { color: var(--blue); }
+
+  .block-prevention {
+    background: linear-gradient(135deg, #f3e5f5, #faf0ff);
+    border-left: 4px solid var(--purple);
+  }
+  .block-prevention .block-title { color: var(--purple); }
+
+  .block-symptoms {
+    background: linear-gradient(135deg, #e0f2f1, #f0fffe);
+    border-left: 4px solid var(--teal);
+  }
+  .block-symptoms .block-title { color: var(--teal); }
+
+  /* STEP LIST for CAT */
+  .step-list { list-style: none; padding: 0; margin-top: 6px; }
+  .step-list li {
+    padding: 6px 0 6px 8px;
+    font-size: 0.91rem;
+    color: #374151;
+    border-bottom: 1px dashed #fde68a;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list .step-num {
+    background: var(--yellow);
+    color: white;
+    font-weight: 800;
+    font-size: 0.72rem;
+    border-radius: 50%;
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .highlight-box {
+    background: #fff3cd;
+    border: 1.5px solid #ffc107;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #856404;
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  /* COLOR THEMES per disease */
+  .theme-anthrax .disease-header { background: linear-gradient(135deg, #5d4037, #795548); }
+  .theme-anthrax .tag { background: #efebe9; color: #4e342e; }
+
+  .theme-covid .disease-header { background: linear-gradient(135deg, #1565c0, #1976d2); }
+  .theme-covid .tag { background: #e3f2fd; color: #0d47a1; }
+
+  .theme-cholera .disease-header { background: linear-gradient(135deg, #00695c, #00796b); }
+  .theme-cholera .tag { background: #e0f2f1; color: #004d40; }
+
+  .theme-dengue .disease-header { background: linear-gradient(135deg, #e65100, #f57c00); }
+  .theme-dengue .tag { background: #fff3e0; color: #bf360c; }
+
+  .theme-fj .disease-header { background: linear-gradient(135deg, #f9a825, #fbc02d); }
+  .theme-fj .tag { background: #fffde7; color: #f57f17; }
+
+  .theme-grippe .disease-header { background: linear-gradient(135deg, #4527a0, #512da8); }
+  .theme-grippe .tag { background: #ede7f6; color: #311b92; }
+
+  .theme-hanta .disease-header { background: linear-gradient(135deg, #37474f, #455a64); }
+  .theme-hanta .tag { background: #eceff1; color: #263238; }
+
+  .theme-lassa .disease-header { background: linear-gradient(135deg, #b71c1c, #c62828); }
+  .theme-lassa .tag { background: #ffebee; color: #7f0000; }
+
+  .theme-meningite .disease-header { background: linear-gradient(135deg, #0277bd, #0288d1); }
+  .theme-meningite .tag { background: #e1f5fe; color: #01579b; }
+
+  .theme-mpox .disease-header { background: linear-gradient(135deg, #558b2f, #689f38); }
+  .theme-mpox .tag { background: #f1f8e9; color: #33691e; }
+
+  .theme-ebola .disease-header { background: linear-gradient(135deg, #880e4f, #ad1457); }
+  .theme-ebola .tag { background: #fce4ec; color: #560027; }
+
+  .theme-pfa .disease-header { background: linear-gradient(135deg, #006064, #00838f); }
+  .theme-pfa .tag { background: #e0f7fa; color: #004d40; }
+
+  .theme-rage .disease-header { background: linear-gradient(135deg, #4a148c, #6a1b9a); }
+  .theme-rage .tag { background: #f3e5f5; color: #4a148c; }
+
+  .theme-rougeole .disease-header { background: linear-gradient(135deg, #bf360c, #d84315); }
+  .theme-rougeole .tag { background: #fbe9e7; color: #870000; }
+
+  .theme-shigellose .disease-header { background: linear-gradient(135deg, #1b5e20, #2e7d32); }
+  .theme-shigellose .tag { background: #e8f5e9; color: #1b5e20; }
+
+  .theme-deces .disease-header { background: linear-gradient(135deg, #424242, #616161); }
+  .theme-deces .tag { background: #f5f5f5; color: #212121; }
+
+
+/* ============================================================
+   Ajouts spécifiques à l'intégration en accordéon (assets/briefing.js)
+   Le reste de ce fichier (au-dessus) reprend tel quel le style du mémo
+   de briefing d'origine (mémo RC), pour un rendu identique.
+   ============================================================ */
+
+.briefing-intro {
+  background: white;
+  border-radius: var(--card-radius, 18px);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  border-left: 5px solid var(--green, #1a7a4a);
+  box-shadow: var(--card-shadow, 0 4px 20px rgba(0,0,0,0.10));
+  font-size: 0.92rem;
+  color: #374151;
+}
+.briefing-intro strong { color: var(--green, #1a7a4a); }
+
+.briefing-search {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .9rem;
+  margin-bottom: 16px;
+  font-family: inherit;
+}
+
+.briefing-list { display: flex; flex-direction: column; gap: 12px; }
+
+.briefing-module { border-radius: var(--card-radius, 18px); overflow: hidden; box-shadow: var(--card-shadow, 0 4px 20px rgba(0,0,0,0.10)); }
+.briefing-module[hidden] { display: none; }
+
+.briefing-module .disease-header {
+  cursor: pointer;
+  border-radius: var(--card-radius, 18px);
+  user-select: none;
+}
+.briefing-module.open .disease-header { border-radius: var(--card-radius, 18px) var(--card-radius, 18px) 0 0; }
+
+.briefing-module .d-chevron { font-size: 1.1rem; transition: transform .2s; flex-shrink: 0; }
+.briefing-module.open .d-chevron { transform: rotate(180deg); }
+
+.briefing-module .disease-body { display: none; }
+.briefing-module.open .disease-body { display: block; }

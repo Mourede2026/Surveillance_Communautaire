@@ -118,6 +118,12 @@ button:hover, .btn:hover { background: var(--teal-900); }
 .login-card p.sub { color: var(--ink-soft); font-size: .85rem; margin: 0 0 22px; }
 
 .empty-state { text-align: center; padding: 40px 20px; color: var(--ink-soft); }
+.chips-box { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; min-height: 20px; border: 1px solid #E3E1DC; border-radius: 8px; }
+.chips-box .empty-hint { color: var(--ink-soft); font-size: .8rem; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: #DCEFEA; color: var(--teal-900); border-radius: 999px; padding: 4px 10px; font-size: .8rem; }
+.chip button { background: none; border: none; color: inherit; cursor: pointer; font-weight: 700; line-height: 1; padding: 0; }
+.commune-picker-list { max-height: 180px; overflow-y: auto; border: 1px solid #E3E1DC; border-radius: 8px; padding: 8px; margin-top: 6px; }
+.commune-picker-list label { display: block; font-weight: 400; font-size: .85rem; margin: 2px 0; }
 
 .tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .tabs button { background: none; color: var(--ink-soft); border-radius: 0; padding: 9px 14px; font-weight: 600; border-bottom: 2px solid transparent; }

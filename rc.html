@@ -16,6 +16,7 @@
       <a href="#" data-tab="alerte">Notifier une alerte</a>
       <a href="#" data-tab="deces">Notifier un décès</a>
       <a href="#" data-tab="historique">Historique</a>
+      <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
       <a href="#" data-tab="briefing">📋 Briefing maladies</a>
     </nav>
     <div class="user-box">
@@ -65,6 +66,13 @@
         <div class="card"><div id="histTable">Chargement…</div></div>
       </section>
 
+      <section id="tab-rapport" style="display:none">
+        <div class="card">
+          <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">Ce rapport porte sur votre grappe. S'il existe plusieurs RC dans la même grappe, ils partagent exactement le même rapport ; si vous couvrez plusieurs grappes, vous recevez un rapport distinct pour chacune (naviguez avec les boutons Précédent / Suivant).</p>
+        </div>
+        <div class="card"><h2>Support 4 — Rapport hebdomadaire</h2><div id="rapportTable">Chargement…</div></div>
+      </section>
+
       <section id="tab-briefing" style="display:none">
         <div id="briefingContainer">Chargement…</div>
       </section>
@@ -75,6 +83,7 @@
 
 <script src="assets/api.js"></script>
 <script src="assets/forms.js"></script>
+<script src="assets/rapport.js"></script>
 <script src="assets/briefing-data.js"></script>
 <script src="assets/briefing.js"></script>
 <script>
@@ -89,9 +98,10 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','alerte','deces','historique','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','alerte','deces','historique','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'historique') loadHistorique('alertes');
+  if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
   if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
 }));
 
@@ -130,8 +140,18 @@ async function loadHistorique(type) {
   } catch (e) { histTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
-buildAlerteForm(document.getElementById('formAlerte'), user);
-buildDecesForm(document.getElementById('formDeces'), user);
+async function initForms() {
+  let grappes = [];
+  try {
+    const [{ perimetres }, { geo }] = await Promise.all([Api.call('listGrappesRc', {}), Api.call('listGeo', {})]);
+    const grappeById = {}; (geo.grappes || []).forEach(g => { grappeById[g.ID] = g; });
+    grappes = perimetres.map(p => grappeById[p.CibleId]).filter(Boolean);
+  } catch (e) { /* silencieux, geoHeader_ affichera l'avertissement adéquat */ }
+  buildAlerteForm(document.getElementById('formAlerte'), user, grappes);
+  buildDecesForm(document.getElementById('formDeces'), user, grappes);
+}
+
+initForms();
 loadDashboard();
 </script>
 </body>

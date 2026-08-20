@@ -35,7 +35,54 @@ const CIRCONSTANCES_DECES = [
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
-function geoHeader_(user) {
+// Semaine épidémiologique en cours, déterminée depuis le calendrier importé par le National —
+// jamais saisie manuellement par le RC : un cas est toujours notifié dans la semaine en cours.
+async function semaineCouranteAffichage_() {
+  try {
+    const { calendrier } = await Api.call('listCalendrier', {});
+    const today = new Date();
+    const cur = (calendrier || []).find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+    return cur ? { annee: cur.Annee, semaine: cur.SemaineEpi, label: `Semaine ${cur.SemaineEpi} / ${cur.Annee}` } : null;
+  } catch (e) { return null; }
+}
+
+function periodeHeader_(semaineInfo) {
+  if (!semaineInfo) {
+    return `
+    <fieldset>
+      <legend>Période</legend>
+      <p style="color:#B23; font-size:.85rem">Aucun calendrier épidémiologique importé pour la date d'aujourd'hui — contactez le compte national. La notification ne peut pas être enregistrée sans semaine épidémiologique valide.</p>
+    </fieldset>`;
+  }
+  return `
+  <fieldset>
+    <legend>Période (semaine en cours — non modifiable)</legend>
+    <div class="field"><input value="${semaineInfo.label}" disabled></div>
+    <input type="hidden" name="annee" value="${semaineInfo.annee}">
+    <input type="hidden" name="semaineEpi" value="${semaineInfo.semaine}">
+  </fieldset>`;
+}
+
+// Grappe(s) couverte(s) par ce RC — pré-remplie si une seule, à choisir si plusieurs (voir
+// assignGrappeRc_ côté ASCQ, qui permet à un RC de couvrir plusieurs grappes).
+async function grappeHeader_(user) {
+  try {
+    const [{ perimetres }, { geo }] = await Promise.all([Api.call('listGrappesRc', {}), Api.call('listGeo', {})]);
+    const grappeNomById = {}; (geo.grappes || []).forEach(g => grappeNomById[g.ID] = g.Nom);
+    const mesGrappes = perimetres.map(p => ({ id: p.CibleId, nom: grappeNomById[p.CibleId] || p.CibleId })).filter(g => g.nom);
+    if (mesGrappes.length > 1) {
+      return `<div class="field"><label>Grappe concernée par ce cas</label>
+        <select name="grappeNom">${mesGrappes.map(g => `<option value="${g.nom}">${g.nom}</option>`).join('')}</select></div>`;
+    }
+    const seule = mesGrappes[0];
+    return `<div class="field"><label>Grappe</label><input value="${seule ? seule.nom : 'Non assignée'}" disabled>
+      <input type="hidden" name="grappeNom" value="${seule ? seule.nom : ''}"></div>`;
+  } catch (e) {
+    return `<div class="field"><label>Grappe</label><input value="Non assignée" disabled></div>`;
+  }
+}
+
+function geoHeader_(user, grappeHtml) {
   return `
   <fieldset>
     <legend>Localisation (pré-remplie depuis votre compte)</legend>
@@ -44,20 +91,17 @@ function geoHeader_(user) {
       <div class="field"><label>Commune</label><input value="${user.CommuneNom||''}" disabled></div>
       <div class="field"><label>Arrondissement</label><input value="${user.ArrondissementNom||''}" disabled></div>
       <div class="field"><label>Village</label><input value="${user.VillageNom||''}" disabled></div>
+      ${grappeHtml}
     </div>
   </fieldset>`;
 }
 
-function buildAlerteForm(form, user) {
+async function buildAlerteForm(form, user) {
+  const semaineInfo = await semaineCouranteAffichage_();
+  const grappeHtml = await grappeHeader_(user);
   form.innerHTML = `
-    <fieldset>
-      <legend>Période</legend>
-      <div class="grid grid-2">
-        <div class="field"><label>Année</label><input name="annee" type="number" value="${new Date().getFullYear()}" required></div>
-        <div class="field"><label>Semaine épidémiologique</label><input name="semaineEpi" type="number" required></div>
-      </div>
-    </fieldset>
-    ${geoHeader_(user)}
+    ${periodeHeader_(semaineInfo)}
+    ${geoHeader_(user, grappeHtml)}
     <fieldset>
       <legend>Identification du cas</legend>
       <div class="field"><label>Nom(s) & prénoms du cas</label><input name="nom" required></div>
@@ -69,7 +113,7 @@ function buildAlerteForm(form, user) {
         <div class="field"><label>Date de naissance (ou laisser vide)</label><input name="dateNaissance" type="date"></div>
         <div class="field"><label>Âge (si date de naissance inconnue)</label><input name="age" placeholder="Ex: 5 ans"></div>
       </div>
-      <div class="field"><label>N° de grappe / adresse</label><input name="adresse"></div>
+      <div class="field"><label>Adresse / repère</label><input name="adresse" placeholder="Ex: près du marché, quartier..."></div>
     </fieldset>
     <fieldset>
       <legend>Type d'alerte</legend>
@@ -105,7 +149,7 @@ function buildAlerteForm(form, user) {
         <div class="field"><label>Centre de santé rattaché</label><input name="centreSante"></div>
       </div>
     </fieldset>
-    <button type="submit" class="btn-block">Envoyer la notification d'alerte</button>
+    <button type="submit" class="btn-block" ${semaineInfo ? '' : 'disabled'}>Envoyer la notification d'alerte</button>
   `;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -114,7 +158,8 @@ function buildAlerteForm(form, user) {
     const payload = {
       annee: fd.get('annee'), semaineEpi: fd.get('semaineEpi'), mois: new Date().getMonth() + 1,
       departement: user.DepartementNom, zoneSanitaire: '', communeId: user.CommuneId, arrondissementId: user.ArrondissementId,
-      villageId: user.VillageId, adresse: fd.get('adresse'), nom: fd.get('nom'), sexe: fd.get('sexe'),
+      villageId: user.VillageId, villageNom: user.VillageNom, grappeNom: fd.get('grappeNom'),
+      adresse: fd.get('adresse'), nom: fd.get('nom'), sexe: fd.get('sexe'),
       telephone: fd.get('telephone'), dateNaissance: fd.get('dateNaissance'), age: fd.get('age'),
       typeAlerte: fd.get('typeAlerte'), autrePreciser: fd.get('autrePreciser'),
       dateDebutMaladie: fd.get('dateDebutMaladie'), dateNotification: fd.get('dateNotification'),
@@ -130,16 +175,12 @@ function buildAlerteForm(form, user) {
   });
 }
 
-function buildDecesForm(form, user) {
+async function buildDecesForm(form, user) {
+  const semaineInfo = await semaineCouranteAffichage_();
+  const grappeHtml = await grappeHeader_(user);
   form.innerHTML = `
-    <fieldset>
-      <legend>Période</legend>
-      <div class="grid grid-2">
-        <div class="field"><label>Année</label><input name="annee" type="number" value="${new Date().getFullYear()}" required></div>
-        <div class="field"><label>Semaine épidémiologique</label><input name="semaineEpi" type="number" required></div>
-      </div>
-    </fieldset>
-    ${geoHeader_(user)}
+    ${periodeHeader_(semaineInfo)}
+    ${geoHeader_(user, grappeHtml)}
     <fieldset>
       <legend>Identification du/de la défunt(e)</legend>
       <div class="field"><label>Nom(s) & prénoms du défunt(e)</label><input name="nom" required></div>
@@ -174,7 +215,7 @@ function buildDecesForm(form, user) {
         </div>
       </div>
     </fieldset>
-    <button type="submit" class="btn-block">Envoyer la notification de décès</button>
+    <button type="submit" class="btn-block" ${semaineInfo ? '' : 'disabled'}>Envoyer la notification de décès</button>
   `;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -182,7 +223,8 @@ function buildDecesForm(form, user) {
     const payload = {
       annee: fd.get('annee'), semaineEpi: fd.get('semaineEpi'), mois: new Date().getMonth() + 1,
       departement: user.DepartementNom, zoneSanitaire: '', communeId: user.CommuneId, arrondissementId: user.ArrondissementId,
-      villageId: user.VillageId, nom: fd.get('nom'), nomParent: fd.get('nomParent'), telephoneParent: fd.get('telephoneParent'),
+      villageId: user.VillageId, villageNom: user.VillageNom, grappeNom: fd.get('grappeNom'),
+      nom: fd.get('nom'), nomParent: fd.get('nomParent'), telephoneParent: fd.get('telephoneParent'),
       sexe: fd.get('sexe'), dateNaissance: fd.get('dateNaissance'), ageAnnees: fd.get('ageAnnees'), ageMois: fd.get('ageMois'),
       typeDeces: fd.get('typeDeces'), dateDeces: fd.get('dateDeces'), dateNotification: fd.get('dateNotification'),
       lieuDeces: fd.get('lieuDeces'), circonstances: fd.get('circonstances'), titre: 'Relais Communautaire'

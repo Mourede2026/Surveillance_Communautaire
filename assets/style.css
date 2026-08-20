@@ -124,6 +124,9 @@ button:hover, .btn:hover { background: var(--teal-900); }
 .chip button { background: none; border: none; color: inherit; cursor: pointer; font-weight: 700; line-height: 1; padding: 0; }
 .commune-picker-list { max-height: 180px; overflow-y: auto; border: 1px solid #E3E1DC; border-radius: 8px; padding: 8px; margin-top: 6px; }
 .commune-picker-list label { display: block; font-weight: 400; font-size: .85rem; margin: 2px 0; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(11,61,58,.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal-box { background: #fff; border-radius: 12px; padding: 24px; width: 400px; max-width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+.modal-box .field { margin-bottom: 12px; }
 
 .tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .tabs button { background: none; color: var(--ink-soft); border-radius: 0; padding: 9px 14px; font-weight: 600; border-bottom: 2px solid transparent; }

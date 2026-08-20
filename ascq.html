@@ -104,6 +104,7 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/briefing.js"></script>
 <script src="assets/bulk-import.js"></script>
+<script src="assets/user-admin.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
@@ -230,6 +231,7 @@ async function loadRC() {
     window.GEO_LOOKUP = { villages: geo.villages, arrondissements: geo.arrondissements, communes: geo.communes, grappes: geo.grappes || [] };
 
     const rcs = users.filter(u => u.Role === 'RC');
+    const usersById = {}; rcs.forEach(u => usersById[u.ID] = u);
     selRcForGrappe.innerHTML = rcs.map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     if (!rcs.length) { rcTable.innerHTML = '<div class="empty-state">Aucun relais créé pour le moment.</div>'; return; }
 
@@ -243,14 +245,10 @@ async function loadRC() {
       const mesGrappes = perimGrappes.filter(p => p.UserId === u.ID).map(p => grappeNomById[p.CibleId] || p.CibleId);
       html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.VillageNom||''}</td><td>${mesGrappes.join(', ')}</td>
         <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
-        <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
+        <td>${userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
     });
     rcTable.innerHTML = html + '</tbody></table>';
-    rcTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
-      const [id, active] = b.dataset.toggle.split('|');
-      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadRC(); }
-      catch (err) { toast(err.message, true); }
-    }));
+    wireUserRowActions(rcTable, usersById, loadRC);
   } catch (e) { rcTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 

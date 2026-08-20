@@ -87,6 +87,7 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/briefing.js"></script>
 <script src="assets/bulk-import.js"></script>
+<script src="assets/user-admin.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['PF_CNLS_TP']);
@@ -124,24 +125,20 @@ async function loadASCQ() {
       Api.call('listUsers', {}), Api.call('listArrondissementsAscq', {}), Api.call('listGeo', {})
     ]);
     const ascqs = users.filter(u => u.Role === 'ASCQ');
+    const usersById = {}; ascqs.forEach(u => usersById[u.ID] = u);
     selAscqForAssign.innerHTML = ascqs.map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
     if (!ascqs.length) { ascqTable.innerHTML = '<div class="empty-state">Aucun ASCQ créé pour le moment.</div>'; return; }
     const arrNomById = {}; geo.arrondissements.forEach(a => arrNomById[a.ID] = a.Nom);
     let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Arrondissement(s)</th><th>Statut</th><th></th></tr></thead><tbody>';
     ascqs.forEach(u => {
-      const actif = u.Actif === true || u.Actif === 'TRUE';
       const mesArrs = perimetres.filter(p => p.UserId === u.ID).map(p => arrNomById[p.CibleId] || p.CibleId);
       const arrLabel = mesArrs.length ? mesArrs.join(', ') : (u.ArrondissementNom || '');
       html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${arrLabel}</td>
-        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
-        <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
+        <td><span class="badge ${(u.Actif === true || u.Actif === 'TRUE') ? 'badge-done' : 'badge-new'}">${(u.Actif === true || u.Actif === 'TRUE') ? 'Actif' : 'Désactivé'}</span></td>
+        <td>${userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
     });
     ascqTable.innerHTML = html + '</tbody></table>';
-    ascqTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
-      const [id, active] = b.dataset.toggle.split('|');
-      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadASCQ(); }
-      catch (err) { toast(err.message, true); }
-    }));
+    wireUserRowActions(ascqTable, usersById, loadASCQ);
   } catch (e) { ascqTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 

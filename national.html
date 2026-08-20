@@ -158,6 +158,7 @@
 <script src="assets/geo-utils.js"></script>
 <script src="assets/rapport.js"></script>
 <script src="assets/bulk-import.js"></script>
+<script src="assets/user-admin.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['NATIONAL']);
@@ -233,6 +234,7 @@ async function loadRCSE() {
     apRcseDep.dispatchEvent(new Event('change'));
 
     const rcses = users.filter(u => u.Role === 'RCSE');
+    const usersById = {}; rcses.forEach(u => usersById[u.ID] = u);
     selRcseForAssign.innerHTML = rcses.map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom} (${u.ZoneSanitaireNom||''})</option>`).join('');
     if (!rcses.length) { rcseTable.innerHTML = '<div class="empty-state">Aucun compte RCSE créé pour le moment.</div>'; return; }
 
@@ -243,14 +245,10 @@ async function loadRCSE() {
       const mesCom = perimetres.filter(p => p.UserId === u.ID && p.TypeCible === 'Commune').map(p => comNomById[p.CibleId] || p.CibleId);
       html += `<tr><td>${u.ZoneSanitaireNom||''}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${mesCom.join(', ')}</td>
         <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
-        <td><button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button></td></tr>`;
+        <td>${userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
     });
     rcseTable.innerHTML = html + '</tbody></table>';
-    rcseTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
-      const [id, active] = b.dataset.toggle.split('|');
-      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadRCSE(); }
-      catch (err) { toast(err.message, true); }
-    }));
+    wireUserRowActions(rcseTable, usersById, loadRCSE);
   } catch (e) { rcseTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 renderZoneChips();
@@ -381,20 +379,17 @@ async function loadUsers() {
   usersTable.innerHTML = 'Chargement…';
   try {
     const { users } = await Api.call('listUsers', {});
+    const usersById = {}; users.forEach(u => usersById[u.ID] = u);
     let html = '<table><thead><tr><th>Rôle</th><th>Nom</th><th>Téléphone</th><th>Créé par</th><th>Statut</th><th></th></tr></thead><tbody>';
     users.forEach(u => {
       const actif = u.Actif === true || u.Actif === 'TRUE';
       const isSelf = u.ID === user.ID;
       html += `<tr><td>${u.Role}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CreePar}</td>
         <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
-        <td>${isSelf ? '' : `<button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button>`}</td></tr>`;
+        <td>${isSelf ? '' : userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
     });
     usersTable.innerHTML = html + '</tbody></table>';
-    usersTable.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', async () => {
-      const [id, active] = b.dataset.toggle.split('|');
-      try { await Api.call('setUserActive', { id, active: active === '1' }); toast('Statut mis à jour.'); loadUsers(); }
-      catch (err) { toast(err.message, true); }
-    }));
+    wireUserRowActions(usersTable, usersById, loadUsers);
   } catch (e) { usersTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 

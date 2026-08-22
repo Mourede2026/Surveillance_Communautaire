@@ -20,6 +20,10 @@ function renderBriefingModule(containerId) {
       💡 <strong>Règle d'or :</strong> dès qu'un signe alerte apparaît → <strong>notifie immédiatement ton ASCQ</strong>, sans attendre.
     </div>
     <input type="text" class="briefing-search" id="briefingSearch" placeholder="🔎 Rechercher une maladie ou un événement…">
+    ${typeof openBriefingVideo === 'function' ? `
+    <div class="bv-series-row">
+      <button class="bv-series-btn" id="bvWatchSeries">▶️ Regarder toute la série vidéo (${BRIEFING_MODULES.length} maladies)</button>
+    </div>` : ''}
     <div class="briefing-list" id="briefingList"></div>
   `;
 
@@ -30,6 +34,7 @@ function renderBriefingModule(containerId) {
         <span class="d-icon">${m.icon}</span>
         <h2>${m.title}</h2>
         <span class="d-num">${m.num}</span>
+        ${typeof openBriefingVideo === 'function' ? `<button class="bv-play-trigger" data-play="${m.id}" title="Regarder en vidéo" aria-label="Regarder en vidéo">🎬</button>` : ''}
         <span class="d-chevron">▾</span>
       </div>
       <div class="disease-body">${m.body}</div>
@@ -42,6 +47,14 @@ function renderBriefingModule(containerId) {
       mod.classList.toggle('open');
     });
   });
+
+  list.querySelectorAll('[data-play]').forEach(btn => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (typeof openBriefingVideo === 'function') openBriefingVideo(btn.dataset.play);
+  }));
+
+  const watchSeriesBtn = document.getElementById('bvWatchSeries');
+  if (watchSeriesBtn) watchSeriesBtn.addEventListener('click', () => openBriefingVideo(BRIEFING_MODULES[0].id));
 
   document.getElementById('briefingSearch').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();

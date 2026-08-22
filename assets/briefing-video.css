@@ -1,0 +1,212 @@
+/* ============================================================
+   Lecteur "vidéo" du briefing maladies (assets/briefing-video.js)
+   Overlay plein écran, look proche d'un lecteur vidéo/stories :
+   fond dégradé selon la maladie, diapositives animées, sous-titres,
+   barre de progression, playlist des maladies.
+   ============================================================ */
+
+.bv-play-trigger {
+  background: rgba(255,255,255,.22);
+  border: none;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 999px;
+  width: 34px; height: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.bv-play-trigger:hover { background: rgba(255,255,255,.35); }
+
+.bv-series-row { margin: -6px 0 16px; }
+.bv-series-btn {
+  width: 100%;
+  background: linear-gradient(135deg, var(--teal-900,#0B3D3A), var(--teal-700,#0E5E59));
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 13px 18px;
+  font-size: .92rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bv-series-btn:hover { filter: brightness(1.08); }
+
+/* ---------------- Overlay ---------------- */
+.bv-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  display: none;
+  flex-direction: column;
+  background: #0a0a0a;
+  color: #fff;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.bv-overlay.open { display: flex; }
+
+.bv-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: rgba(0,0,0,.35);
+  position: relative; z-index: 3;
+}
+.bv-module-label { flex: 1; font-size: .88rem; font-weight: 700; text-align: center; opacity: .95; }
+.bv-icon-btn {
+  background: rgba(255,255,255,.12);
+  border: none; color: #fff;
+  width: 38px; height: 38px; border-radius: 50%;
+  font-size: 1.05rem; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.bv-icon-btn:hover { background: rgba(255,255,255,.22); }
+.bv-icon-btn:disabled { opacity: .35; cursor: default; }
+
+/* ---------------- Scène (contenu de la diapositive) ---------------- */
+.bv-stage {
+  flex: 1; min-height: 0;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  padding: 24px;
+  background: radial-gradient(circle at 30% 20%, var(--bv-c2,#157A72), var(--bv-c1,#0B3D3A) 70%);
+}
+.bv-bigicon {
+  position: absolute;
+  font-size: min(60vw, 420px);
+  opacity: .13;
+  animation: bvKenBurns 14s ease-in-out infinite alternate;
+  pointer-events: none;
+  user-select: none;
+}
+@keyframes bvKenBurns {
+  0% { transform: scale(1) rotate(-2deg); }
+  100% { transform: scale(1.12) rotate(2deg); }
+}
+
+.bv-slide { position: relative; z-index: 2; max-width: 640px; width: 100%; }
+.bv-slide-title {
+  font-family: 'Baloo 2', cursive, inherit;
+  font-size: clamp(1.3rem, 4vw, 1.9rem);
+  font-weight: 800;
+  text-align: center;
+  margin: 0 0 20px;
+  text-shadow: 0 2px 12px rgba(0,0,0,.35);
+  animation: bvFadeUp .5s ease both;
+}
+@keyframes bvFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+.bv-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.bv-line {
+  background: rgba(255,255,255,.12);
+  backdrop-filter: blur(2px);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: .95rem;
+  line-height: 1.4;
+  display: flex; align-items: flex-start; gap: 10px;
+  opacity: 0;
+  animation: bvLineIn .5s ease both;
+}
+@keyframes bvLineIn { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+
+.bv-line-subhead { background: rgba(255,255,255,.05); font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; padding: 6px 14px; }
+.bv-line-note { font-style: italic; font-size: .85rem; opacity: .85; background: rgba(255,255,255,.06); }
+.bv-line-warning { background: rgba(255,196,0,.22); border: 1px solid rgba(255,196,0,.6); font-weight: 700; }
+.bv-line-step .bv-step-num {
+  background: rgba(255,255,255,.9); color: #111; font-weight: 800; font-size: .74rem;
+  border-radius: 50%; width: 22px; height: 22px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ---------------- Sous-titres ---------------- */
+.bv-caption {
+  position: relative; z-index: 2;
+  max-width: 720px; margin: 0 auto;
+  padding: 10px 20px 0;
+  font-size: .82rem; text-align: center; color: rgba(255,255,255,.75);
+  min-height: 1.2em;
+}
+
+/* ---------------- Chapitres / progression ---------------- */
+.bv-dots { display: flex; gap: 5px; justify-content: center; padding: 10px 14px 0; flex-wrap: wrap; }
+.bv-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.3); }
+.bv-dot.active { background: #fff; transform: scale(1.3); }
+
+.bv-progress { height: 3px; background: rgba(255,255,255,.15); margin: 8px 14px 0; border-radius: 3px; overflow: hidden; }
+.bv-progress-fill { height: 100%; background: var(--amber-500,#E8A33D); width: 0%; }
+
+/* ---------------- Contrôles ---------------- */
+.bv-controls {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 12px 14px 14px; flex-wrap: wrap;
+  background: rgba(0,0,0,.35);
+}
+.bv-play-btn {
+  background: #fff; color: #0B3D3A; border: none;
+  width: 52px; height: 52px; border-radius: 50%;
+  font-size: 1.3rem; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.bv-play-btn:hover { transform: scale(1.05); }
+.bv-autonext { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: rgba(255,255,255,.85); margin-left: 6px; }
+.bv-autonext input { width: auto; }
+
+/* ---------------- Playlist des maladies ---------------- */
+.bv-playlist-panel {
+  position: absolute; top: 0; right: -320px; bottom: 0; width: 300px;
+  background: rgba(10,10,10,.96);
+  transition: right .25s ease;
+  z-index: 5;
+  display: flex; flex-direction: column;
+  border-left: 1px solid rgba(255,255,255,.1);
+}
+.bv-overlay.bv-playlist-open .bv-playlist-panel { right: 0; }
+.bv-playlist-header { padding: 16px 16px 10px; font-weight: 800; font-size: .9rem; border-bottom: 1px solid rgba(255,255,255,.1); }
+.bv-playlist { flex: 1; overflow-y: auto; padding: 8px; }
+.bv-playlist-item {
+  width: 100%; text-align: left; background: none; border: none; color: #fff;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 8px; border-radius: 8px; cursor: pointer; font-size: .85rem;
+}
+.bv-playlist-item:hover { background: rgba(255,255,255,.08); }
+.bv-playlist-item.active { background: rgba(255,255,255,.16); font-weight: 700; }
+.bv-pl-icon { font-size: 1.2rem; flex-shrink: 0; }
+.bv-pl-title { flex: 1; }
+.bv-pl-num { font-size: .7rem; opacity: .6; flex-shrink: 0; }
+
+/* ---------------- Fin de série ---------------- */
+.bv-endscreen {
+  position: absolute; inset: 0; z-index: 6;
+  background: rgba(0,0,0,.8);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+}
+.bv-endscreen-title { font-size: 1.4rem; font-weight: 800; }
+.bv-endscreen-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.bv-endscreen-btn { width: auto; padding: 0 18px; border-radius: 999px; font-size: .85rem; font-weight: 700; }
+
+/* ---------------- Couleurs par maladie (mêmes teintes que briefing.css) ---------------- */
+.bv-stage.theme-anthrax    { --bv-c1:#5d4037; --bv-c2:#795548; }
+.bv-stage.theme-covid      { --bv-c1:#1565c0; --bv-c2:#1976d2; }
+.bv-stage.theme-cholera    { --bv-c1:#00695c; --bv-c2:#00796b; }
+.bv-stage.theme-dengue     { --bv-c1:#e65100; --bv-c2:#f57c00; }
+.bv-stage.theme-fj         { --bv-c1:#f9a825; --bv-c2:#fbc02d; }
+.bv-stage.theme-grippe     { --bv-c1:#4527a0; --bv-c2:#512da8; }
+.bv-stage.theme-hanta      { --bv-c1:#37474f; --bv-c2:#455a64; }
+.bv-stage.theme-lassa      { --bv-c1:#b71c1c; --bv-c2:#c62828; }
+.bv-stage.theme-meningite  { --bv-c1:#0277bd; --bv-c2:#0288d1; }
+.bv-stage.theme-mpox       { --bv-c1:#558b2f; --bv-c2:#689f38; }
+.bv-stage.theme-ebola      { --bv-c1:#880e4f; --bv-c2:#ad1457; }
+.bv-stage.theme-pfa        { --bv-c1:#006064; --bv-c2:#00838f; }
+.bv-stage.theme-rage       { --bv-c1:#4a148c; --bv-c2:#6a1b9a; }
+.bv-stage.theme-rougeole   { --bv-c1:#bf360c; --bv-c2:#d84315; }
+.bv-stage.theme-shigellose { --bv-c1:#1b5e20; --bv-c2:#2e7d32; }
+.bv-stage.theme-deces      { --bv-c1:#424242; --bv-c2:#616161; }
+
+@media (max-width: 640px) {
+  .bv-slide-title { margin-bottom: 14px; }
+  .bv-line { font-size: .88rem; padding: 9px 12px; }
+  .bv-playlist-panel { width: 84vw; right: -84vw; }
+  .bv-controls { gap: 6px; }
+  .bv-autonext { width: 100%; justify-content: center; margin: 4px 0 0; }
+}

@@ -14,6 +14,12 @@
  *
  * containerId : id de l'élément où injecter le rapport.
  */
+// Ordre officiel des 8 catégories âge/sexe, identique à la fiche papier ET au formulaire
+// d'investigation ASCQ (assets/ascq.html, tableau CAT) — sert à toujours afficher les 8 lignes,
+// dans cet ordre, même quand une catégorie est à 0 ou absente du JSON enregistré.
+const CATEGORIES_AGE_SEXE = ['0-11 mois masculin', '0-11 mois féminin', '1 à 5 ans masculin', '1 à 5 ans féminin',
+  '6 à 15 ans masculin', '6 à 15 ans féminin', '>15 ans masculin', '>15 ans féminin'];
+
 let __rapportState = { weeks: [], index: -1, arrLookup: {} };
 
 async function renderRapportModule(containerId) {
@@ -122,47 +128,51 @@ async function paintRapport_(containerId) {
   }
 }
 
-// Une "fiche" par événement avéré, reprenant les rubriques de la fiche officielle ASCQ.
+// Une "fiche" par événement avéré, REPRODUISANT EXACTEMENT la mise en page de la fiche papier
+// officielle "10_BJ_Fiche d'investigation des événements de santé par les ASCQ" : un tableau à
+// deux colonnes (rubrique / valeur), une ligne par rubrique, dans le même ordre que le PDF.
 function ficheEvenementHtml_(d) {
-  const champ = (label, val) => `<div class="fe-field"><span class="fe-label">${label}</span><span class="fe-value">${val || '—'}</span></div>`;
+  const ligne = (label, val) => `<tr><td class="cv-label">${label}</td><td class="cv-value">${val || ''}</td></tr>`;
+  const ligneLongue = (label, val) => `<tr><td class="cv-label">${label}</td><td class="cv-value cv-longtext">${(val || '').replace(/\n/g, '<br>')}</td></tr>`;
+  const gps = (d.gpsLat || d.gpsLon) ? `${d.gpsLat || ''}, ${d.gpsLon || ''}` : '';
+
   return `
-    <div class="card fiche-evenement" style="margin-bottom:14px">
-      <h2 style="display:flex;justify-content:space-between;align-items:baseline">
-        <span>${d.maladie || 'Événement'}</span>
-        <span style="font-size:.78rem;font-weight:600;color:var(--ink-soft)">${fmtDate(d.date)}</span>
-      </h2>
-      <div class="grid grid-2">
-        ${champ('Département de notification', d.departement)}
-        ${champ('Zone sanitaire de notification', d.zoneSanitaire)}
-        ${champ('Commune concernée', d.commune)}
-        ${champ('Arrondissement concerné', d.arrondissement)}
-        ${champ('Village concerné', d.village)}
-        ${champ('Nom et prénom du relais', d.relais)}
-        ${champ('Tél. relais', d.telRelais)}
-        ${champ('Nom et prénom de l\'ASCQ', d.ascqNom)}
-        ${champ('Tél. ASCQ', d.telAscq)}
-        ${champ('Coordonnées GPS', (d.gpsLat || d.gpsLon) ? `${d.gpsLat || ''}, ${d.gpsLon || ''}` : '')}
-        ${champ('Événement avéré ?', d.evenementAvere)}
-        ${champ('Source d\'information', d.source)}
-        ${champ('Maladie / événement concerné', d.maladie)}
-        ${champ('Date de survenue', fmtDate(d.dateSurvenue))}
-        ${champ('Date de notification', fmtDate(d.dateNotification))}
-        ${champ('Date d\'investigation', fmtDate(d.dateInvestigation))}
-      </div>
-      <div class="fe-longtext"><span class="fe-label">Description de l'événement (signes, symptômes, personnes touchées)</span><p>${d.description || '—'}</p></div>
-      <div class="fe-longtext"><span class="fe-label">Circonstances de survenue</span><p>${d.circonstances || '—'}</p></div>
-      <div class="grid grid-2" style="margin-top:10px">
-        <div><h3 style="font-size:.8rem;margin:0 0 6px">Cas par catégorie (total : ${d.nombreCas || 0})</h3>${categorieTableHtml_(d.casParCategorie)}</div>
-        <div><h3 style="font-size:.8rem;margin:0 0 6px">Décès par catégorie (total : ${d.nombreDeces || 0})</h3>${categorieTableHtml_(d.decesParCategorie)}</div>
-      </div>
-      <div class="fe-longtext" style="margin-top:10px"><span class="fe-label">Synthèse des actions menées</span><p>${d.actions || '—'}</p></div>
-    </div>`;
+    <div class="canevas-titre">${d.maladie || 'Événement'} — ${fmtDate(d.date)}</div>
+    <table class="canevas-table" style="margin-bottom:22px">
+      <tbody>
+        ${ligne('Département de notification', d.departement)}
+        ${ligne('Zone sanitaire de notification', d.zoneSanitaire)}
+        ${ligne('Commune concernée l\'événement', d.commune)}
+        ${ligne('Arrondissement concernée l\'événement', d.arrondissement)}
+        ${ligne('Village concernée l\'événement', d.village)}
+        ${ligne('Nom et prénom du relais', d.relais)}
+        ${ligne('Tél relais', d.telRelais)}
+        ${ligne('Nom et prénom de l\'ASCQ', d.ascqNom)}
+        ${ligne('Tél de l\'ASCQ', d.telAscq)}
+        ${ligne('Coordonnées GPS', gps)}
+        ${ligne('Evénement avéré ? (Oui/Non)', d.evenementAvere)}
+        ${ligne('Source d\'information sur l\'événement', d.source)}
+        ${ligne('Maladie/ événement concerné', d.maladie)}
+        ${ligneLongue('Décrire l\'événement (signes et symptômes, date de début, les personnes touchées)', d.description)}
+        ${ligneLongue('Décrire les circonstances de survenue (comment l\'événement a démarré, notion de voyage etc)', d.circonstances)}
+        ${ligne('Date de survenue de l\'événement', fmtDate(d.dateSurvenue))}
+        ${ligne('Date de notification de l\'événement avec l\'envoi du formulaire', fmtDate(d.dateNotification))}
+        ${ligne('Date de l\'investigation de l\'événement', fmtDate(d.dateInvestigation))}
+        <tr><td class="cv-label cv-section" colspan="2">Nombre total de cas de cas</td></tr>
+        ${categorieLignesHtml_(d.casParCategorie)}
+        <tr><td class="cv-label cv-section" colspan="2">Nombre total de décès</td></tr>
+        ${categorieLignesHtml_(d.decesParCategorie)}
+        ${ligneLongue('Synthèse des actions menées', d.actions)}
+        <tr><td class="cv-label" style="border-bottom:none">Nom et signature des investigateurs</td><td class="cv-value" style="border-bottom:none">&nbsp;</td></tr>
+      </tbody>
+    </table>`;
 }
 
-function categorieTableHtml_(obj) {
-  const entries = Object.entries(obj || {}).filter(([k, v]) => Number(v) > 0);
-  if (!entries.length) return '<p style="font-size:.82rem;color:var(--ink-soft)">Aucune donnée renseignée.</p>';
-  return `<table><tbody>${entries.map(([k, v]) => `<tr><td>${k}</td><td style="text-align:right;font-weight:700">${v}</td></tr>`).join('')}</tbody></table>`;
+// Les 8 lignes de catégorie âge/sexe, toujours dans le même ordre que le PDF, à puces (•),
+// même quand une catégorie vaut 0 ou est absente des données enregistrées.
+function categorieLignesHtml_(obj) {
+  obj = obj || {};
+  return CATEGORIES_AGE_SEXE.map(cat => `<tr><td class="cv-label cv-puce">${cat}</td><td class="cv-value">${Number(obj[cat]) || 0}</td></tr>`).join('');
 }
 
 function sitesTableHtml_(sites) {

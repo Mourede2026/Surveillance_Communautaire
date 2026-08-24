@@ -46,7 +46,15 @@
       </section>
 
       <section id="tab-investiguer" style="display:none">
-        <div class="card"><h2>Alertes / décès en attente d'investigation</h2><div id="pendingTable">Chargement…</div></div>
+        <div class="card">
+          <h2>Alertes en attente d'investigation</h2>
+          <p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">
+            Seules les alertes (événements) nécessitent une fiche d'investigation. Les décès
+            communautaires notifiés par les RC sont comptabilisés automatiquement dans le rapport
+            hebdomadaire dès leur notification — ils n'ont pas besoin d'être investigués ici.
+          </p>
+          <div id="pendingTable">Chargement…</div>
+        </div>
         <div class="card" id="invFormCard" style="display:none">
           <h2>Fiche d'investigation (ASCQ)</h2>
           <form id="formInvestigation"></form>
@@ -147,13 +155,15 @@ async function loadDashboard() {
 async function loadPending() {
   pendingTable.innerHTML = 'Chargement…';
   try {
-    const [a, d] = await Promise.all([Api.call('listAlertes', {}), Api.call('listDeces', {})]);
-    const rows = [...a.alertes.map(x => ({...x, refType: 'ALERTE'})), ...d.deces.map(x => ({...x, refType: 'DECES'}))]
-      .filter(x => x.Statut !== 'Investigué');
-    if (!rows.length) { pendingTable.innerHTML = '<div class="empty-state">Aucun dossier en attente. 👍</div>'; return; }
+    // Seules les ALERTES (événements) nécessitent une fiche d'investigation ASCQ — les décès
+    // notifiés par un RC sont considérés avérés dès leur notification et comptés directement
+    // dans le rapport hebdomadaire, sans étape d'investigation.
+    const { alertes } = await Api.call('listAlertes', {});
+    const rows = alertes.filter(x => x.Statut !== 'Investigué').map(x => ({ ...x, refType: 'ALERTE' }));
+    if (!rows.length) { pendingTable.innerHTML = '<div class="empty-state">Aucune alerte en attente d\'investigation. 👍</div>'; return; }
     let html = '<table><thead><tr><th>Type</th><th>Date</th><th>Nom / description</th><th></th></tr></thead><tbody>';
     rows.forEach(r => {
-      html += `<tr><td>${r.refType === 'ALERTE' ? 'Alerte' : 'Décès'}</td><td>${fmtDate(r.DateSaisie)}</td>
+      html += `<tr><td>Alerte</td><td>${fmtDate(r.DateSaisie)}</td>
         <td>${r.Nom || r.TypeAlerte}</td>
         <td><button data-inv="${r.refType}|${r.ID}">Investiguer</button></td></tr>`;
     });

@@ -143,26 +143,28 @@ button:hover, .btn:hover { background: var(--teal-900); }
   .content { padding: 16px; }
 }
 
-/* ---------- Fiche d'événement (rapport hebdomadaire) — reproduit le canevas officiel ---------- */
+/* ---------- Rapport hebdomadaire — reproduit le canevas officiel ---------- */
 .canevas-titre {
-  background: var(--teal-700); color: #fff; font-weight: 700; font-size: .85rem;
-  padding: 8px 12px; border-radius: 6px 6px 0 0; margin-top: 4px;
+  background: var(--teal-700); color: #fff; font-weight: 700; font-size: .95rem;
+  padding: 10px 14px; border-radius: 6px; margin: 4px 0 14px; text-align: center;
 }
-table.canevas-table { width: 100%; border-collapse: collapse; font-size: .87rem; margin-top: 0; }
-table.canevas-table td { border: 1px solid var(--line); padding: 7px 10px; vertical-align: top; }
-table.canevas-table .cv-label { width: 38%; font-weight: 600; background: #FAFCFB; color: var(--ink); }
-table.canevas-table .cv-label.cv-puce { padding-left: 22px; font-weight: 400; }
-table.canevas-table .cv-label.cv-puce::before { content: '• '; }
-table.canevas-table .cv-label.cv-section { background: #EDF3F1; font-weight: 700; }
-table.canevas-table .cv-value { width: 62%; }
-table.canevas-table .cv-value.cv-longtext { white-space: pre-wrap; }
+.canevas-entete {
+  display: flex; flex-wrap: wrap; gap: 6px 22px; background: #FAFCFB; border: 1px solid var(--line);
+  border-radius: 6px; padding: 12px 14px; font-size: .87rem;
+}
+.canevas-entete .ce-entete-champ strong { color: var(--teal-900); }
 
-/* ---------- Fiche d'événement (rapport hebdomadaire détaillé) ---------- */
-.fiche-evenement .fe-field { padding: 6px 0; border-bottom: 1px dashed var(--line); }
-.fiche-evenement .fe-label { display: block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--ink-soft); margin-bottom: 2px; }
-.fiche-evenement .fe-value { font-size: .9rem; }
-.fiche-evenement .fe-longtext { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-.fiche-evenement .fe-longtext p { margin: 4px 0 0; font-size: .88rem; white-space: pre-wrap; }
+table.canevas-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.canevas-table th { text-align: left; background: var(--teal-900); color: #fff; padding: 8px 12px; font-size: .82rem; }
+table.canevas-table td { border: 1px solid var(--line); padding: 8px 12px; vertical-align: top; }
+table.canevas-table td.ce-nombre, table.canevas-table th.ce-nombre { text-align: center; width: 90px; font-weight: 700; color: var(--teal-700); }
+table.canevas-table td.ce-actions { min-height: 60px; }
+table.canevas-table td.ce-actions p { margin: 0 0 6px; font-size: .87rem; white-space: pre-wrap; }
+table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0; }
+
+.canevas-signature { margin-top: 26px; max-width: 320px; }
+.canevas-signature .ce-sig-label { font-size: .75rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 30px; }
+.canevas-signature .ce-sig-ligne { border-top: 1px solid var(--ink); padding-top: 4px; font-size: .88rem; font-weight: 600; }
 
 /* ---------- Impression / export PDF du rapport hebdomadaire ---------- */
 @media print {
@@ -170,7 +172,5 @@ table.canevas-table .cv-value.cv-longtext { white-space: pre-wrap; }
   body * { visibility: hidden; }
   #rapportPrintArea, #rapportPrintArea * { visibility: visible; }
   #rapportPrintArea { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
-  #rapportPrintArea .rap-print-header { display: block !important; }
-  .canevas-titre, table.canevas-table { break-inside: avoid; page-break-inside: avoid; }
-  #rapportFooter { break-inside: avoid; page-break-inside: avoid; }
+  .canevas-titre, .canevas-entete, table.canevas-table, .canevas-signature { break-inside: avoid; page-break-inside: avoid; }
 }

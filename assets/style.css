@@ -142,21 +142,3 @@ button:hover, .btn:hover { background: var(--teal-900); }
   .sidebar nav a.active { border-bottom-color: var(--amber-500); }
   .content { padding: 16px; }
 }
-
-/* ---------- Fiche d'événement (rapport hebdomadaire détaillé) ---------- */
-.fiche-evenement .fe-field { padding: 6px 0; border-bottom: 1px dashed var(--line); }
-.fiche-evenement .fe-label { display: block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--ink-soft); margin-bottom: 2px; }
-.fiche-evenement .fe-value { font-size: .9rem; }
-.fiche-evenement .fe-longtext { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-.fiche-evenement .fe-longtext p { margin: 4px 0 0; font-size: .88rem; white-space: pre-wrap; }
-
-/* ---------- Impression / export PDF du rapport hebdomadaire ---------- */
-@media print {
-  .no-print { display: none !important; }
-  body * { visibility: hidden; }
-  #rapportPrintArea, #rapportPrintArea * { visibility: visible; }
-  #rapportPrintArea { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
-  #rapportPrintArea .rap-print-header { display: block !important; }
-  .fiche-evenement { break-inside: avoid; page-break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
-  #rapportFooter { break-inside: avoid; page-break-inside: avoid; }
-}

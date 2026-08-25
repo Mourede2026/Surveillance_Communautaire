@@ -1,66 +1,100 @@
 /**
  * Affiche le rapport hebdomadaire d'un compte (ASCQ, PF ou RCSE), en reproduisant EXACTEMENT la
  * mise en page du canevas officiel "BJ_RAPPORT HEBDOMADAIRE DE LA SURVEILLANCE A BASE
- * COMMUNAUTAIRE" : en-tête (Département / Zone sanitaire / Commune / Arrondissement / Village /
- * Semaine N° du ... au ...), tableau "Synthèse des alertes", tableau "Synthèse des décès
+ * COMMUNAUTAIRE" : en-tête (Zone sanitaire / Commune / Arrondissement selon le niveau / Semaine
+ * N° du ... au ...), tableau "Synthèse des alertes", tableau "Synthèse des décès
  * communautaires", "Actions menées" et "Nom et signature du rapporteur".
  *
  * Ce rapport s'affiche TOUJOURS, avec des 0 dans les deux tableaux quand rien n'a été notifié
  * cette semaine — jamais un écran vide.
  *
+ * Chaque compte peut consulter le rapport à SON niveau ET à tous les niveaux EN DESSOUS de lui,
+ * via des listes déroulantes en cascade :
+ *  - ASCQ  : par arrondissement (s'il en couvre plusieurs)
+ *  - PF    : toute la commune, ou par arrondissement de sa commune
+ *  - RCSE  : toute la zone sanitaire, par commune (= par PF), ou par arrondissement d'une commune
+ *
  * En plus du canevas :
- * - navigation Précédent / Suivant entre les semaines disponibles
+ * - navigation Précédent / Suivant entre les semaines disponibles POUR LA PORTÉE choisie
  * - par défaut, la semaine affichée est celle qui PRÉCÈDE la semaine en cours (non terminée)
  * - un point des SITES NOTIFICATEURS (les RC à l'origine des cas comptabilisés dans ce rapport)
  * - un bouton d'impression / export PDF (impression navigateur, mise en page dédiée)
  *
- * Un ASCQ qui couvre plusieurs arrondissements reçoit un rapport distinct par arrondissement et
- * par semaine : un sélecteur d'arrondissement apparaît alors au-dessus du rapport, et
- * Précédent/Suivant ne navigue qu'entre les semaines de l'arrondissement choisi.
- *
  * containerId : id de l'élément où injecter le rapport.
  */
-let __rapportState = { weeks: [], filteredWeeks: [], index: -1, arrLookup: {}, arrondissements: [], selectedArr: null };
+let __rapportState = {
+  role: null, weeks: [], arrLookup: {}, perimetre: null,
+  portee: null,            // 'zone' | 'commune' | 'arrondissement'  (rôle ASCQ : toujours 'arrondissement')
+  selectedCommuneKey: null, // RCSE uniquement : pfId de la commune choisie
+  selectedArrId: null,
+  filteredWeeks: [], index: -1
+};
 
 async function renderRapportModule(containerId) {
   const el = document.getElementById(containerId);
   el.innerHTML = 'Chargement…';
   try {
-    const [{ rapports }, { geo }] = await Promise.all([Api.call('listRapports', {}), Api.call('listGeo', {})]);
+    const role = (Session.getUser() || {}).Role;
+    const calls = [Api.call('listRapports', {}), Api.call('listGeo', {})];
+    if (role === 'PF' || role === 'RCSE') calls.push(Api.call('listPerimetreRapport', {}));
+    const [{ rapports }, { geo }, perimetreRes] = await Promise.all(calls);
+
+    __rapportState.role = role;
     __rapportState.arrLookup = {};
     (geo.arrondissements || []).forEach(a => __rapportState.arrLookup[a.ID] = a.Nom);
-    const weeks = rapports.slice().sort((a, b) =>
-      (Number(a.Annee) - Number(b.Annee)) ||
-      (Number(a.SemaineEpi) - Number(b.SemaineEpi)) ||
-      String(__rapportState.arrLookup[a.ArrondissementId] || '').localeCompare(String(__rapportState.arrLookup[b.ArrondissementId] || ''))
+    __rapportState.perimetre = perimetreRes ? perimetreRes.perimetre : null;
+    __rapportState.weeks = rapports.slice().sort((a, b) =>
+      (Number(a.Annee) - Number(b.Annee)) || (Number(a.SemaineEpi) - Number(b.SemaineEpi))
     );
-    __rapportState.weeks = weeks;
-    if (!weeks.length) {
+
+    if (!__rapportState.weeks.length) {
       el.innerHTML = '<div class="empty-state">Aucun rapport généré pour le moment. Utilisez le bouton ci-dessus pour générer le rapport de la semaine en cours.</div>';
       return;
     }
 
-    // Un ASCQ qui couvre plusieurs arrondissements a un rapport distinct par arrondissement et
-    // par semaine : on propose un sélecteur d'arrondissement, et Précédent/Suivant ne navigue
-    // plus qu'entre les semaines de l'arrondissement choisi (au lieu d'alterner entre
-    // arrondissements d'une même semaine).
-    const arrIds = [...new Set(weeks.filter(w => w.Niveau === 'ASCQ' && w.ArrondissementId).map(w => w.ArrondissementId))];
-    __rapportState.arrondissements = arrIds
-      .map(id => ({ id, nom: __rapportState.arrLookup[id] || id }))
-      .sort((a, b) => a.nom.localeCompare(b.nom));
-    __rapportState.selectedArr = __rapportState.arrondissements.length ? __rapportState.arrondissements[0].id : null;
+    // Portée par défaut à l'ouverture : le niveau du compte lui-même (zone pour RCSE, commune
+    // pour PF, arrondissement pour ASCQ — seul niveau qu'il possède).
+    __rapportState.portee = { RCSE: 'zone', PF: 'commune', ASCQ: 'arrondissement' }[role] || 'zone';
+    if (role === 'ASCQ') {
+      const arrIds = [...new Set(__rapportState.weeks.filter(w => w.Niveau === 'ASCQ').map(w => w.ArrondissementId))].sort(
+        (a, b) => String(__rapportState.arrLookup[a] || '').localeCompare(String(__rapportState.arrLookup[b] || ''))
+      );
+      __rapportState.selectedArrId = arrIds[0] || null;
+    } else if (role === 'RCSE' && __rapportState.perimetre.communes && __rapportState.perimetre.communes.length) {
+      __rapportState.selectedCommuneKey = __rapportState.perimetre.communes[0].pfId;
+      const arrs = __rapportState.perimetre.communes[0].arrondissements || [];
+      __rapportState.selectedArrId = arrs[0] ? arrs[0].id : null;
+    } else if (role === 'PF' && __rapportState.perimetre.arrondissements && __rapportState.perimetre.arrondissements.length) {
+      __rapportState.selectedArrId = __rapportState.perimetre.arrondissements[0].id;
+    }
 
-    await selectionnerArrondissement_(containerId, __rapportState.selectedArr);
+    await appliquerPortee_(containerId);
   } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement du rapport.</div>'; }
 }
 
-// (Re)calcule la liste filtrée de semaines pour l'arrondissement choisi (ou toutes les semaines
-// si le compte n'est pas un ASCQ multi-arrondissements), puis positionne l'affichage sur la
-// semaine précédente au sein de cette liste.
-async function selectionnerArrondissement_(containerId, arrId) {
-  __rapportState.selectedArr = arrId;
-  __rapportState.filteredWeeks = arrId ? __rapportState.weeks.filter(w => w.ArrondissementId === arrId) : __rapportState.weeks;
-  __rapportState.index = await indexSemainePrecedente_(__rapportState.filteredWeeks);
+// Renvoie les semaines (parmi celles renvoyées par listRapports) qui correspondent à la portée
+// actuellement choisie (zone / commune / arrondissement) et à la sélection en cours.
+function weeksPourPortee_() {
+  const { role, weeks, portee, selectedCommuneKey, selectedArrId } = __rapportState;
+  if (role === 'NATIONAL') return weeks.filter(w => w.Niveau === 'NATIONAL');
+  if (role === 'RCSE') {
+    if (portee === 'zone') return weeks.filter(w => w.Niveau === 'RCSE');
+    if (portee === 'commune') return weeks.filter(w => w.Niveau === 'PF' && w.CompteId === selectedCommuneKey);
+    if (portee === 'arrondissement') return weeks.filter(w => w.Niveau === 'ASCQ' && w.ArrondissementId === selectedArrId);
+  }
+  if (role === 'PF') {
+    if (portee === 'commune') return weeks.filter(w => w.Niveau === 'PF');
+    if (portee === 'arrondissement') return weeks.filter(w => w.Niveau === 'ASCQ' && w.ArrondissementId === selectedArrId);
+  }
+  if (role === 'ASCQ') return weeks.filter(w => w.Niveau === 'ASCQ' && w.ArrondissementId === selectedArrId);
+  return weeks;
+}
+
+// Recalcule la liste filtrée pour la portée/sélection en cours, se repositionne sur la semaine
+// précédente au sein de cette liste, puis repeint.
+async function appliquerPortee_(containerId) {
+  __rapportState.filteredWeeks = weeksPourPortee_();
+  __rapportState.index = __rapportState.filteredWeeks.length ? await indexSemainePrecedente_(__rapportState.filteredWeeks) : -1;
   await paintRapport_(containerId);
 }
 
@@ -83,21 +117,88 @@ async function indexSemainePrecedente_(weeks) {
   } catch (e) { return dernier; }
 }
 
+// Construit les listes déroulantes en cascade adaptées au rôle du compte connecté.
+function selecteurPorteeHtml_() {
+  const { role, portee, perimetre, selectedCommuneKey, selectedArrId } = __rapportState;
+
+  if (role === 'ASCQ') {
+    const arrIds = [...new Set(__rapportState.weeks.filter(w => w.Niveau === 'ASCQ').map(w => w.ArrondissementId))];
+    if (arrIds.length <= 1) return '';
+    const arrondissements = arrIds.map(id => ({ id, nom: __rapportState.arrLookup[id] || id })).sort((a, b) => a.nom.localeCompare(b.nom));
+    return `
+      <div class="no-print rap-selecteurs">
+        <label>Arrondissement :</label>
+        <select id="rapArrSel">${arrondissements.map(a => `<option value="${a.id}" ${a.id === selectedArrId ? 'selected' : ''}>${a.nom}</option>`).join('')}</select>
+      </div>`;
+  }
+
+  if (role === 'PF') {
+    const arrs = (perimetre && perimetre.arrondissements) || [];
+    if (!arrs.length) return '';
+    return `
+      <div class="no-print rap-selecteurs">
+        <label><input type="radio" name="rapPortee" value="commune" ${portee === 'commune' ? 'checked' : ''}> Toute la commune</label>
+        <label><input type="radio" name="rapPortee" value="arrondissement" ${portee === 'arrondissement' ? 'checked' : ''}> Par arrondissement</label>
+        ${portee === 'arrondissement' ? `<select id="rapArrSel">${arrs.map(a => `<option value="${a.id}" ${a.id === selectedArrId ? 'selected' : ''}>${a.nom}</option>`).join('')}</select>` : ''}
+      </div>`;
+  }
+
+  if (role === 'RCSE') {
+    const communes = (perimetre && perimetre.communes) || [];
+    if (!communes.length) return '';
+    const communeCourante = communes.find(c => c.pfId === selectedCommuneKey) || communes[0];
+    const arrs = communeCourante.arrondissements || [];
+    return `
+      <div class="no-print rap-selecteurs">
+        <label><input type="radio" name="rapPortee" value="zone" ${portee === 'zone' ? 'checked' : ''}> Toute la zone sanitaire</label>
+        <label><input type="radio" name="rapPortee" value="commune" ${portee === 'commune' ? 'checked' : ''}> Par commune</label>
+        <label><input type="radio" name="rapPortee" value="arrondissement" ${portee === 'arrondissement' ? 'checked' : ''}> Par arrondissement</label>
+        ${portee !== 'zone' ? `<select id="rapCommuneSel">${communes.map(c => `<option value="${c.pfId}" ${c.pfId === selectedCommuneKey ? 'selected' : ''}>${c.nom}</option>`).join('')}</select>` : ''}
+        ${portee === 'arrondissement' ? `<select id="rapArrSel">${arrs.map(a => `<option value="${a.id}" ${a.id === selectedArrId ? 'selected' : ''}>${a.nom}</option>`).join('')}</select>` : ''}
+      </div>`;
+  }
+
+  return '';
+}
+
+function cablerSelecteurPortee_(containerId) {
+  document.querySelectorAll('input[name="rapPortee"]').forEach(r => r.addEventListener('change', (e) => {
+    __rapportState.portee = e.target.value;
+    // En changeant de portée, on repart sur la première commune/arrondissement disponible.
+    if (__rapportState.role === 'RCSE' && __rapportState.perimetre.communes.length) {
+      __rapportState.selectedCommuneKey = __rapportState.perimetre.communes[0].pfId;
+      const arrs = __rapportState.perimetre.communes[0].arrondissements || [];
+      __rapportState.selectedArrId = arrs[0] ? arrs[0].id : null;
+    } else if (__rapportState.role === 'PF' && __rapportState.perimetre.arrondissements.length) {
+      __rapportState.selectedArrId = __rapportState.perimetre.arrondissements[0].id;
+    }
+    appliquerPortee_(containerId);
+  }));
+  const communeSel = document.getElementById('rapCommuneSel');
+  if (communeSel) communeSel.onchange = (e) => {
+    __rapportState.selectedCommuneKey = e.target.value;
+    const commune = __rapportState.perimetre.communes.find(c => c.pfId === e.target.value);
+    const arrs = (commune && commune.arrondissements) || [];
+    __rapportState.selectedArrId = arrs[0] ? arrs[0].id : null;
+    appliquerPortee_(containerId);
+  };
+  const arrSel = document.getElementById('rapArrSel');
+  if (arrSel) arrSel.onchange = (e) => { __rapportState.selectedArrId = e.target.value; appliquerPortee_(containerId); };
+}
+
 async function paintRapport_(containerId) {
   const el = document.getElementById(containerId);
-  const { filteredWeeks: weeks, index, arrondissements, selectedArr } = __rapportState;
+  const { filteredWeeks: weeks, index } = __rapportState;
+
+  if (!weeks.length || index < 0) {
+    el.innerHTML = `${selecteurPorteeHtml_()}<div class="empty-state">Aucun rapport disponible pour cette sélection.</div>`;
+    cablerSelecteurPortee_(containerId);
+    return;
+  }
   const r = weeks[index];
 
-  const selecteurArr = arrondissements.length > 1 ? `
-    <div class="no-print" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-      <label style="font-size:.85rem;font-weight:600;color:var(--ink-soft)">Arrondissement :</label>
-      <select id="rapArrSel" style="width:auto">
-        ${arrondissements.map(a => `<option value="${a.id}" ${a.id === selectedArr ? 'selected' : ''}>${a.nom}</option>`).join('')}
-      </select>
-    </div>` : '';
-
   el.innerHTML = `
-    ${selecteurArr}
+    ${selecteurPorteeHtml_()}
     <div class="no-print" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <button class="btn-secondary" id="rapPrev" ${index <= 0 ? 'disabled' : ''}>◀ Précédent</button>
       <strong style="font-size:1.05rem">Semaine ${r.SemaineEpi} / ${r.Annee}</strong>
@@ -116,9 +217,7 @@ async function paintRapport_(containerId) {
       <div id="rapportSites" class="no-print">Chargement…</div>
     </div>
   `;
-  if (document.getElementById('rapArrSel')) {
-    document.getElementById('rapArrSel').onchange = (e) => selectionnerArrondissement_(containerId, e.target.value);
-  }
+  cablerSelecteurPortee_(containerId);
   document.getElementById('rapPrev').onclick = () => { __rapportState.index--; paintRapport_(containerId); };
   document.getElementById('rapNext').onclick = () => { __rapportState.index++; paintRapport_(containerId); };
   document.getElementById('rapPrint').onclick = () => window.print();
@@ -126,8 +225,9 @@ async function paintRapport_(containerId) {
   const canevasEl = document.getElementById('rapportCanevas');
   const sitesEl = document.getElementById('rapportSites');
   try {
-    // Pour un rapport de niveau ASCQ, on précise l'arrondissement afin qu'un ASCQ couvrant
-    // plusieurs arrondissements ne voie que le détail de celui du rapport affiché.
+    // On précise toujours niveau/compteId/arrondissementId de la ligne affichée : le backend
+    // s'en sert pour calculer le détail exactement à cette portée (voir listRapportDetail_),
+    // même quand elle est en dessous du niveau propre de l'utilisateur connecté.
     const detailPayload = { annee: r.Annee, semaine: r.SemaineEpi, niveau: r.Niveau, compteId: r.CompteId };
     if (r.Niveau === 'ASCQ' && r.ArrondissementId) detailPayload.arrondissementId = r.ArrondissementId;
     const [{ detail, sites, signataires }, { calendrier }] = await Promise.all([
@@ -155,9 +255,9 @@ function canevasHebdoHtml_(r, detail, sig, semaineCal) {
   const ligneEntete = (label, val) => `<span class="ce-entete-champ"><strong>${label} :</strong> ${val || '—'}</span>`;
   const ligneNombre = (label, val) => `<tr><td>${label}</td><td class="ce-nombre">${val || 0}</td></tr>`;
 
-  // Seules les rubriques géographiques pertinentes au niveau du rapport sont affichées : la
-  // zone sanitaire est toujours montrée, la commune s'ajoute à partir du PF, l'arrondissement
-  // seulement pour l'ASCQ (Département/Village ne s'appliquent à aucun de ces 3 niveaux ici).
+  // Seules les rubriques géographiques pertinentes au niveau DE LA LIGNE AFFICHÉE sont montrées
+  // (et non du rôle de l'utilisateur connecté) : la zone sanitaire est toujours affichée, la
+  // commune s'ajoute à partir du niveau PF, l'arrondissement au niveau ASCQ.
   const champsGeo = { RCSE: ['zoneSanitaire'], PF: ['zoneSanitaire', 'commune'], ASCQ: ['zoneSanitaire', 'commune', 'arrondissement'] }[r.Niveau] || ['zoneSanitaire'];
   const labelsGeo = { zoneSanitaire: 'Zone sanitaire', commune: 'Commune', arrondissement: 'Arrondissement' };
 

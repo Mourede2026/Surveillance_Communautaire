@@ -29,7 +29,10 @@
           <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes (ma zone)</div></div>
           <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (ma zone)</div></div>
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
-          <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+          <div class="stat-card">
+            <div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div>
+            <button class="btn-secondary" id="btnPurgerNotif" style="margin-top:10px;font-size:.78rem;padding:6px 10px">Tout marquer comme lu</button>
+          </div>
         </div>
         <div class="card" style="margin-top:18px">
           <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
@@ -51,6 +54,10 @@
           </form>
         </div>
         <div class="card"><h2>Points focaux CCLS-TP</h2><div id="pfTable">Chargement…</div></div>
+        <div class="card">
+          <h2>Sites couverts (communes des PF, arrondissements des ASCQ, villages des RC)</h2>
+          <div id="couvertureTable">Chargement…</div>
+        </div>
         <div class="card">
           <h2>Importer des PF CCLS-TP par site d'intervention (commune)</h2>
           <div id="importPfContainer"></div>
@@ -128,6 +135,7 @@
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
+<script src="assets/couverture.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
@@ -145,7 +153,7 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   a.classList.add('active');
   ['dashboard','pf','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { pf: loadPF, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { pf: () => { loadPF(); renderCouverture('couvertureTable'); }, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 
@@ -174,6 +182,15 @@ async function loadDashboard() {
     statNotif.textContent = dashboard.notificationsNonLues;
   } catch (e) { toast(e.message, true); }
 }
+
+btnPurgerNotif.addEventListener('click', async () => {
+  if (!confirm('Marquer toutes vos notifications comme lues ? Cette action est irréversible.')) return;
+  try {
+    await Api.call('marquerToutesNotificationsLues', {});
+    toast('Notifications purgées.');
+    loadDashboard();
+  } catch (e) { toast(e.message, true); }
+});
 
 async function loadPF() {
   pfTable.innerHTML = 'Chargement…';

@@ -157,7 +157,8 @@ button:hover, .btn:hover { background: var(--teal-900); }
 table.canevas-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
 table.canevas-table th { text-align: left; background: var(--teal-900); color: #fff; padding: 8px 12px; font-size: .82rem; }
 table.canevas-table td { border: 1px solid var(--line); padding: 8px 12px; vertical-align: top; }
-table.canevas-table td.ce-nombre, table.canevas-table th.ce-nombre { text-align: center; width: 90px; font-weight: 700; color: var(--teal-700); }
+table.canevas-table td.ce-nombre, table.canevas-table th.ce-nombre { text-align: center; width: 90px; }
+table.canevas-table td.ce-nombre { font-weight: 700; color: var(--teal-700); }
 table.canevas-table td.ce-actions { min-height: 60px; }
 table.canevas-table td.ce-actions p { margin: 0 0 6px; font-size: .87rem; white-space: pre-wrap; }
 table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0; }

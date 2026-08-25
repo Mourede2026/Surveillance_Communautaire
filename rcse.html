@@ -5,15 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RCSE — Zone sanitaire</title>
 <link rel="stylesheet" href="assets/style.css">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0B3D3A">
-<link rel="icon" href="assets/icons/favicon.ico" sizes="any">
-<link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png">
-<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Surveillance">
 </head>
 <body>
 <div class="app-shell">
@@ -39,6 +30,10 @@
           <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (ma zone)</div></div>
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
+          <div id="dashboardDetail">Chargement…</div>
         </div>
       </section>
 
@@ -132,6 +127,7 @@
 <script src="assets/rapport.js"></script>
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
+<script src="assets/dashboard-detail.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
@@ -306,9 +302,9 @@ renderImportActeurs({
 (async () => {
   await loadZone();
   loadDashboard();
+  renderDashboardDetail('dashboardDetail');
   loadWeekPill();
 })();
 </script>
-<script src="assets/pwa-register.js"></script>
 </body>
 </html>

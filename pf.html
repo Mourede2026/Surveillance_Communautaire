@@ -40,6 +40,10 @@
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
+        <div class="card" style="margin-top:18px">
+          <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
+          <div id="dashboardDetail">Chargement…</div>
+        </div>
       </section>
 
       <section id="tab-ascq" style="display:none">
@@ -97,6 +101,7 @@
 <script src="assets/briefing.js"></script>
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
+<script src="assets/dashboard-detail.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['PF_CNLS_TP']);
@@ -225,6 +230,7 @@ renderImportActeurs({
 });
 
 loadDashboard();
+renderDashboardDetail('dashboardDetail');
 loadWeekPill();
 </script>
 <script src="assets/pwa-register.js"></script>

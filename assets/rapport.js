@@ -15,11 +15,12 @@
  * - un bouton d'impression / export PDF (impression navigateur, mise en page dédiée)
  *
  * Un ASCQ qui couvre plusieurs arrondissements reçoit un rapport distinct par arrondissement et
- * par semaine ; le nom de l'arrondissement est alors affiché à côté du numéro de semaine.
+ * par semaine : un sélecteur d'arrondissement apparaît alors au-dessus du rapport, et
+ * Précédent/Suivant ne navigue qu'entre les semaines de l'arrondissement choisi.
  *
  * containerId : id de l'élément où injecter le rapport.
  */
-let __rapportState = { weeks: [], index: -1, arrLookup: {} };
+let __rapportState = { weeks: [], filteredWeeks: [], index: -1, arrLookup: {}, arrondissements: [], selectedArr: null };
 
 async function renderRapportModule(containerId) {
   const el = document.getElementById(containerId);
@@ -38,9 +39,29 @@ async function renderRapportModule(containerId) {
       el.innerHTML = '<div class="empty-state">Aucun rapport généré pour le moment. Utilisez le bouton ci-dessus pour générer le rapport de la semaine en cours.</div>';
       return;
     }
-    __rapportState.index = await indexSemainePrecedente_(weeks);
-    await paintRapport_(containerId);
+
+    // Un ASCQ qui couvre plusieurs arrondissements a un rapport distinct par arrondissement et
+    // par semaine : on propose un sélecteur d'arrondissement, et Précédent/Suivant ne navigue
+    // plus qu'entre les semaines de l'arrondissement choisi (au lieu d'alterner entre
+    // arrondissements d'une même semaine).
+    const arrIds = [...new Set(weeks.filter(w => w.Niveau === 'ASCQ' && w.ArrondissementId).map(w => w.ArrondissementId))];
+    __rapportState.arrondissements = arrIds
+      .map(id => ({ id, nom: __rapportState.arrLookup[id] || id }))
+      .sort((a, b) => a.nom.localeCompare(b.nom));
+    __rapportState.selectedArr = __rapportState.arrondissements.length ? __rapportState.arrondissements[0].id : null;
+
+    await selectionnerArrondissement_(containerId, __rapportState.selectedArr);
   } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement du rapport.</div>'; }
+}
+
+// (Re)calcule la liste filtrée de semaines pour l'arrondissement choisi (ou toutes les semaines
+// si le compte n'est pas un ASCQ multi-arrondissements), puis positionne l'affichage sur la
+// semaine précédente au sein de cette liste.
+async function selectionnerArrondissement_(containerId, arrId) {
+  __rapportState.selectedArr = arrId;
+  __rapportState.filteredWeeks = arrId ? __rapportState.weeks.filter(w => w.ArrondissementId === arrId) : __rapportState.weeks;
+  __rapportState.index = await indexSemainePrecedente_(__rapportState.filteredWeeks);
+  await paintRapport_(containerId);
 }
 
 // Détermine l'index (dans `weeks`) du rapport à afficher par défaut : celui de la semaine
@@ -64,14 +85,22 @@ async function indexSemainePrecedente_(weeks) {
 
 async function paintRapport_(containerId) {
   const el = document.getElementById(containerId);
-  const { weeks, index, arrLookup } = __rapportState;
+  const { filteredWeeks: weeks, index, arrondissements, selectedArr } = __rapportState;
   const r = weeks[index];
-  const arrLabel = r.Niveau === 'ASCQ' && r.ArrondissementId ? ` — ${arrLookup[r.ArrondissementId] || r.ArrondissementId}` : '';
+
+  const selecteurArr = arrondissements.length > 1 ? `
+    <div class="no-print" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <label style="font-size:.85rem;font-weight:600;color:var(--ink-soft)">Arrondissement :</label>
+      <select id="rapArrSel" style="width:auto">
+        ${arrondissements.map(a => `<option value="${a.id}" ${a.id === selectedArr ? 'selected' : ''}>${a.nom}</option>`).join('')}
+      </select>
+    </div>` : '';
 
   el.innerHTML = `
+    ${selecteurArr}
     <div class="no-print" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <button class="btn-secondary" id="rapPrev" ${index <= 0 ? 'disabled' : ''}>◀ Précédent</button>
-      <strong style="font-size:1.05rem">Semaine ${r.SemaineEpi} / ${r.Annee}${arrLabel}</strong>
+      <strong style="font-size:1.05rem">Semaine ${r.SemaineEpi} / ${r.Annee}</strong>
       <button class="btn-secondary" id="rapNext" ${index >= weeks.length - 1 ? 'disabled' : ''}>Suivant ▶</button>
     </div>
     <div class="no-print" style="display:flex;justify-content:flex-end;margin-bottom:10px">
@@ -87,6 +116,9 @@ async function paintRapport_(containerId) {
       <div id="rapportSites" class="no-print">Chargement…</div>
     </div>
   `;
+  if (document.getElementById('rapArrSel')) {
+    document.getElementById('rapArrSel').onchange = (e) => selectionnerArrondissement_(containerId, e.target.value);
+  }
   document.getElementById('rapPrev').onclick = () => { __rapportState.index--; paintRapport_(containerId); };
   document.getElementById('rapNext').onclick = () => { __rapportState.index++; paintRapport_(containerId); };
   document.getElementById('rapPrint').onclick = () => window.print();

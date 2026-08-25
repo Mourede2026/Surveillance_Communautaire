@@ -123,14 +123,16 @@ function canevasHebdoHtml_(r, detail, sig, semaineCal) {
   const ligneEntete = (label, val) => `<span class="ce-entete-champ"><strong>${label} :</strong> ${val || '—'}</span>`;
   const ligneNombre = (label, val) => `<tr><td>${label}</td><td class="ce-nombre">${val || 0}</td></tr>`;
 
+  // Seules les rubriques géographiques pertinentes au niveau du rapport sont affichées : la
+  // zone sanitaire est toujours montrée, la commune s'ajoute à partir du PF, l'arrondissement
+  // seulement pour l'ASCQ (Département/Village ne s'appliquent à aucun de ces 3 niveaux ici).
+  const champsGeo = { RCSE: ['zoneSanitaire'], PF: ['zoneSanitaire', 'commune'], ASCQ: ['zoneSanitaire', 'commune', 'arrondissement'] }[r.Niveau] || ['zoneSanitaire'];
+  const labelsGeo = { zoneSanitaire: 'Zone sanitaire', commune: 'Commune', arrondissement: 'Arrondissement' };
+
   return `
     <div class="canevas-titre">Rapport hebdomadaire de la surveillance à base communautaire</div>
     <div class="canevas-entete">
-      ${ligneEntete('Département', sig.departement)}
-      ${ligneEntete('Zone sanitaire', sig.zoneSanitaire)}
-      ${ligneEntete('Commune', sig.commune)}
-      ${ligneEntete('Arrondissement', sig.arrondissement)}
-      ${ligneEntete('Village', sig.village)}
+      ${champsGeo.map(c => ligneEntete(labelsGeo[c], sig[c])).join('')}
       ${ligneEntete('Semaine N°', `${r.SemaineEpi} / ${r.Annee}${periode ? ' — ' + periode : ''}`)}
     </div>
 

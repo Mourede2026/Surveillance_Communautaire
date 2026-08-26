@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Département — Surveillance</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><strong>Surveillance</strong><span>Département — <span id="depLabel">…</span></span></div>
+    <nav>
+      <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
+      <a href="#" data-tab="rcse">Comptes RCSE</a>
+      <a href="#" data-tab="geo">Géographie de mon département</a>
+      <a href="#" data-tab="assign">Assignations</a>
+      <a href="#" data-tab="utilisateurs">Mes utilisateurs</a>
+      <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
+    </nav>
+    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><h1>Département — <span id="depLabel2">…</span></h1><span class="week-pill" id="weekPill">Semaine —</span></div>
+    <div class="content">
+
+      <section id="tab-dashboard">
+        <div class="grid grid-4">
+          <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes (mon département)</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès (mon département)</div></div>
+          <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
+          <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
+          <div id="dashboardDetail">Chargement…</div>
+        </div>
+      </section>
+
+      <section id="tab-rcse" style="display:none">
+        <div class="card">
+          <h2>Créer un compte RCSE</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">
+            Un RCSE coordonne une "Zone Sanitaire" : un regroupement de communes DE VOTRE
+            DÉPARTEMENT. Cochez les communes qui composent la zone, cliquez sur "Ajouter à la
+            zone", puis créez le compte.
+          </p>
+          <form id="formCreateRCSE" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Prénom</label><input name="prenom" required></div>
+            <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
+            <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
+            <div class="field" style="grid-column:1/-1"><label>Nom de la zone sanitaire</label><input name="zoneSanitaireNom" required placeholder="Ex: Zone Sanitaire Cotonou 1"></div>
+            <div class="field" style="grid-column:1/-1" id="rcseCommunesPicker"></div>
+            <div class="field" style="grid-column:1/-1">
+              <label>Communes de la zone sanitaire</label>
+              <div id="rcseCommunesChips" class="chips-box"><span class="empty-hint">Aucune commune ajoutée pour le moment.</span></div>
+            </div>
+            <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Comptes RCSE</h2><div id="rcseTable">Chargement…</div></div>
+        <div class="card">
+          <h2>Sites couverts (zones, communes des PF, arrondissements des ASCQ, villages des RC)</h2>
+          <div id="couvertureTable">Chargement…</div>
+        </div>
+        <div class="card">
+          <h2>Importer des RCSE par zone sanitaire</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Colonne "Communes" : noms de communes de votre département, séparés par un point-virgule ( ; ).</p>
+          <div id="importRcseContainer"></div>
+        </div>
+      </section>
+
+      <section id="tab-geo" style="display:none">
+        <p style="font-size:.85rem;color:var(--ink-soft)">
+          La structure administrative nationale (départements/communes/arrondissements/villages) est
+          importée par le compte national. Vous pouvez ici ajouter des arrondissements ou villages
+          "hors liste nationale" à l'intérieur des communes de votre département uniquement.
+        </p>
+        <div class="card">
+          <h2>Ajouter un arrondissement (hors liste nationale)</h2>
+          <form id="formArr" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Commune</label><select id="selCommuneArr" required></select></div>
+            <div style="grid-column:1/-1"><button type="submit">Ajouter</button></div>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Ajouter un village (hors liste nationale)</h2>
+          <form id="formVillage" class="grid grid-2">
+            <div class="field"><label>Nom</label><input name="nom" required></div>
+            <div class="field"><label>Commune</label><select id="vilCom" required></select></div>
+            <div class="field"><label>Arrondissement</label><select id="selArrVillage" required></select></div>
+            <div style="grid-column:1/-1"><button type="submit">Ajouter</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Structure administrative de mon département</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Limité aux 200 premières lignes ; la liste complète est dans le Google Sheet.</p>
+          <div id="geoTable">Chargement…</div>
+        </div>
+      </section>
+
+      <section id="tab-assign" style="display:none">
+        <div class="card">
+          <p style="font-size:.85rem;color:var(--ink-soft)">
+            Il ne reste qu'à assigner des <strong>communes</strong> supplémentaires (dans votre
+            département) aux comptes <strong>RCSE</strong> ci-dessous, pour agrandir leur zone
+            sanitaire si besoin.
+          </p>
+        </div>
+        <div class="card">
+          <h2>Assigner une commune supplémentaire à un RCSE</h2>
+          <form id="formAssignRcse" class="grid grid-2">
+            <div class="field"><label>RCSE</label><select name="userId" id="selRcse" required></select></div>
+            <div class="field" style="grid-column:1/-1"><label>Commune</label><select id="apCom" required></select></div>
+            <div style="grid-column:1/-1"><button type="submit">Assigner</button></div>
+          </form>
+        </div>
+        <div class="card"><h2>Assignations actuelles</h2><div id="assignTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-utilisateurs" style="display:none">
+        <div class="card"><h2>Comptes de mon département (RCSE, PF, ASCQ, RC)</h2><div id="usersTable">Chargement…</div></div>
+      </section>
+
+      <section id="tab-rapport" style="display:none">
+        <div class="card"><button id="genRapportBtn" class="btn-secondary">Générer / actualiser le rapport de la semaine en cours</button></div>
+        <div class="card"><h2>Rapport hebdomadaire du département</h2><div id="rapportTable">Chargement…</div></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="assets/geo-benin-data.js"></script>
+<script src="assets/geo-utils.js"></script>
+<script src="assets/rapport.js"></script>
+<script src="assets/bulk-import.js"></script>
+<script src="assets/user-admin.js"></script>
+<script src="assets/dashboard-detail.js"></script>
+<script src="assets/couverture.js"></script>
+<script src="assets/api.js"></script>
+<script>
+const user = Session.requireRole(['DEPARTEMENT']);
+userName.textContent = user.Prenom + ' ' + user.Nom;
+depLabel.textContent = user.DepartementNom || '';
+depLabel2.textContent = user.DepartementNom || '';
+logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+
+// Communes de mon département — servent à composer la zone sanitaire d'un RCSE et à câbler les
+// listes déroulantes de géographie.
+let MES_COMMUNES = []; // [{ID, Nom, DepartementId, DepartementNom}]
+let GEO_CACHE = { communes: [], arrondissements: [], villages: [], grappes: [] };
+let zoneCommunes = {}; // { communeId: communeNom } — panier en cours de composition pour la création RCSE
+
+document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
+  a.classList.add('active');
+  ['dashboard','rcse','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
+  const loaders = { rcse: () => { loadRCSE(); renderCouverture('couvertureTable'); }, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
+}));
+
+function fillCommuneSelect_(selectEl, placeholder) {
+  selectEl.innerHTML = MES_COMMUNES.length
+    ? `<option value="">${placeholder}</option>` + MES_COMMUNES.map(c => `<option value="${c.ID}">${c.Nom}</option>`).join('')
+    : '<option value="">Aucune commune dans votre département — importez la géographie nationale</option>';
+}
+
+async function loadDepartementCommunes() {
+  const { geo } = await Api.call('listGeo', {});
+  GEO_CACHE = geo;
+  MES_COMMUNES = geo.communes.filter(c => c.DepartementId === user.DepartementId);
+}
+
+async function loadDashboard() {
+  try {
+    const { dashboard } = await Api.call('getDashboard', {});
+    statAlertes.textContent = dashboard.totalAlertes;
+    statDeces.textContent = dashboard.totalDeces;
+    statNonInv.textContent = dashboard.alertesNonInvestiguees;
+    statNotif.textContent = dashboard.notificationsNonLues;
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderZoneChips() {
+  const ids = Object.keys(zoneCommunes);
+  rcseCommunesChips.innerHTML = ids.length
+    ? ids.map(id => `<span class="chip">${zoneCommunes[id]}<button type="button" data-remove="${id}">×</button></span>`).join('')
+    : '<span class="empty-hint">Aucune commune ajoutée pour le moment.</span>';
+  rcseCommunesChips.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => {
+    delete zoneCommunes[b.dataset.remove];
+    renderZoneChips();
+  }));
+}
+renderZoneChips();
+
+function renderCommunesPicker() {
+  if (!MES_COMMUNES.length) { rcseCommunesPicker.innerHTML = '<div class="empty-hint">Aucune commune trouvée — importez d\'abord la structure nationale.</div>'; return; }
+  rcseCommunesPicker.innerHTML = '<div class="commune-picker-list">' +
+    MES_COMMUNES.map(c => `<label><input type="checkbox" value="${c.ID}" data-nom="${c.Nom}"> ${c.Nom}</label>`).join('') +
+    '</div><button type="button" class="btn-secondary" id="rcseAddCommunes" style="margin-top:6px">Ajouter les communes cochées à la zone</button>';
+  document.getElementById('rcseAddCommunes').addEventListener('click', () => {
+    rcseCommunesPicker.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => { zoneCommunes[cb.value] = cb.dataset.nom; });
+    renderZoneChips();
+  });
+}
+
+async function loadRCSE() {
+  rcseTable.innerHTML = 'Chargement…';
+  await loadDepartementCommunes();
+  renderCommunesPicker();
+  try {
+    const { users } = await Api.call('listUsers', {});
+    const rcses = users.filter(u => u.Role === 'RCSE');
+    const usersById = {}; rcses.forEach(u => usersById[u.ID] = u);
+    if (!rcses.length) { rcseTable.innerHTML = '<div class="empty-state">Aucun compte RCSE créé pour le moment.</div>'; return; }
+
+    const { perimetres } = await Api.call('listPerimetres', {});
+    const comNomById = {}; MES_COMMUNES.forEach(c => comNomById[c.ID] = c.Nom);
+    let html = '<table><thead><tr><th>Zone sanitaire</th><th>Nom</th><th>Téléphone</th><th>Communes</th><th>Statut</th><th></th></tr></thead><tbody>';
+    rcses.forEach(u => {
+      const actif = u.Actif === true || u.Actif === 'TRUE';
+      const mesCom = perimetres.filter(p => p.UserId === u.ID && p.TypeCible === 'Commune').map(p => comNomById[p.CibleId] || p.CibleId);
+      html += `<tr><td>${u.ZoneSanitaireNom||''}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${mesCom.join(', ')}</td>
+        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
+        <td>${userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
+    });
+    rcseTable.innerHTML = html + '</tbody></table>';
+    wireUserRowActions(rcseTable, usersById, loadRCSE);
+  } catch (e) { rcseTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+formCreateRCSE.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formCreateRCSE).entries());
+  const communeIds = Object.keys(zoneCommunes);
+  if (!communeIds.length) { toast('Ajoutez au moins une commune à la zone sanitaire.', true); return; }
+  fd.role = 'RCSE';
+  fd.communeIds = communeIds;
+  try {
+    await Api.call('createUser', fd);
+    toast('Compte RCSE créé.');
+    formCreateRCSE.reset();
+    zoneCommunes = {}; renderZoneChips();
+    loadRCSE();
+  } catch (err) { toast(err.message, true); }
+});
+
+async function loadGeo() {
+  geoTable.innerHTML = 'Chargement…';
+  await loadDepartementCommunes();
+  try {
+    fillCommuneSelect_(document.getElementById('selCommuneArr'), 'Sélectionner une commune');
+    fillCommuneSelect_(document.getElementById('vilCom'), 'Sélectionner une commune');
+
+    const comIds = new Set(MES_COMMUNES.map(c => c.ID));
+    const mesArrs = GEO_CACHE.arrondissements.filter(a => comIds.has(a.CommuneId));
+    const arrIds = new Set(mesArrs.map(a => a.ID));
+    const mesVillages = GEO_CACHE.villages.filter(v => arrIds.has(v.ArrondissementId));
+    let html = `<p style="font-size:.85rem;color:var(--ink-soft)">${MES_COMMUNES.length} communes · ${mesArrs.length} arrondissements · ${mesVillages.length} villages dans votre département.</p>`;
+    html += '<table><thead><tr><th>Commune</th><th>Arrondissement</th><th>Village</th></tr></thead><tbody>';
+    mesVillages.slice(0, 200).forEach(v => { html += `<tr><td>${v.CommuneNom||''}</td><td>${v.ArrondissementNom||''}</td><td>${v.Nom}</td></tr>`; });
+    geoTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { geoTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+document.getElementById('vilCom').addEventListener('change', () => {
+  const arrs = GEO_CACHE.arrondissements.filter(a => a.CommuneId === document.getElementById('vilCom').value);
+  const sel = document.getElementById('selArrVillage');
+  sel.innerHTML = arrs.length ? arrs.map(a => `<option value="${a.ID}">${a.Nom}</option>`).join('') : '<option value="">Aucun arrondissement — ajoutez-le d\'abord</option>';
+});
+
+formArr.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formArr).entries());
+  const comSel = document.getElementById('selCommuneArr');
+  const com = MES_COMMUNES.find(c => c.ID === comSel.value);
+  if (!com) { toast('Sélectionnez une commune de votre département.', true); return; }
+  fd.communeId = com.ID; fd.communeNom = com.Nom;
+  try { await Api.call('createArrondissement', fd); toast('Arrondissement ajouté.'); formArr.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
+formVillage.addEventListener('submit', async (e) => { e.preventDefault();
+  const fd = Object.fromEntries(new FormData(formVillage).entries());
+  const arrSel = document.getElementById('selArrVillage');
+  if (!arrSel.value) { toast('Sélectionnez une commune puis un arrondissement.', true); return; }
+  fd.arrondissementId = arrSel.value; fd.arrondissementNom = arrSel.options[arrSel.selectedIndex].textContent;
+  try { await Api.call('createVillage', fd); toast('Village ajouté.'); formVillage.reset(); loadGeo(); } catch (err) { toast(err.message, true); } });
+
+async function loadAssignData() {
+  assignTable.innerHTML = 'Chargement…';
+  await loadDepartementCommunes();
+  fillCommuneSelect_(apCom, 'Sélectionner une commune');
+  try {
+    const [{ users }, { perimetres }] = await Promise.all([Api.call('listUsers', {}), Api.call('listPerimetres', {})]);
+    selRcse.innerHTML = users.filter(u => u.Role === 'RCSE').map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom} (${u.ZoneSanitaireNom||''})</option>`).join('');
+    const comNomById = {}; MES_COMMUNES.forEach(c => comNomById[c.ID] = c.Nom);
+    let html = '<table><thead><tr><th>Type</th><th>Cible</th><th>Assigné à</th><th>Date</th></tr></thead><tbody>';
+    perimetres.filter(p => p.TypeCible === 'Commune' && comNomById[p.CibleId]).forEach(p => {
+      const u = users.find(x => x.ID === p.UserId);
+      html += `<tr><td>Commune</td><td>${comNomById[p.CibleId] || p.CibleId}</td><td>${u ? u.Prenom+' '+u.Nom : p.UserId}</td><td>${fmtDate(p.Date)}</td></tr>`;
+    });
+    assignTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { assignTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+formAssignRcse.addEventListener('submit', async (e) => { e.preventDefault();
+  if (!apCom.value) { toast('Sélectionnez une commune.', true); return; }
+  try { await Api.call('assignCommuneRcse', { userId: selRcse.value, communeId: apCom.value }); toast('Commune assignée.'); loadAssignData(); } catch (err) { toast(err.message, true); } });
+
+async function loadUsers() {
+  usersTable.innerHTML = 'Chargement…';
+  try {
+    const { users } = await Api.call('listUsers', {});
+    const usersById = {}; users.forEach(u => usersById[u.ID] = u);
+    let html = '<table><thead><tr><th>Rôle</th><th>Nom</th><th>Téléphone</th><th>Créé par</th><th>Statut</th><th></th></tr></thead><tbody>';
+    users.forEach(u => {
+      const actif = u.Actif === true || u.Actif === 'TRUE';
+      const isSelf = u.ID === user.ID;
+      html += `<tr><td>${u.Role}</td><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.CreePar}</td>
+        <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
+        <td>${isSelf ? '' : userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
+    });
+    usersTable.innerHTML = html + '</tbody></table>';
+    wireUserRowActions(usersTable, usersById, loadUsers);
+  } catch (e) { usersTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
+
+genRapportBtn.addEventListener('click', async () => {
+  try { await Api.call('genererRapportHebdo', {}); toast('Rapport généré.'); renderRapportModule('rapportTable'); } catch (e) { toast(e.message, true); }
+});
+
+renderImportActeurs({
+  containerId: 'importRcseContainer', role: 'RCSE',
+  columns: [{ key: 'zoneSanitaireNom', label: 'Zone sanitaire' }, { key: 'communesNoms', label: 'Communes (séparées par ;)' }],
+  onDone: loadRCSE
+});
+
+loadDashboard();
+loadWeekPill();
+</script>
+</body>
+</html>

@@ -5,15 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Connexion — Surveillance à Base Communautaire</title>
 <link rel="stylesheet" href="assets/style.css">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0B3D3A">
-<link rel="icon" href="assets/icons/favicon.ico" sizes="any">
-<link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png">
-<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Surveillance">
 </head>
 <body>
 <div class="login-wrap">
@@ -42,13 +33,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   try {
     const data = await Api.call('login', { telephone, motDePasse });
     Session.setSession(data.token, data.user);
-    const dest = { RC: 'rc.html', ASCQ: 'ascq.html', PF_CNLS_TP: 'pf.html', RCSE: 'rcse.html', NATIONAL: 'national.html' }[data.user.Role];
+    const dest = { RC: 'rc.html', ASCQ: 'ascq.html', PF_CNLS_TP: 'pf.html', RCSE: 'rcse.html', DEPARTEMENT: 'departement.html', NATIONAL: 'national.html' }[data.user.Role];
     window.location.href = dest || 'index.html';
   } catch (err) {
     toast(err.message, true);
   }
 });
 </script>
-<script src="assets/pwa-register.js"></script>
 </body>
 </html>

@@ -24,7 +24,8 @@ function couvertureTableHtml_(rows, role) {
   const colonnes = {
     ASCQ: [['rc', 'Relais (RC)'], ['telephoneRc', 'Téléphone'], ['arrondissement', 'Arrondissement'], ['village', 'Village']],
     PF: [['ascq', 'ASCQ'], ['arrondissement', 'Arrondissement'], ['rc', 'Relais (RC)'], ['village', 'Village']],
-    RCSE: [['commune', 'Commune'], ['pf', 'PF CCLS-TP'], ['ascq', 'ASCQ'], ['arrondissement', 'Arrondissement'], ['rc', 'Relais (RC)'], ['village', 'Village']]
+    RCSE: [['commune', 'Commune'], ['pf', 'PF CCLS-TP'], ['ascq', 'ASCQ'], ['arrondissement', 'Arrondissement'], ['rc', 'Relais (RC)'], ['village', 'Village']],
+    DEPARTEMENT: [['zone', 'Zone sanitaire'], ['commune', 'Commune'], ['pf', 'PF CCLS-TP'], ['ascq', 'ASCQ'], ['arrondissement', 'Arrondissement'], ['rc', 'Relais (RC)'], ['village', 'Village']]
   }[role] || [];
   if (!colonnes.length) return '';
 

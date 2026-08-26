@@ -24,8 +24,9 @@
  */
 let __rapportState = {
   role: null, weeks: [], arrLookup: {}, perimetre: null,
-  portee: null,            // 'zone' | 'commune' | 'arrondissement'  (rôle ASCQ : toujours 'arrondissement')
-  selectedCommuneKey: null, // RCSE uniquement : pfId de la commune choisie
+  portee: null,             // 'departement' | 'zone' | 'commune' | 'arrondissement'  (ASCQ : toujours 'arrondissement')
+  selectedZoneKey: null,     // DEPARTEMENT uniquement : rcseId de la zone sanitaire choisie
+  selectedCommuneKey: null,  // RCSE/DEPARTEMENT : pfId de la commune choisie
   selectedArrId: null,
   filteredWeeks: [], index: -1
 };
@@ -36,7 +37,7 @@ async function renderRapportModule(containerId) {
   try {
     const role = (Session.getUser() || {}).Role;
     const calls = [Api.call('listRapports', {}), Api.call('listGeo', {})];
-    if (role === 'PF' || role === 'RCSE') calls.push(Api.call('listPerimetreRapport', {}));
+    if (['PF', 'RCSE', 'DEPARTEMENT'].includes(role)) calls.push(Api.call('listPerimetreRapport', {}));
     const [{ rapports }, { geo }, perimetreRes] = await Promise.all(calls);
 
     __rapportState.role = role;
@@ -52,9 +53,10 @@ async function renderRapportModule(containerId) {
       return;
     }
 
-    // Portée par défaut à l'ouverture : le niveau du compte lui-même (zone pour RCSE, commune
-    // pour PF, arrondissement pour ASCQ — seul niveau qu'il possède).
-    __rapportState.portee = { RCSE: 'zone', PF: 'commune', ASCQ: 'arrondissement' }[role] || 'zone';
+    // Portée par défaut à l'ouverture : le niveau du compte lui-même (département/zone pour
+    // DEPARTEMENT — celui-ci hérite du niveau zone —, zone pour RCSE, commune pour PF,
+    // arrondissement pour ASCQ — seul niveau qu'il possède).
+    __rapportState.portee = { DEPARTEMENT: 'departement', RCSE: 'zone', PF: 'commune', ASCQ: 'arrondissement' }[role] || 'zone';
     if (role === 'ASCQ') {
       const arrIds = [...new Set(__rapportState.weeks.filter(w => w.Niveau === 'ASCQ').map(w => w.ArrondissementId))].sort(
         (a, b) => String(__rapportState.arrLookup[a] || '').localeCompare(String(__rapportState.arrLookup[b] || ''))
@@ -66,6 +68,13 @@ async function renderRapportModule(containerId) {
       __rapportState.selectedArrId = arrs[0] ? arrs[0].id : null;
     } else if (role === 'PF' && __rapportState.perimetre.arrondissements && __rapportState.perimetre.arrondissements.length) {
       __rapportState.selectedArrId = __rapportState.perimetre.arrondissements[0].id;
+    } else if (role === 'DEPARTEMENT' && __rapportState.perimetre.zones && __rapportState.perimetre.zones.length) {
+      const zone0 = __rapportState.perimetre.zones[0];
+      __rapportState.selectedZoneKey = zone0.rcseId;
+      const com0 = (zone0.communes || [])[0];
+      __rapportState.selectedCommuneKey = com0 ? com0.pfId : null;
+      const arr0 = com0 ? (com0.arrondissements || [])[0] : null;
+      __rapportState.selectedArrId = arr0 ? arr0.id : null;
     }
 
     await appliquerPortee_(containerId);
@@ -73,10 +82,16 @@ async function renderRapportModule(containerId) {
 }
 
 // Renvoie les semaines (parmi celles renvoyées par listRapports) qui correspondent à la portée
-// actuellement choisie (zone / commune / arrondissement) et à la sélection en cours.
+// actuellement choisie (département / zone / commune / arrondissement) et à la sélection en cours.
 function weeksPourPortee_() {
-  const { role, weeks, portee, selectedCommuneKey, selectedArrId } = __rapportState;
+  const { role, weeks, portee, selectedZoneKey, selectedCommuneKey, selectedArrId } = __rapportState;
   if (role === 'NATIONAL') return weeks.filter(w => w.Niveau === 'NATIONAL');
+  if (role === 'DEPARTEMENT') {
+    if (portee === 'departement') return weeks.filter(w => w.Niveau === 'DEPARTEMENT');
+    if (portee === 'zone') return weeks.filter(w => w.Niveau === 'RCSE' && w.CompteId === selectedZoneKey);
+    if (portee === 'commune') return weeks.filter(w => w.Niveau === 'PF' && w.CompteId === selectedCommuneKey);
+    if (portee === 'arrondissement') return weeks.filter(w => w.Niveau === 'ASCQ' && w.ArrondissementId === selectedArrId);
+  }
   if (role === 'RCSE') {
     if (portee === 'zone') return weeks.filter(w => w.Niveau === 'RCSE');
     if (portee === 'commune') return weeks.filter(w => w.Niveau === 'PF' && w.CompteId === selectedCommuneKey);
@@ -119,7 +134,7 @@ async function indexSemainePrecedente_(weeks) {
 
 // Construit les listes déroulantes en cascade adaptées au rôle du compte connecté.
 function selecteurPorteeHtml_() {
-  const { role, portee, perimetre, selectedCommuneKey, selectedArrId } = __rapportState;
+  const { role, portee, perimetre, selectedZoneKey, selectedCommuneKey, selectedArrId } = __rapportState;
 
   if (role === 'ASCQ') {
     const arrIds = [...new Set(__rapportState.weeks.filter(w => w.Niveau === 'ASCQ').map(w => w.ArrondissementId))];
@@ -158,26 +173,65 @@ function selecteurPorteeHtml_() {
       </div>`;
   }
 
+  if (role === 'DEPARTEMENT') {
+    const zones = (perimetre && perimetre.zones) || [];
+    if (!zones.length) return '';
+    const zoneCourante = zones.find(z => z.rcseId === selectedZoneKey) || zones[0];
+    const communes = zoneCourante.communes || [];
+    const communeCourante = communes.find(c => c.pfId === selectedCommuneKey) || communes[0] || { arrondissements: [] };
+    const arrs = communeCourante.arrondissements || [];
+    return `
+      <div class="no-print rap-selecteurs">
+        <label><input type="radio" name="rapPortee" value="departement" ${portee === 'departement' ? 'checked' : ''}> Tout le département</label>
+        <label><input type="radio" name="rapPortee" value="zone" ${portee === 'zone' ? 'checked' : ''}> Par zone sanitaire</label>
+        <label><input type="radio" name="rapPortee" value="commune" ${portee === 'commune' ? 'checked' : ''}> Par commune</label>
+        <label><input type="radio" name="rapPortee" value="arrondissement" ${portee === 'arrondissement' ? 'checked' : ''}> Par arrondissement</label>
+        ${portee !== 'departement' ? `<select id="rapZoneSel">${zones.map(z => `<option value="${z.rcseId}" ${z.rcseId === selectedZoneKey ? 'selected' : ''}>${z.nom}</option>`).join('')}</select>` : ''}
+        ${(portee === 'commune' || portee === 'arrondissement') ? `<select id="rapCommuneSel">${communes.map(c => `<option value="${c.pfId}" ${c.pfId === selectedCommuneKey ? 'selected' : ''}>${c.nom}</option>`).join('')}</select>` : ''}
+        ${portee === 'arrondissement' ? `<select id="rapArrSel">${arrs.map(a => `<option value="${a.id}" ${a.id === selectedArrId ? 'selected' : ''}>${a.nom}</option>`).join('')}</select>` : ''}
+      </div>`;
+  }
+
   return '';
 }
 
 function cablerSelecteurPortee_(containerId) {
   document.querySelectorAll('input[name="rapPortee"]').forEach(r => r.addEventListener('change', (e) => {
     __rapportState.portee = e.target.value;
-    // En changeant de portée, on repart sur la première commune/arrondissement disponible.
+    // En changeant de portée, on repart sur la première zone/commune/arrondissement disponible.
     if (__rapportState.role === 'RCSE' && __rapportState.perimetre.communes.length) {
       __rapportState.selectedCommuneKey = __rapportState.perimetre.communes[0].pfId;
       const arrs = __rapportState.perimetre.communes[0].arrondissements || [];
       __rapportState.selectedArrId = arrs[0] ? arrs[0].id : null;
     } else if (__rapportState.role === 'PF' && __rapportState.perimetre.arrondissements.length) {
       __rapportState.selectedArrId = __rapportState.perimetre.arrondissements[0].id;
+    } else if (__rapportState.role === 'DEPARTEMENT' && __rapportState.perimetre.zones.length) {
+      const zone0 = __rapportState.perimetre.zones[0];
+      __rapportState.selectedZoneKey = zone0.rcseId;
+      const com0 = (zone0.communes || [])[0];
+      __rapportState.selectedCommuneKey = com0 ? com0.pfId : null;
+      const arr0 = com0 ? (com0.arrondissements || [])[0] : null;
+      __rapportState.selectedArrId = arr0 ? arr0.id : null;
     }
     appliquerPortee_(containerId);
   }));
+  const zoneSel = document.getElementById('rapZoneSel');
+  if (zoneSel) zoneSel.onchange = (e) => {
+    __rapportState.selectedZoneKey = e.target.value;
+    const zone = __rapportState.perimetre.zones.find(z => z.rcseId === e.target.value);
+    const com0 = (zone && zone.communes || [])[0];
+    __rapportState.selectedCommuneKey = com0 ? com0.pfId : null;
+    const arr0 = com0 ? (com0.arrondissements || [])[0] : null;
+    __rapportState.selectedArrId = arr0 ? arr0.id : null;
+    appliquerPortee_(containerId);
+  };
   const communeSel = document.getElementById('rapCommuneSel');
   if (communeSel) communeSel.onchange = (e) => {
     __rapportState.selectedCommuneKey = e.target.value;
-    const commune = __rapportState.perimetre.communes.find(c => c.pfId === e.target.value);
+    const communes = __rapportState.role === 'DEPARTEMENT'
+      ? (__rapportState.perimetre.zones.find(z => z.rcseId === __rapportState.selectedZoneKey) || {}).communes
+      : __rapportState.perimetre.communes;
+    const commune = (communes || []).find(c => c.pfId === e.target.value);
     const arrs = (commune && commune.arrondissements) || [];
     __rapportState.selectedArrId = arrs[0] ? arrs[0].id : null;
     appliquerPortee_(containerId);
@@ -251,15 +305,15 @@ async function paintRapport_(containerId) {
 function canevasHebdoHtml_(r, detail, sig, semaineCal) {
   const periode = semaineCal ? `du ${fmtDate(semaineCal.DateDebut)} au ${fmtDate(semaineCal.DateFin)}` : '';
   const actions = [...new Set((detail || []).map(d => d.actions).filter(Boolean))];
-  const rapporteur = { ASCQ: sig.ascq, PF: sig.pf, RCSE: sig.rcse }[r.Niveau] || '';
+  const rapporteur = { ASCQ: sig.ascq, PF: sig.pf, RCSE: sig.rcse, DEPARTEMENT: sig.departementResp }[r.Niveau] || '';
   const ligneEntete = (label, val) => `<span class="ce-entete-champ"><strong>${label} :</strong> ${val || '—'}</span>`;
   const ligneNombre = (label, val) => `<tr><td>${label}</td><td class="ce-nombre">${val || 0}</td></tr>`;
 
   // Seules les rubriques géographiques pertinentes au niveau DE LA LIGNE AFFICHÉE sont montrées
   // (et non du rôle de l'utilisateur connecté) : la zone sanitaire est toujours affichée, la
   // commune s'ajoute à partir du niveau PF, l'arrondissement au niveau ASCQ.
-  const champsGeo = { RCSE: ['zoneSanitaire'], PF: ['zoneSanitaire', 'commune'], ASCQ: ['zoneSanitaire', 'commune', 'arrondissement'] }[r.Niveau] || ['zoneSanitaire'];
-  const labelsGeo = { zoneSanitaire: 'Zone sanitaire', commune: 'Commune', arrondissement: 'Arrondissement' };
+  const champsGeo = { DEPARTEMENT: ['departement'], RCSE: ['zoneSanitaire'], PF: ['zoneSanitaire', 'commune'], ASCQ: ['zoneSanitaire', 'commune', 'arrondissement'] }[r.Niveau] || ['zoneSanitaire'];
+  const labelsGeo = { departement: 'Département', zoneSanitaire: 'Zone sanitaire', commune: 'Commune', arrondissement: 'Arrondissement' };
 
   return `
     <div class="canevas-titre">Rapport hebdomadaire de la surveillance à base communautaire</div>

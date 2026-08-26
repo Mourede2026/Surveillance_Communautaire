@@ -259,3 +259,104 @@
 
 .briefing-module .disease-body { display: none; }
 .briefing-module.open .disease-body { display: block; }
+
+/* ============================================================
+   Scripts vidéo de formation (assets/briefing-videos-data.js), intégrés sous le mémo de
+   chaque module. Reprend les styles de la page "Scripts Vidéo – Surveillance à Base
+   Communautaire" (mêmes variables --green/--red/--amber/--gray, avec valeurs de repli pour
+   rester indépendant de l'ordre de chargement des feuilles de style).
+   ============================================================ */
+
+.briefing-video {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 2px dashed var(--line, #DFE7E4);
+}
+.briefing-video-title {
+  font-family: 'Baloo 2', cursive;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--green, #1a7a4a);
+  margin-bottom: 10px;
+}
+.briefing-video .tts-status { font-size: .8rem; color: var(--gray, #6b7280); margin-top: 6px; }
+
+.briefing-video .tts-bar { padding: 0 0 10px; }
+.briefing-video .tts-btn {
+  background: var(--green-light, #e8f5ee); color: var(--green, #1a7a4a); border: 2px solid var(--green, #1a7a4a);
+  border-radius: 20px; padding: 7px 16px; font-weight: 800; font-size: .82rem;
+  cursor: pointer; font-family: 'Nunito', inherit;
+}
+.briefing-video .tts-btn.playing { background: var(--green, #1a7a4a); color: white; }
+
+.briefing-video .scene { padding: 14px 0; border-bottom: 1px solid #f0f0f0; }
+.briefing-video .scene:last-child { border-bottom: none; }
+.briefing-video .scene-title {
+  font-size: .82rem; font-weight: 800; color: var(--green, #1a7a4a);
+  margin-bottom: 8px; text-transform: uppercase; letter-spacing: .4px;
+}
+.briefing-video .scene-quote { font-style: italic; color: #374151; font-size: .92rem; }
+.briefing-video .scene-example { background: var(--amber-light, #fff8e6); padding: 12px; border-radius: 10px; }
+.briefing-video .scene-example .scene-title { color: var(--amber, #b8860b); }
+.briefing-video .scene-list { list-style: none; padding: 0; margin: 0; }
+.briefing-video .scene-list li {
+  background: var(--green-light, #e8f5ee); color: #1b5e20; border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 6px; font-size: .87rem;
+}
+.briefing-video .symptom-list li { font-size: .88rem; line-height: 1.5; background: none; padding: 4px 0; }
+.briefing-video .symptom-list li strong { color: #0d5c36; }
+.briefing-video .scene-alert { background: var(--red-light, #fdecea); padding: 12px; border-radius: 10px; }
+.briefing-video .alert-simple { font-size: .93rem; font-weight: 700; color: #870000; margin-bottom: 10px; }
+.briefing-video .alert-box {
+  background: #fff; border-left: 4px solid var(--red, #c0392b); border-radius: 8px;
+  padding: 10px 14px; font-size: .84rem; color: #555; font-style: italic;
+}
+.briefing-video .cat-list { padding-left: 20px; font-size: .9rem; }
+.briefing-video .cat-list li { margin-bottom: 6px; }
+.briefing-video .scene-close { background: #f9fafb; padding: 12px; border-radius: 10px; }
+.briefing-video .closing-line { font-weight: 800; margin-top: 8px; font-size: .9rem; }
+
+.briefing-video .picto-strip {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px;
+  background: #fafbfc; border-radius: 12px; padding: 10px;
+}
+.briefing-video .picto-item { display: flex; flex-direction: column; align-items: center; width: 64px; }
+.briefing-video .picto-label { font-size: .6rem; color: var(--gray, #6b7280); text-align: center; margin-top: 2px; line-height: 1.1; }
+.briefing-video .picto { width: 44px; height: 44px; flex-shrink: 0; }
+
+.briefing-video .picto-mercury, .briefing-video .picto-bulb { animation: pulseTherm 1.4s ease-in-out infinite; }
+@keyframes pulseTherm { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+.briefing-video .picto-wave { animation: heatWave 1.2s ease-in-out infinite; transform-origin: center; }
+.briefing-video .picto-wave2 { animation-delay: .3s; }
+@keyframes heatWave { 0%,100% { opacity: .3; transform: translateY(0);} 50% { opacity: 1; transform: translateY(-3px);} }
+.briefing-video .picto-puff { animation: puffOut 1.6s ease-in-out infinite; opacity: 0; }
+.briefing-video .picto-puff2 { animation-delay: .25s; }
+.briefing-video .picto-puff3 { animation-delay: .5s; }
+@keyframes puffOut { 0% { opacity: 0; transform: translateX(0);} 30% { opacity: 1; } 100% { opacity: 0; transform: translateX(8px);} }
+.briefing-video .picto-dot { animation: dotPulse 1.6s ease-in-out infinite; opacity: .3; }
+.briefing-video .d2 { animation-delay: .15s; } .briefing-video .d3 { animation-delay: .3s; }
+.briefing-video .d4 { animation-delay: .45s; } .briefing-video .d5 { animation-delay: .6s; } .briefing-video .d6 { animation-delay: .75s; }
+@keyframes dotPulse { 0%,100% { opacity: .25; r: 2.4; } 50% { opacity: 1; r: 3.4; } }
+.briefing-video .picto-drop { animation: dripFall 1.4s ease-in infinite; opacity: 0; }
+.briefing-video .picto-drop2 { animation-delay: .3s; }
+.briefing-video .picto-drop3 { animation-delay: .6s; }
+@keyframes dripFall { 0% { opacity: 0; transform: translateY(-4px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(6px); } }
+.briefing-video .picto-neck { animation: stiffShake 1.8s ease-in-out infinite; transform-origin: top center; }
+@keyframes stiffShake { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(1.5deg); } }
+.briefing-video .picto-arrow { animation: arrowPulse 1.2s ease-in-out infinite; }
+@keyframes arrowPulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+.briefing-video .picto-blooddrop { animation: dropBounce 1.5s ease-in-out infinite; transform-origin: center; }
+@keyframes dropBounce { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+.briefing-video .picto-face { animation: yellowPulse 1.8s ease-in-out infinite; }
+@keyframes yellowPulse { 0%,100% { fill: #f9d94a; } 50% { fill: #f3c518; } }
+.briefing-video .picto-leg { animation: legDroop 1.6s ease-in-out infinite; transform-origin: top center; }
+@keyframes legDroop { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(4deg); } }
+.briefing-video .picto-vwave { animation: vwaveMove 1.2s ease-in-out infinite; }
+@keyframes vwaveMove { 0%,100% { transform: translateY(0); opacity: .5; } 50% { transform: translateY(3px); opacity: 1; } }
+.briefing-video .picto-zzz { animation: zzzFloat 2s ease-in-out infinite; opacity: 0; }
+.briefing-video .z2 { animation-delay: .3s; } .briefing-video .z3 { animation-delay: .6s; }
+@keyframes zzzFloat { 0% { opacity: 0; transform: translateY(4px);} 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px);} }
+.briefing-video .picto-lung, .briefing-video .picto-lung2 { animation: breathe 1.8s ease-in-out infinite; transform-origin: center; }
+@keyframes breathe { 0%,100% { transform: scale(.92); } 50% { transform: scale(1.05); } }
+.briefing-video .picto-bolt { animation: boltFlash 1.2s ease-in-out infinite; }
+@keyframes boltFlash { 0%,100% { opacity: .4; } 50% { opacity: 1; } }

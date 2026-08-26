@@ -5,7 +5,14 @@
  * s'affiche qu'au clic. Commun aux espaces RC, ASCQ et PF CCLS-TP — tout le monde voit
  * exactement les mêmes modules, quel que soit son niveau.
  *
- * Dépend de assets/briefing-data.js (BRIEFING_MODULES) et assets/briefing.css.
+ * Quand un script vidéo de formation existe pour la maladie (assets/briefing-videos-data.js,
+ * BRIEFING_VIDEO_BODIES), il est ajouté sous le mémo, avec un bouton de lecture vocale (voir
+ * assets/briefing-videos.js) : exemple de cas, signes par partie du corps, définition du cas
+ * alerte, transmission, prévention, CAT du RC et message de clôture — pour former les RC ou
+ * produire de courtes vidéos de sensibilisation.
+ *
+ * Dépend de assets/briefing-data.js (BRIEFING_MODULES) et assets/briefing.css ; optionnellement
+ * de assets/briefing-videos-data.js + assets/briefing-videos.js pour les scripts vidéo.
  * containerId : id de l'élément où injecter le briefing.
  */
 function renderBriefingModule(containerId) {
@@ -24,7 +31,15 @@ function renderBriefingModule(containerId) {
   `;
 
   const list = document.getElementById('briefingList');
-  list.innerHTML = BRIEFING_MODULES.map(m => `
+  list.innerHTML = BRIEFING_MODULES.map(m => {
+    const videoBody = (typeof BRIEFING_VIDEO_BODIES !== 'undefined') ? BRIEFING_VIDEO_BODIES[m.id] : null;
+    const videoBlock = videoBody ? `
+      <div class="briefing-video">
+        <div class="briefing-video-title">🎬 Script vidéo de formation (à lire face caméra ou à écouter)</div>
+        ${videoBody}
+        <div id="tts-status-${m.id}" class="tts-status"></div>
+      </div>` : '';
+    return `
     <div class="briefing-module ${m.theme}" id="briefing-${m.id}" data-title="${m.title.toLowerCase()}">
       <div class="disease-header" data-toggle="${m.id}">
         <span class="d-icon">${m.icon}</span>
@@ -32,9 +47,9 @@ function renderBriefingModule(containerId) {
         <span class="d-num">${m.num}</span>
         <span class="d-chevron">▾</span>
       </div>
-      <div class="disease-body">${m.body}</div>
+      <div class="disease-body">${m.body}${videoBlock}</div>
     </div>
-  `).join('');
+  `; }).join('');
 
   list.querySelectorAll('[data-toggle]').forEach(header => {
     header.addEventListener('click', () => {

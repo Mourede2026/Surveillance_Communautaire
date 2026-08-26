@@ -24,6 +24,7 @@
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="investiguer">À investiguer</a>
       <a href="#" data-tab="relais">Mes relais (RC)</a>
+      <a href="#" data-tab="suivi">👥 Suivi groupé RC</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
       <a href="#" data-tab="briefing">📋 Briefing maladies</a>
     </nav>
@@ -103,6 +104,36 @@
         </div>
       </section>
 
+      <section id="tab-suivi" style="display:none">
+        <div class="card">
+          <h2>Enregistrer un suivi groupé</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">
+            Une séance de suivi groupé rassemble plusieurs RC. Les thèmes abordés se limitent aux
+            définitions de cas officielles (mêmes maladies/événements que le briefing) — pas de
+            saisie libre. Cochez les RC réellement présents dans la liste de présence, et joignez
+            au moins une photo de la séance.
+          </p>
+          <form id="formSuivi">
+            <div class="grid grid-2">
+              <div class="field"><label>Date du suivi</label><input type="date" name="date" id="suiviDate" required></div>
+              <div class="field"><label>Photo(s) de la séance</label><input type="file" id="suiviPhotos" accept="image/*" capture="environment" multiple required></div>
+            </div>
+            <fieldset>
+              <legend>Thèmes abordés (définitions de cas)</legend>
+              <div class="checks" id="suiviThemes"></div>
+            </fieldset>
+            <fieldset>
+              <legend>Liste de présence des RC</legend>
+              <div class="checks" id="suiviPresence">Chargement…</div>
+            </fieldset>
+            <div class="field"><label>Commentaires (optionnel)</label><textarea name="commentaires" placeholder="Difficultés rencontrées, points à retenir…"></textarea></div>
+            <div id="suiviPhotosApercu" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+            <button type="submit" class="btn-block">Enregistrer le suivi groupé</button>
+          </form>
+        </div>
+        <div class="card"><h2>Historique des suivis groupés</h2><div id="suiviTable">Chargement…</div></div>
+      </section>
+
       <section id="tab-rapport" style="display:none">
         <div class="card">
           <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">Ce rapport porte sur un arrondissement. S'il existe plusieurs ASCQ dans le même arrondissement, ils partagent exactement le même rapport ; si vous couvrez plusieurs arrondissements, vous recevez un rapport distinct pour chacun (naviguez avec les boutons Précédent / Suivant).</p>
@@ -123,6 +154,8 @@
 <script src="assets/geo-utils.js"></script>
 <script src="assets/rapport.js"></script>
 <script src="assets/briefing-data.js"></script>
+<script src="assets/briefing-videos-data.js"></script>
+<script src="assets/briefing-videos.js"></script>
 <script src="assets/briefing.js"></script>
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
@@ -139,10 +172,11 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','investiguer','relais','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','investiguer','relais','suivi','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'investiguer') loadPending();
   if (a.dataset.tab === 'relais') loadRC();
+  if (a.dataset.tab === 'suivi') { chargerFormulaireSuivi(); loadSuivis(); }
   if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
   if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
 }));
@@ -333,6 +367,112 @@ renderImportActeurs({
   columns: [{ key: 'villageNom', label: 'Village' }, { key: 'arrondissementNom', label: 'Arrondissement (si ambiguïté)' }],
   onDone: loadRC
 });
+
+// ---------- Suivi groupé RC ----------
+
+let __suiviPhotosBase64 = []; // photos redimensionnées (data URLs), en attente d'envoi
+
+document.getElementById('suiviDate').value = todayISO_();
+
+// Thèmes abordés = uniquement les définitions de cas officielles (mêmes maladies/événements que
+// le module de briefing, assets/briefing-data.js) — aucune saisie libre.
+function chargerFormulaireSuivi() {
+  const themesEl = document.getElementById('suiviThemes');
+  if (typeof BRIEFING_MODULES !== 'undefined' && !themesEl.dataset.rempli) {
+    themesEl.innerHTML = BRIEFING_MODULES.map(m => `<label><input type="checkbox" name="themes" value="${m.id}" data-label="${m.title}"> ${m.icon} ${m.title}</label>`).join('');
+    themesEl.dataset.rempli = '1';
+  }
+  chargerListePresence();
+}
+
+async function chargerListePresence() {
+  const presenceEl = document.getElementById('suiviPresence');
+  presenceEl.innerHTML = 'Chargement…';
+  try {
+    const { users } = await Api.call('listUsers', {});
+    const rcs = users.filter(u => u.Role === 'RC');
+    if (!rcs.length) { presenceEl.innerHTML = '<div class="empty-hint">Aucun RC créé pour le moment.</div>'; return; }
+    presenceEl.innerHTML = rcs.map(rc => `<label><input type="checkbox" name="rcPresents" value="${rc.ID}"> ${rc.Prenom} ${rc.Nom} — ${rc.VillageNom || ''}</label>`).join('');
+  } catch (e) { presenceEl.innerHTML = '<div class="empty-hint">Erreur de chargement des RC.</div>'; }
+}
+
+// Redimensionne une photo côté téléphone (max 900px de large) avant envoi, pour garder des
+// requêtes légères — la qualité reste largement suffisante pour prouver la tenue de la séance.
+function redimensionnerPhoto_(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * ratio); height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.onerror = () => reject(new Error('Image illisible.'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Lecture du fichier impossible.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('suiviPhotos').addEventListener('change', async (e) => {
+  const apercuEl = document.getElementById('suiviPhotosApercu');
+  apercuEl.innerHTML = 'Traitement des photos…';
+  try {
+    __suiviPhotosBase64 = await Promise.all([...e.target.files].map(f => redimensionnerPhoto_(f, 900)));
+    apercuEl.innerHTML = __suiviPhotosBase64.map(src => `<img src="${src}" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">`).join('');
+  } catch (err) { toast(err.message, true); apercuEl.innerHTML = ''; __suiviPhotosBase64 = []; }
+});
+
+formSuivi.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(formSuivi);
+  const themes = fd.getAll('themes');
+  const rcPresentsIds = fd.getAll('rcPresents');
+  if (!themes.length) { toast('Sélectionnez au moins un thème abordé.', true); return; }
+  if (!rcPresentsIds.length) { toast('Cochez au moins un RC présent.', true); return; }
+  if (!__suiviPhotosBase64.length) { toast('Ajoutez au moins une photo de la séance.', true); return; }
+  try {
+    await Api.call('submitSuiviGroupe', {
+      date: fd.get('date'), themes, rcPresentsIds, photos: __suiviPhotosBase64,
+      commentaires: fd.get('commentaires') || ''
+    });
+    toast('Suivi groupé enregistré.');
+    formSuivi.reset();
+    document.getElementById('suiviDate').value = todayISO_();
+    __suiviPhotosBase64 = [];
+    document.getElementById('suiviPhotosApercu').innerHTML = '';
+    loadSuivis();
+  } catch (err) { toast(err.message, true); }
+});
+
+async function loadSuivis() {
+  const el = document.getElementById('suiviTable');
+  el.innerHTML = 'Chargement…';
+  try {
+    const { suivis } = await Api.call('listSuivisGroupes', {});
+    if (!suivis.length) { el.innerHTML = '<div class="empty-state">Aucun suivi groupé enregistré pour le moment.</div>'; return; }
+    let html = '<table><thead><tr><th>Date</th><th>Thèmes</th><th>RC présents</th><th>Photos</th></tr></thead><tbody>';
+    suivis.forEach(s => {
+      let themes = [], rcNoms = [], photos = [];
+      try { themes = JSON.parse(s.Themes || '[]'); } catch (e) {}
+      try { rcNoms = JSON.parse(s.RcPresentsNoms || '[]'); } catch (e) {}
+      try { photos = JSON.parse(s.PhotosUrls || '[]'); } catch (e) {}
+      const themesLabels = themes.map(id => { const m = (typeof BRIEFING_MODULES !== 'undefined') ? BRIEFING_MODULES.find(x => x.id === id) : null; return m ? m.title : id; });
+      html += `<tr><td>${fmtDate(s.Date)}</td><td>${themesLabels.join(', ')}</td>
+        <td>${s.NbPresents} — ${rcNoms.join(', ')}</td>
+        <td>${photos.map((u, i) => `<a href="${u}" target="_blank">Photo ${i + 1}</a>`).join(' · ')}</td></tr>`;
+    });
+    suiviTable.innerHTML = html + '</tbody></table>';
+  } catch (e) { document.getElementById('suiviTable').innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
+}
 
 loadDashboard();
 renderDashboardDetail('dashboardDetail');

@@ -24,6 +24,7 @@
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="ascq">Mes ASCQ</a>
       <a href="#" data-tab="suivi">Suivi alertes / décès</a>
+      <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
       <a href="#" data-tab="briefing">📋 Briefing maladies</a>
     </nav>
@@ -86,6 +87,14 @@
         <div class="card"><h2>Alertes et décès de la commune (via arrondissements assignés)</h2><div id="suiviTable">Chargement…</div></div>
       </section>
 
+      <section id="tab-suivigroupe" style="display:none">
+        <div class="card">
+          <h2>Suivis groupés RC (tous vos ASCQ)</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">Saisis par chaque ASCQ lors de ses séances de suivi groupé avec ses RC — lecture seule ici.</p>
+          <div id="suiviGroupeTable">Chargement…</div>
+        </div>
+      </section>
+
       <section id="tab-rapport" style="display:none">
         <div class="card"><h2>Support 4 — Rapport hebdomadaire (auto-généré au niveau commune)</h2><div id="rapportTable">Chargement…</div></div>
       </section>
@@ -105,6 +114,7 @@
 <script src="assets/briefing-videos-data.js"></script>
 <script src="assets/briefing-videos.js"></script>
 <script src="assets/briefing.js"></script>
+<script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
@@ -121,10 +131,11 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','ascq','suivi','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','ascq','suivi','suivigroupe','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'ascq') { loadASCQ(); renderCouverture('couvertureTable'); }
   if (a.dataset.tab === 'suivi') loadSuivi();
+  if (a.dataset.tab === 'suivigroupe') renderSuivisGroupesLecture('suiviGroupeTable');
   if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
   if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
 }));

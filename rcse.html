@@ -22,6 +22,7 @@
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="pf">Comptes PF CCLS-TP</a>
+      <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
       <a href="#" data-tab="geo">Géographie de ma zone</a>
       <a href="#" data-tab="assign">Assignations</a>
       <a href="#" data-tab="utilisateurs">Mes utilisateurs</a>
@@ -70,6 +71,14 @@
         <div class="card">
           <h2>Importer des PF CCLS-TP par site d'intervention (commune)</h2>
           <div id="importPfContainer"></div>
+        </div>
+      </section>
+
+      <section id="tab-suivigroupe" style="display:none">
+        <div class="card">
+          <h2>Suivis groupés RC (toute la zone sanitaire)</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">Saisis par chaque ASCQ lors de ses séances de suivi groupé avec ses RC — lecture seule ici.</p>
+          <div id="suiviGroupeTable">Chargement…</div>
         </div>
       </section>
 
@@ -145,6 +154,8 @@
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
 <script src="assets/couverture.js"></script>
+<script src="assets/briefing-data.js"></script>
+<script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
@@ -160,9 +171,9 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','pf','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','pf','suivigroupe','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { pf: () => { loadPF(); renderCouverture('couvertureTable'); }, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { pf: () => { loadPF(); renderCouverture('couvertureTable'); }, suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 

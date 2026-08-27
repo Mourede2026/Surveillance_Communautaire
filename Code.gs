@@ -1115,9 +1115,35 @@ function submitSuiviGroupe_(actor, p) {
 }
 
 // Historique des suivis groupés d'un ASCQ (les siens uniquement).
+// Tous les ASCQ visibles par l'utilisateur connecté (lui-même s'il est ASCQ, ou tous les ASCQ
+// de son périmètre s'il est au-dessus) — sert à donner à PF/RCSE/DEPARTEMENT/NATIONAL accès aux
+// synthèses de suivi groupé de leurs ASCQ, en plus de l'ASCQ lui-même.
+function ascqIdsVisibles_(actor) {
+  const users = readSheet_(SHEETS.USERS);
+  if (actor.Role === ROLES.ASCQ) return [actor.ID];
+  if (actor.Role === ROLES.PF) {
+    return users.filter(u => u.Role === ROLES.ASCQ && u.ResponsableId === actor.ID).map(u => u.ID);
+  }
+  if (actor.Role === ROLES.RCSE) {
+    const pfIds = users.filter(u => u.Role === ROLES.PF && u.ResponsableId === actor.ID).map(u => u.ID);
+    return users.filter(u => u.Role === ROLES.ASCQ && pfIds.includes(u.ResponsableId)).map(u => u.ID);
+  }
+  if (actor.Role === ROLES.DEPARTEMENT) {
+    const rcseIds = users.filter(u => u.Role === ROLES.RCSE && u.DepartementId === actor.DepartementId).map(u => u.ID);
+    const pfIds = users.filter(u => u.Role === ROLES.PF && rcseIds.includes(u.ResponsableId)).map(u => u.ID);
+    return users.filter(u => u.Role === ROLES.ASCQ && pfIds.includes(u.ResponsableId)).map(u => u.ID);
+  }
+  if (actor.Role === ROLES.NATIONAL) return users.filter(u => u.Role === ROLES.ASCQ).map(u => u.ID);
+  return [];
+}
+
+// Suivis groupés visibles par l'utilisateur connecté : les siens s'il est ASCQ, ceux de tous
+// ses ASCQ s'il est PF/RCSE/DEPARTEMENT/NATIONAL (synthèse en lecture — la saisie reste
+// réservée à l'ASCQ lui-même, voir submitSuiviGroupe_).
 function listSuivisGroupes_(actor) {
-  if (actor.Role !== ROLES.ASCQ) return [];
-  return readSheet_(SHEETS.SUIVIS).filter(s => s.AscqId === actor.ID)
+  const ascqIds = ascqIdsVisibles_(actor);
+  if (!ascqIds.length) return [];
+  return readSheet_(SHEETS.SUIVIS).filter(s => ascqIds.includes(s.AscqId))
     .sort((a, b) => new Date(b.Date) - new Date(a.Date));
 }
 

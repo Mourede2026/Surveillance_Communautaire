@@ -4,10 +4,17 @@
  *  - PF   : l'arrondissement de chacun de ses ASCQ, et le village de chacun des RC de cet ASCQ
  *  - RCSE : tout — commune de chaque PF, arrondissement de chaque ASCQ, village de chaque RC
  *
- * Les colonnes affichées s'adaptent automatiquement au rôle du compte connecté.
+ * Les colonnes affichées s'adaptent automatiquement au rôle du compte connecté. Pour les
+ * subordonnés INDIRECTS qui n'ont pas de tableau de gestion dédié à cet écran (ex. un RC ou un
+ * ASCQ vus depuis un RCSE, un PF/ASCQ/RC vus depuis un DEPARTEMENT), un bouton ✏️ permet de
+ * corriger directement le compte (nom, téléphone, mot de passe) — voir assets/user-admin.js.
  *
  * containerId : id de l'élément où injecter le composant.
  */
+// Colonnes "éditables" (bouton ✏️) selon le rôle : uniquement celles qui n'ont pas déjà leur
+// propre tableau de gestion sur l'écran (ex. un PF gère déjà ses ASCQ dans "Mes ASCQ").
+const COUVERTURE_EDITABLE = { PF: ['rc'], RCSE: ['ascq', 'rc'], DEPARTEMENT: ['pf', 'ascq', 'rc'] };
+
 async function renderCouverture(containerId) {
   const el = document.getElementById(containerId);
   el.innerHTML = 'Chargement…';
@@ -15,6 +22,10 @@ async function renderCouverture(containerId) {
     const role = (Session.getUser() || {}).Role;
     const { couverture } = await Api.call('listCouverture', {});
     el.innerHTML = couvertureTableHtml_(couverture, role);
+    el.querySelectorAll('[data-edit-col]').forEach(btn => btn.addEventListener('click', () => {
+      openEditUserModal({ ID: btn.dataset.id, Nom: btn.dataset.nom, Prenom: btn.dataset.prenom, Telephone: btn.dataset.tel },
+        () => renderCouverture(containerId));
+    }));
   } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement de la couverture.</div>'; }
 }
 
@@ -28,10 +39,20 @@ function couvertureTableHtml_(rows, role) {
     DEPARTEMENT: [['zone', 'Zone sanitaire'], ['commune', 'Commune'], ['pf', 'PF CCLS-TP'], ['ascq', 'ASCQ'], ['arrondissement', 'Arrondissement'], ['rc', 'Relais (RC)'], ['village', 'Village']]
   }[role] || [];
   if (!colonnes.length) return '';
+  const editables = COUVERTURE_EDITABLE[role] || [];
 
   let html = `<table><thead><tr>${colonnes.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>`;
   rows.forEach(r => {
-    html += `<tr>${colonnes.map(c => `<td>${r[c[0]] || '—'}</td>`).join('')}</tr>`;
+    html += '<tr>' + colonnes.map(([cle]) => {
+      const valeur = r[cle] || '—';
+      const editable = editables.includes(cle) && r[cle + 'Id'];
+      const bouton = editable
+        ? ` <button type="button" class="btn-inline-edit" title="Modifier ce compte" data-edit-col="${cle}"
+            data-id="${r[cle + 'Id']}" data-nom="${(r[cle + 'NomChamp'] || '').replace(/"/g, '&quot;')}"
+            data-prenom="${(r[cle + 'PrenomChamp'] || '').replace(/"/g, '&quot;')}" data-tel="${r[cle + 'Telephone'] || ''}">✏️</button>`
+        : '';
+      return `<td>${valeur}${bouton}</td>`;
+    }).join('') + '</tr>';
   });
   return html + '</tbody></table>';
 }

@@ -69,7 +69,10 @@ async function deleteUserConfirm(u, onDeleted) {
 // Construit le HTML des boutons d'action pour une ligne de tableau utilisateur.
 function userRowActionsHtml(u, currentUserId, currentUserRole) {
   const actif = u.Actif === true || u.Actif === 'TRUE';
-  const peutGerer = currentUserRole === 'NATIONAL' || u.CreePar === currentUserId;
+  // "Modifier"/"Supprimer" pour le créateur direct OU le responsable direct (les deux
+  // coïncident à la création, mais on vérifie les deux pour rester robuste), et pour NATIONAL
+  // qui gère tout.
+  const peutGerer = currentUserRole === 'NATIONAL' || u.CreePar === currentUserId || u.ResponsableId === currentUserId;
   let html = `<button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button>`;
   if (peutGerer) {
     html += ` <button class="btn-secondary" data-edit="${u.ID}" style="margin-left:6px">Modifier</button>`;

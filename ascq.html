@@ -160,6 +160,7 @@
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
+<script src="assets/alerte-sonore.js"></script>
 <script src="assets/api.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
@@ -477,6 +478,7 @@ async function loadSuivis() {
 loadDashboard();
 renderDashboardDetail('dashboardDetail');
 loadWeekPill();
+demarrerAlerteSonoreNouvellesAlertes();
 </script>
 <script src="assets/pwa-register.js"></script>
 </body>

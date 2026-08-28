@@ -17,7 +17,7 @@
 
 // Rubriques géographiques à afficher/modifier selon le rôle du compte édité, dans l'ordre.
 const GEO_CHAMPS_PAR_ROLE = {
-  RC: ['departement', 'commune', 'arrondissement', 'village'],
+  RC: ['departement', 'commune', 'arrondissement', 'village', 'grappe'],
   ASCQ: ['departement', 'commune', 'arrondissement'],
   PF_CNLS_TP: ['departement', 'commune'],
   RCSE: ['departement'],
@@ -50,7 +50,7 @@ function ensureUserEditModal_() {
   div.addEventListener('click', (e) => { if (e.target === div) div.style.display = 'none'; });
 }
 
-const GEO_CHAMP_LABEL = { departement: 'Département', commune: 'Commune', arrondissement: 'Arrondissement', village: 'Village' };
+const GEO_CHAMP_LABEL = { departement: 'Département', commune: 'Commune', arrondissement: 'Arrondissement', village: 'Village', grappe: 'Grappe' };
 
 async function openEditUserModal(u, onSaved) {
   ensureUserEditModal_();
@@ -79,8 +79,9 @@ async function openEditUserModal(u, onSaved) {
       const comSel = champs.includes('commune') ? document.getElementById('edit-commune') : null;
       const arrSel = champs.includes('arrondissement') ? document.getElementById('edit-arrondissement') : null;
       const vilSel = champs.includes('village') ? document.getElementById('edit-village') : null;
+      const grpSel = champs.includes('grappe') ? document.getElementById('edit-grappe') : null;
 
-      wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, geo, (ids) => { geoIdsCourants = ids; });
+      wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, geo, (ids) => { geoIdsCourants = ids; }, grpSel);
 
       // Pré-remplit avec les valeurs actuelles du compte, niveau par niveau (chaque niveau
       // déclenche le suivant, comme une vraie sélection au clavier).
@@ -100,6 +101,10 @@ async function openEditUserModal(u, onSaved) {
         vilSel.value = u.VillageId;
         vilSel.dispatchEvent(new Event('change'));
       }
+      if (grpSel && u.GrappeId) {
+        grpSel.value = u.GrappeId;
+        grpSel.dispatchEvent(new Event('change'));
+      }
     } catch (e) { geoEl.innerHTML += '<p style="font-size:.8rem;color:var(--red-600)">Géographie indisponible pour le moment.</p>'; }
   }
 
@@ -115,6 +120,7 @@ async function openEditUserModal(u, onSaved) {
       if (champs.includes('commune')) { payload.communeId = geoIdsCourants.comId; payload.communeNom = geoIdsCourants.comNom; }
       if (champs.includes('arrondissement')) { payload.arrondissementId = geoIdsCourants.arrId; payload.arrondissementNom = geoIdsCourants.arrNom; }
       if (champs.includes('village')) { payload.villageId = geoIdsCourants.vilId; payload.villageNom = geoIdsCourants.vilNom; }
+      if (champs.includes('grappe')) { payload.grappeId = geoIdsCourants.grpId; payload.grappeNom = geoIdsCourants.grpNom; }
     }
     try {
       await Api.call('updateUser', payload);

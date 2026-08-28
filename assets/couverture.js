@@ -23,8 +23,16 @@ async function renderCouverture(containerId) {
     const { couverture } = await Api.call('listCouverture', {});
     el.innerHTML = couvertureTableHtml_(couverture, role);
     el.querySelectorAll('[data-edit-col]').forEach(btn => btn.addEventListener('click', () => {
-      openEditUserModal({ ID: btn.dataset.id, Nom: btn.dataset.nom, Prenom: btn.dataset.prenom, Telephone: btn.dataset.tel },
-        () => renderCouverture(containerId));
+      const r = couverture[Number(btn.dataset.rowIdx)];
+      const cle = btn.dataset.editCol;
+      const u = {
+        ID: r[cle + 'Id'], Nom: r[cle + 'NomChamp'], Prenom: r[cle + 'PrenomChamp'], Telephone: r[cle + 'Telephone'], Role: r[cle + 'Role'],
+        DepartementId: r[cle + 'DepartementId'], DepartementNom: r[cle + 'DepartementNom'],
+        CommuneId: r[cle + 'CommuneId'], CommuneNom: r[cle + 'CommuneNom'],
+        ArrondissementId: r[cle + 'ArrondissementId'], ArrondissementNom: r[cle + 'ArrondissementNom'],
+        VillageId: r[cle + 'VillageId'], VillageNom: r[cle + 'VillageNom']
+      };
+      openEditUserModal(u, () => renderCouverture(containerId));
     }));
   } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement de la couverture.</div>'; }
 }
@@ -42,14 +50,12 @@ function couvertureTableHtml_(rows, role) {
   const editables = COUVERTURE_EDITABLE[role] || [];
 
   let html = `<table><thead><tr>${colonnes.map(c => `<th>${c[1]}</th>`).join('')}</tr></thead><tbody>`;
-  rows.forEach(r => {
+  rows.forEach((r, idx) => {
     html += '<tr>' + colonnes.map(([cle]) => {
       const valeur = r[cle] || '—';
       const editable = editables.includes(cle) && r[cle + 'Id'];
       const bouton = editable
-        ? ` <button type="button" class="btn-inline-edit" title="Modifier ce compte" data-edit-col="${cle}"
-            data-id="${r[cle + 'Id']}" data-nom="${(r[cle + 'NomChamp'] || '').replace(/"/g, '&quot;')}"
-            data-prenom="${(r[cle + 'PrenomChamp'] || '').replace(/"/g, '&quot;')}" data-tel="${r[cle + 'Telephone'] || ''}">✏️</button>`
+        ? ` <button type="button" class="btn-inline-edit" title="Modifier ce compte" data-edit-col="${cle}" data-row-idx="${idx}">✏️</button>`
         : '';
       return `<td>${valeur}${bouton}</td>`;
     }).join('') + '</tr>';

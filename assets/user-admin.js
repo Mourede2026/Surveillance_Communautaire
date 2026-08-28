@@ -1,12 +1,28 @@
 /**
  * Actions partagées sur les lignes de tableau "utilisateur" (Modifier / Supprimer / Activer-
- * Désactiver), utilisées sur les écrans National, RCSE, PF et ASCQ.
+ * Désactiver), utilisées sur les écrans National, Département, RCSE, PF et ASCQ.
  *
- * Modifier et Supprimer ne sont proposés que pour les comptes que l'utilisateur connecté a
- * lui-même créés (u.CreePar === currentUserId), ou pour le compte NATIONAL qui gère tout —
- * même règle que côté backend (voir canManageUser_ dans Code.gs). Désactiver/Réactiver reste
- * disponible pour tout superviseur, direct ou indirect, comme avant.
+ * Modifier est proposé à tout superviseur, direct ou indirect (ResponsableId dans la chaîne),
+ * comme sur le backend (voir updateUser_ / isSupervisorOf_ dans Code.gs) — un RCSE peut par
+ * exemple corriger un ASCQ ou un RC de sa zone, pas seulement les comptes qu'il a personnellement
+ * créés. Supprimer reste réservé au créateur direct (ou à NATIONAL), plus destructeur.
+ *
+ * Le formulaire de modification permet aussi de corriger la géographie du compte (village,
+ * arrondissement, commune, département — selon ce qui s'applique à son rôle), via des listes
+ * déroulantes en cascade identiques à celles utilisées à la création. Dépend de
+ * assets/geo-benin-data.js et assets/geo-utils.js (GEO_BENIN, slugGeo, wireCascadingGeoLive).
+ * La "zone sanitaire" d'un RCSE (plusieurs communes) se gère via l'onglet "Assignations", pas ici
+ * — un RCSE n'a donc que son département de modifiable dans ce formulaire.
  */
+
+// Rubriques géographiques à afficher/modifier selon le rôle du compte édité, dans l'ordre.
+const GEO_CHAMPS_PAR_ROLE = {
+  RC: ['departement', 'commune', 'arrondissement', 'village'],
+  ASCQ: ['departement', 'commune', 'arrondissement'],
+  PF_CNLS_TP: ['departement', 'commune'],
+  RCSE: ['departement'],
+  DEPARTEMENT: ['departement']
+};
 
 function ensureUserEditModal_() {
   if (document.getElementById('userEditModalOverlay')) return;
@@ -15,13 +31,14 @@ function ensureUserEditModal_() {
   div.className = 'modal-overlay';
   div.style.display = 'none';
   div.innerHTML = `
-    <div class="modal-box">
+    <div class="modal-box" style="max-height:90vh;overflow-y:auto">
       <h2 style="margin-top:0">Modifier le compte</h2>
       <form id="userEditForm">
         <div class="field"><label>Nom</label><input name="Nom" required></div>
         <div class="field"><label>Prénom</label><input name="Prenom" required></div>
         <div class="field"><label>Téléphone</label><input name="Telephone" required></div>
         <div class="field"><label>Nouveau mot de passe (laisser vide pour ne pas changer)</label><input name="motDePasse" type="password"></div>
+        <div id="userEditGeo"></div>
         <div style="display:flex; gap:10px; margin-top:14px">
           <button type="submit">Enregistrer</button>
           <button type="button" class="btn-secondary" id="userEditCancel">Annuler</button>
@@ -33,7 +50,9 @@ function ensureUserEditModal_() {
   div.addEventListener('click', (e) => { if (e.target === div) div.style.display = 'none'; });
 }
 
-function openEditUserModal(u, onSaved) {
+const GEO_CHAMP_LABEL = { departement: 'Département', commune: 'Commune', arrondissement: 'Arrondissement', village: 'Village' };
+
+async function openEditUserModal(u, onSaved) {
   ensureUserEditModal_();
   const overlay = document.getElementById('userEditModalOverlay');
   const form = document.getElementById('userEditForm');
@@ -41,6 +60,49 @@ function openEditUserModal(u, onSaved) {
   form.Prenom.value = u.Prenom || '';
   form.Telephone.value = u.Telephone || '';
   form.motDePasse.value = '';
+
+  const geoEl = document.getElementById('userEditGeo');
+  const champs = GEO_CHAMPS_PAR_ROLE[u.Role] || [];
+  let geoIdsCourants = null; // rempli une fois la cascade câblée (voir plus bas)
+
+  if (!champs.length) {
+    geoEl.innerHTML = '';
+  } else {
+    geoEl.innerHTML = `<fieldset style="margin-top:14px"><legend>Localisation</legend>
+      ${champs.map(c => `<div class="field"><label>${GEO_CHAMP_LABEL[c]}</label><select id="edit-${c}"></select></div>`).join('')}
+      ${u.Role === 'RCSE' ? '<p style="font-size:.78rem;color:var(--ink-soft);margin:0">La zone sanitaire (liste des communes) se modifie depuis l\'onglet "Assignations".</p>' : ''}
+    </fieldset>`;
+
+    try {
+      const { geo } = await Api.call('listGeo', {});
+      const depSel = document.getElementById('edit-departement');
+      const comSel = champs.includes('commune') ? document.getElementById('edit-commune') : null;
+      const arrSel = champs.includes('arrondissement') ? document.getElementById('edit-arrondissement') : null;
+      const vilSel = champs.includes('village') ? document.getElementById('edit-village') : null;
+
+      wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, geo, (ids) => { geoIdsCourants = ids; });
+
+      // Pré-remplit avec les valeurs actuelles du compte, niveau par niveau (chaque niveau
+      // déclenche le suivant, comme une vraie sélection au clavier).
+      if (depSel && u.DepartementId) {
+        depSel.value = u.DepartementId;
+        depSel.dispatchEvent(new Event('change'));
+      }
+      if (comSel && u.CommuneId) {
+        comSel.value = u.CommuneId;
+        comSel.dispatchEvent(new Event('change'));
+      }
+      if (arrSel && u.ArrondissementId) {
+        arrSel.value = u.ArrondissementId;
+        arrSel.dispatchEvent(new Event('change'));
+      }
+      if (vilSel && u.VillageId) {
+        vilSel.value = u.VillageId;
+        vilSel.dispatchEvent(new Event('change'));
+      }
+    } catch (e) { geoEl.innerHTML += '<p style="font-size:.8rem;color:var(--red-600)">Géographie indisponible pour le moment.</p>'; }
+  }
+
   overlay.style.display = 'flex';
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -48,6 +110,12 @@ function openEditUserModal(u, onSaved) {
     const payload = { id: u.ID, Nom: fd.get('Nom'), Prenom: fd.get('Prenom'), Telephone: fd.get('Telephone') };
     const mdp = fd.get('motDePasse');
     if (mdp) payload.motDePasse = mdp;
+    if (geoIdsCourants) {
+      if (champs.includes('departement')) { payload.departementId = geoIdsCourants.depId; payload.departementNom = geoIdsCourants.depNom; }
+      if (champs.includes('commune')) { payload.communeId = geoIdsCourants.comId; payload.communeNom = geoIdsCourants.comNom; }
+      if (champs.includes('arrondissement')) { payload.arrondissementId = geoIdsCourants.arrId; payload.arrondissementNom = geoIdsCourants.arrNom; }
+      if (champs.includes('village')) { payload.villageId = geoIdsCourants.vilId; payload.villageNom = geoIdsCourants.vilNom; }
+    }
     try {
       await Api.call('updateUser', payload);
       toast('Compte mis à jour.');

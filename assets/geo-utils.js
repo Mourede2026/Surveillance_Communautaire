@@ -153,3 +153,16 @@ function wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, liveGeo, onChange,
   });
   if (grpSel) grpSel.addEventListener('change', emit);
 }
+
+// Un village est découpé en au maximum 10 grappes (numérotées "Grappe 1" à "Grappe 10") — c'est
+// la convention terrain. On propose donc un choix numéroté plutôt qu'un texte libre, pour éviter
+// les doublons créés par des variantes de saisie (ex. "Grappe1" vs "Grappe 1" vs "grappe 1").
+const GRAPPES_NUMEROTEES = Array.from({ length: 10 }, (_, i) => `Grappe ${i + 1}`);
+
+// Numéros de grappe encore disponibles pour un village donné (parmi Grappe 1 à Grappe 10),
+// c'est-à-dire ceux qui n'ont pas déjà été créés pour ce village. `grappesExistantes` : le
+// tableau `geo.grappes` tel que renvoyé par Api.call('listGeo', {}).
+function grappesDisponiblesPourVillage_(grappesExistantes, villageId) {
+  const nomsPris = new Set((grappesExistantes || []).filter(g => g.VillageId === villageId).map(g => g.Nom));
+  return GRAPPES_NUMEROTEES.filter(nom => !nomsPris.has(nom));
+}

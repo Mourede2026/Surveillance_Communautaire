@@ -70,6 +70,7 @@ async function openEditUserModal(u, onSaved) {
   } else {
     geoEl.innerHTML = `<fieldset style="margin-top:14px"><legend>Localisation</legend>
       ${champs.map(c => `<div class="field"><label>${GEO_CHAMP_LABEL[c]}</label><select id="edit-${c}"></select></div>`).join('')}
+      ${champs.includes('grappe') ? '<div class="field"><label>Ou numéro d\'une nouvelle grappe (1 à 10)</label><select id="edit-grappe-nouvelle"><option value="">— Aucune —</option></select></div>' : ''}
       ${u.Role === 'RCSE' ? '<p style="font-size:.78rem;color:var(--ink-soft);margin:0">La zone sanitaire (liste des communes) se modifie depuis l\'onglet "Assignations".</p>' : ''}
     </fieldset>`;
 
@@ -80,8 +81,15 @@ async function openEditUserModal(u, onSaved) {
       const arrSel = champs.includes('arrondissement') ? document.getElementById('edit-arrondissement') : null;
       const vilSel = champs.includes('village') ? document.getElementById('edit-village') : null;
       const grpSel = champs.includes('grappe') ? document.getElementById('edit-grappe') : null;
+      const grpNouvelleSel = champs.includes('grappe') ? document.getElementById('edit-grappe-nouvelle') : null;
 
       wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, geo, (ids) => { geoIdsCourants = ids; }, grpSel);
+
+      // Le choix "nouvelle grappe" (numérotée 1 à 10, voir assets/geo-utils.js) se recalcule à
+      // chaque changement de village, pour ne proposer que les numéros encore libres.
+      if (vilSel && grpNouvelleSel) {
+        vilSel.addEventListener('change', () => fillGrappeNumeroteeSelect_(grpNouvelleSel, geo.grappes || [], vilSel.value));
+      }
 
       // Pré-remplit avec les valeurs actuelles du compte, niveau par niveau (chaque niveau
       // déclenche le suivant, comme une vraie sélection au clavier).
@@ -108,6 +116,12 @@ async function openEditUserModal(u, onSaved) {
     } catch (e) { geoEl.innerHTML += '<p style="font-size:.8rem;color:var(--red-600)">Géographie indisponible pour le moment.</p>'; }
   }
 
+  // Numéros de grappe (1 à 10) encore libres pour le village choisi — voir assets/geo-utils.js.
+  function fillGrappeNumeroteeSelect_(selectEl, grappes, villageId) {
+    const disponibles = villageId ? grappesDisponiblesPourVillage_(grappes, villageId) : GRAPPES_NUMEROTEES;
+    selectEl.innerHTML = '<option value="">— Aucune —</option>' + disponibles.map(nom => `<option value="${nom}">${nom}</option>`).join('');
+  }
+
   overlay.style.display = 'flex';
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -121,6 +135,17 @@ async function openEditUserModal(u, onSaved) {
       if (champs.includes('arrondissement')) { payload.arrondissementId = geoIdsCourants.arrId; payload.arrondissementNom = geoIdsCourants.arrNom; }
       if (champs.includes('village')) { payload.villageId = geoIdsCourants.vilId; payload.villageNom = geoIdsCourants.vilNom; }
       if (champs.includes('grappe')) { payload.grappeId = geoIdsCourants.grpId; payload.grappeNom = geoIdsCourants.grpNom; }
+    }
+    // Un numéro de nouvelle grappe choisi (1 à 10) prévaut sur une grappe existante sélectionnée :
+    // on la crée d'abord, puis on l'assigne au compte comme n'importe quelle grappe existante.
+    const grpNouvelleSel = document.getElementById('edit-grappe-nouvelle');
+    if (grpNouvelleSel && grpNouvelleSel.value) {
+      try {
+        const villageId = payload.villageId || u.VillageId;
+        const villageNom = payload.villageNom || u.VillageNom;
+        const created = await Api.call('createGrappe', { villageId, villageNom, nom: grpNouvelleSel.value });
+        payload.grappeId = created.item.ID; payload.grappeNom = created.item.Nom;
+      } catch (err) { toast(err.message, true); return; }
     }
     try {
       await Api.call('updateUser', payload);

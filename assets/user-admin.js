@@ -136,16 +136,27 @@ async function openEditUserModal(u, onSaved) {
       if (champs.includes('village')) { payload.villageId = geoIdsCourants.vilId; payload.villageNom = geoIdsCourants.vilNom; }
       if (champs.includes('grappe')) { payload.grappeId = geoIdsCourants.grpId; payload.grappeNom = geoIdsCourants.grpNom; }
     }
-    // Un numéro de nouvelle grappe choisi (1 à 10) prévaut sur une grappe existante sélectionnée :
-    // on la crée d'abord, puis on l'assigne au compte comme n'importe quelle grappe existante.
-    const grpNouvelleSel = document.getElementById('edit-grappe-nouvelle');
-    if (grpNouvelleSel && grpNouvelleSel.value) {
-      try {
-        const villageId = payload.villageId || u.VillageId;
-        const villageNom = payload.villageNom || u.VillageNom;
-        const created = await Api.call('createGrappe', { villageId, villageNom, nom: grpNouvelleSel.value });
-        payload.grappeId = created.item.ID; payload.grappeNom = created.item.Nom;
-      } catch (err) { toast(err.message, true); return; }
+    // La grappe se traite à part : au-delà du champ "maison" du compte (Users), il faut aussi
+    // enregistrer la couverture réelle du RC (table Perimetres) — exactement comme le fait
+    // "Assigner une grappe supplémentaire" — pour que ça fonctionne aussi bien quand le RC en
+    // avait déjà une (on change) que quand il n'en avait aucune (on lui en attribue une la
+    // première fois).
+    if (champs.includes('grappe')) {
+      const villageId = payload.villageId || u.VillageId;
+      const villageNom = payload.villageNom || u.VillageNom;
+      const grpNouvelleSel = document.getElementById('edit-grappe-nouvelle');
+      const grappeChoisie = (grpNouvelleSel && grpNouvelleSel.value) ? { grappeNom: grpNouvelleSel.value } : (geoIdsCourants && geoIdsCourants.grpId ? { grappeId: geoIdsCourants.grpId } : null);
+      if (villageId && grappeChoisie) {
+        try {
+          const res = await Api.call('assignGrappeRc', Object.assign({ userId: u.ID, villageId, villageNom }, grappeChoisie));
+          payload.grappeId = res.perimetre.CibleId;
+          payload.grappeNom = grappeChoisie.grappeNom || (geoIdsCourants && geoIdsCourants.grpNom) || '';
+        } catch (err) {
+          // "Déjà assignée" n'est pas une erreur ici : on voulait justement que ce soit le cas.
+          if (!/déjà assignée/i.test(err.message || '')) { toast(err.message, true); return; }
+          if (geoIdsCourants) { payload.grappeId = geoIdsCourants.grpId; payload.grappeNom = geoIdsCourants.grpNom; }
+        }
+      }
     }
     try {
       await Api.call('updateUser', payload);

@@ -41,7 +41,7 @@ async function semaineCouranteAffichage_() {
   try {
     const { calendrier } = await Api.call('listCalendrier', {});
     const today = new Date();
-    const cur = (calendrier || []).find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+    const cur = (calendrier || []).find(r => debutJournee_(r.DateDebut) <= today && today <= finJournee_(r.DateFin));
     return cur ? { annee: cur.Annee, semaine: cur.SemaineEpi, label: `Semaine ${cur.SemaineEpi} / ${cur.Annee}` } : null;
   } catch (e) { return null; }
 }

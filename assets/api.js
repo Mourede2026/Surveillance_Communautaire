@@ -56,10 +56,18 @@ async function loadWeekPill() {
   try {
     const { calendrier } = await Api.call('listCalendrier', {});
     const today = new Date();
-    const cur = (calendrier || []).find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+    // On ne compare que le jour calendaire, jamais l'heure : sinon, la semaine "disparaît" dès
+    // qu'on dépasse minuit sur son dernier jour (dimanche), puisque DateFin est enregistrée à
+    // 00h00 et non à la fin de la journée.
+    const cur = (calendrier || []).find(r => debutJournee_(r.DateDebut) <= today && today <= finJournee_(r.DateFin));
     el.textContent = cur ? `Semaine ${cur.SemaineEpi} / ${cur.Annee}` : 'Semaine non calendrier';
   } catch (e) { /* silencieux */ }
 }
+
+// Bornes d'une journée calendaire (00h00 / 23h59:59.999) — utilisées pour comparer une date au
+// jour près, sans que l'heure exacte ne fasse "sortir" une date du bon côté de la borne.
+function debutJournee_(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d; }
+function finJournee_(date) { const d = new Date(date); d.setHours(23, 59, 59, 999); return d; }
 
 function toast(msg, isError) {
   let el = document.getElementById('toast');

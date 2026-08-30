@@ -123,7 +123,7 @@ async function indexSemainePrecedente_(weeks) {
   try {
     const { calendrier } = await Api.call('listCalendrier', {});
     const today = new Date();
-    const cur = (calendrier || []).find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+    const cur = (calendrier || []).find(r => debutJournee_(r.DateDebut) <= today && today <= finJournee_(r.DateFin));
     if (!cur) return dernier;
     let anneePrec = Number(cur.Annee), semainePrec = Number(cur.SemaineEpi) - 1;
     if (semainePrec < 1) { anneePrec -= 1; semainePrec = (calendrier.filter(r => Number(r.Annee) === anneePrec).length) || 52; }

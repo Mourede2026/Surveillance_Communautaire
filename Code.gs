@@ -222,6 +222,13 @@ function json_(obj) {
 
 function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
+// Bornes d'une journée calendaire (00h00 / 23h59:59.999) — à utiliser chaque fois qu'on compare
+// une date à un intervalle [DateDebut, DateFin] (ex. semaine épidémiologique en cours) : sans
+// ça, la borne de fin enregistrée à 00h00 ferait "disparaître" le dernier jour de l'intervalle
+// (ex. le dimanche d'une semaine) dès qu'on dépasse minuit ce jour-là.
+function debutJournee_(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d; }
+function finJournee_(date) { const d = new Date(date); d.setHours(23, 59, 59, 999); return d; }
+
 function ensureSchema_() {
   const ss = ss_();
   Object.keys(COLS).forEach(name => {
@@ -230,8 +237,23 @@ function ensureSchema_() {
       sh = ss.insertSheet(name);
       sh.appendRow(COLS[name]);
       sh.setFrozenRows(1);
-    } else if (sh.getLastRow() === 0) {
+      return;
+    }
+    if (sh.getLastRow() === 0) {
       sh.appendRow(COLS[name]);
+      sh.setFrozenRows(1);
+      return;
+    }
+    // La feuille existe déjà et contient des données : on complète les colonnes manquantes SANS
+    // toucher à ce qui existe (ni réordonner les colonnes présentes, ni effacer de données) — ça
+    // "retabule" automatiquement une feuille créée avant l'ajout de certaines colonnes (ex.
+    // DepartementId, GrappeId, ou une feuille entière comme SuivisGroupes) à chaque requête,
+    // sans jamais rien devoir modifier à la main dans le Google Sheet.
+    const largeur = sh.getLastColumn();
+    const enTetesActuels = largeur > 0 ? sh.getRange(1, 1, 1, largeur).getValues()[0] : [];
+    const manquantes = COLS[name].filter(c => enTetesActuels.indexOf(c) === -1);
+    if (manquantes.length) {
+      sh.getRange(1, largeur + 1, 1, manquantes.length).setValues([manquantes]);
       sh.setFrozenRows(1);
     }
   });
@@ -1135,6 +1157,8 @@ function dossierPhotosSuivi_() {
 
 // Enregistre une liste de photos (data URLs "data:image/xxx;base64,...", déjà redimensionnées
 // côté client) dans Drive, et renvoie leurs URLs de partage (lecture pour quiconque a le lien).
+// Peut lever une erreur (autorisation Drive manquante, quota...) — voir submitSuiviGroupe_, qui
+// la capture pour renvoyer un message clair plutôt que de laisser planter toute la sauvegarde.
 function enregistrerPhotosSuivi_(photosDataUrl, nomBase) {
   const dossier = dossierPhotosSuivi_();
   const urls = [];
@@ -1167,7 +1191,18 @@ function submitSuiviGroupe_(actor, p) {
   const rcValides = mesRc.filter(u => p.rcPresentsIds.includes(u.ID));
   if (!rcValides.length) return { ok: false, error: 'Aucun des RC cochés ne dépend de votre compte.' };
 
-  const urls = enregistrerPhotosSuivi_(p.photos, `suivi_${actor.ID}_${p.date}`);
+  let urls;
+  try {
+    urls = enregistrerPhotosSuivi_(p.photos, `suivi_${actor.ID}_${p.date}`);
+  } catch (e) {
+    // Erreur d'autorisation Drive la plus fréquente : le script n'a pas encore le droit d'y
+    // accéder (scope ajouté après la dernière autorisation). Rien n'est enregistré tant que ce
+    // n'est pas résolu — message explicite plutôt que l'erreur brute d'Apps Script.
+    if (/authoriz|autoris|permission/i.test(e.message || '')) {
+      return { ok: false, error: 'Le script n\'a pas encore l\'autorisation d\'accéder à Google Drive (nécessaire pour stocker les photos). Dans l\'éditeur Apps Script : ouvrez une fonction, cliquez sur "Exécuter", acceptez l\'autorisation Drive demandée, puis redéployez une nouvelle version de l\'application web.' };
+    }
+    return { ok: false, error: 'Erreur lors de l\'enregistrement des photos : ' + e.message };
+  }
   if (!urls.length) return { ok: false, error: 'Les photos envoyées sont invalides ou n\'ont pas pu être enregistrées.' };
 
   const rec = {
@@ -1286,7 +1321,7 @@ function clearCalendrier_(actor, p) {
 function semaineCouranteInfo_() {
   const cal = readSheet_(SHEETS.CALENDRIER);
   const today = new Date();
-  const match = cal.find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+  const match = cal.find(r => debutJournee_(r.DateDebut) <= today && today <= finJournee_(r.DateFin));
   return match || null;
 }
 
@@ -1343,7 +1378,7 @@ function genererRapportsManquants_(anneeCourante, semaineCourante) {
   // appel (chaque semaine traitée est immédiatement marquée générée, donc jamais reprise à zéro).
   const PLAFOND_SEMAINES_PAR_APPEL = 12;
   let traitees = 0;
-  cal.filter(r => new Date(r.DateFin) <= today && !(String(r.Annee) === String(anneeCourante) && String(r.SemaineEpi) === String(semaineCourante)))
+  cal.filter(r => finJournee_(r.DateFin) <= today && !(String(r.Annee) === String(anneeCourante) && String(r.SemaineEpi) === String(semaineCourante)))
     .sort((a, b) => (Number(a.Annee) - Number(b.Annee)) || (Number(a.SemaineEpi) - Number(b.SemaineEpi)))
     .forEach(r => {
       if (traitees >= PLAFOND_SEMAINES_PAR_APPEL) return;

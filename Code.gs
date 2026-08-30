@@ -133,6 +133,7 @@ function doGet(e) {
 
 function doPost(e) {
   try {
+    reinitialiserCacheFeuilles_(); // une exécution = un cache neuf, jamais partagé entre requêtes
     const body = JSON.parse(e.postData.contents || '{}');
     const action = body.action;
     const payload = body.payload || {};
@@ -171,6 +172,8 @@ function doPost(e) {
       assignArrondissementAscq: () => assignArrondissementAscq_(user, payload),
       listArrondissementsAscq: () => ({ ok: true, perimetres: listArrondissementsDesAscq_(user) }),
       assignGrappeRc: () => assignGrappeRc_(user, payload),
+      retirerGrappeRc: () => retirerGrappeRc_(user, payload),
+      listGrappesDuRc: () => ({ ok: true, grappes: listGrappesDuRc_(user, payload) }),
       listGrappesRc: () => ({ ok: true, perimetres: listGrappesDesRc_(user) }),
       importActeursBulk: () => importActeursBulk_(user, payload),
 
@@ -243,22 +246,41 @@ function ensureSchema_() {
   }
 }
 
+// Cache des feuilles lues, valable pour UNE SEULE exécution du script (une requête = une
+// exécution Apps Script). Sans lui, une même feuille (ex. Utilisateurs, Alertes) pouvait être
+// relue intégralement des dizaines de fois au sein d'une seule requête — en particulier lors de
+// la génération des rapports hebdomadaires manquants (une semaine = plusieurs lectures
+// complètes ; plusieurs semaines manquantes = ce nombre multiplié d'autant), ce qui rendait
+// l'actualisation des données très lente. Réinitialisé en tête de doGet_/doPost_ (jamais réutilisé
+// d'une requête à l'autre, pour ne jamais servir de données obsolètes après une écriture).
+let __sheetCache_ = {};
+function reinitialiserCacheFeuilles_() { __sheetCache_ = {}; }
+
 function readSheet_(name) {
+  if (__sheetCache_[name]) return __sheetCache_[name];
   const sh = ss_().getSheetByName(name);
   const values = sh.getDataRange().getValues();
   const headers = values.shift();
-  return values.filter(r => r.join('') !== '').map(row => {
+  const rows = values.filter(r => r.join('') !== '').map(row => {
     const obj = {};
     headers.forEach((h, i) => obj[h] = row[i]);
     return obj;
   });
+  __sheetCache_[name] = rows;
+  return rows;
 }
+
+// Invalide le cache d'une feuille après une écriture, pour qu'une relecture ultérieure DANS LA
+// MÊME requête voie bien les données à jour (rare, mais certaines actions lisent puis écrivent
+// plusieurs fois de suite sur la même feuille).
+function invaliderCacheFeuille_(name) { delete __sheetCache_[name]; }
 
 function appendRow_(sheetName, obj) {
   const sh = ss_().getSheetByName(sheetName);
   const headers = COLS[sheetName];
   const row = headers.map(h => (obj[h] !== undefined ? obj[h] : ''));
   sh.appendRow(row);
+  invaliderCacheFeuille_(sheetName);
   return obj;
 }
 
@@ -270,9 +292,14 @@ function updateRowById_(sheetName, id, changes, idField) {
   const idCol = headers.indexOf(idField);
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][idCol]) === String(id)) {
-      headers.forEach((h, c) => {
-        if (changes[h] !== undefined) sh.getRange(r + 1, c + 1).setValue(changes[h]);
-      });
+      // Une seule écriture pour toute la ligne (setValues sur la plage entière) plutôt qu'un
+      // setValue() par champ modifié — chaque setValue() est un aller-retour à part avec
+      // Google Sheets ; les regrouper accélère nettement les mises à jour (fiches
+      // d'investigation, comptes utilisateurs, statuts...).
+      const ligne = values[r].slice();
+      headers.forEach((h, c) => { if (changes[h] !== undefined) ligne[c] = changes[h]; });
+      sh.getRange(r + 1, 1, 1, headers.length).setValues([ligne]);
+      invaliderCacheFeuille_(sheetName);
       return true;
     }
   }
@@ -573,10 +600,18 @@ function updateUser_(actor, p) {
     return { ok: false, error: 'Non autorisé à modifier ce compte : il ne dépend pas de vous.' };
   }
   const changes = {};
-  ['Nom', 'Prenom', 'Telephone', 'DepartementId', 'CommuneId', 'ArrondissementId', 'VillageId', 'GrappeId',
-   'DepartementNom', 'CommuneNom', 'ArrondissementNom', 'VillageNom', 'GrappeNom'].forEach(f => {
-    if (p[f] !== undefined) changes[f] = p[f];
-  });
+  ['Nom', 'Prenom', 'Telephone'].forEach(f => { if (p[f] !== undefined) changes[f] = p[f]; });
+  // Les champs géographiques arrivent en camelCase (departementId, communeNom...) — même
+  // convention que createUser_ — et non en PascalCase comme les colonnes du Sheet ; on les
+  // fait donc correspondre explicitement plutôt que de comparer les noms tels quels.
+  const champsGeo = {
+    departementId: 'DepartementId', departementNom: 'DepartementNom',
+    communeId: 'CommuneId', communeNom: 'CommuneNom',
+    arrondissementId: 'ArrondissementId', arrondissementNom: 'ArrondissementNom',
+    villageId: 'VillageId', villageNom: 'VillageNom',
+    grappeId: 'GrappeId', grappeNom: 'GrappeNom'
+  };
+  Object.keys(champsGeo).forEach(f => { if (p[f] !== undefined) changes[champsGeo[f]] = p[f]; });
   if (p.motDePasse) changes.MotDePasse = p.motDePasse;
   updateRowById_(SHEETS.USERS, p.id, changes);
   return { ok: true };
@@ -614,7 +649,7 @@ function deleteRowById_(sheetName, id, idField) {
   const headers = values[0];
   const idCol = headers.indexOf(idField);
   for (let r = 1; r < values.length; r++) {
-    if (String(values[r][idCol]) === String(id)) { sh.deleteRow(r + 1); return true; }
+    if (String(values[r][idCol]) === String(id)) { sh.deleteRow(r + 1); invaliderCacheFeuille_(sheetName); return true; }
   }
   return false;
 }
@@ -629,6 +664,7 @@ function deleteRowsWhere_(sheetName, field, value) {
   for (let r = values.length - 1; r >= 1; r--) {
     if (String(values[r][col]) === String(value)) sh.deleteRow(r + 1);
   }
+  invaliderCacheFeuille_(sheetName);
 }
 
 // Active ou désactive un compte. Autorisé pour tout superviseur (direct ou indirect) du compte
@@ -877,22 +913,20 @@ function listArrondissementsDesAscq_(actor) {
 // peut être couverte par plusieurs RC — aucune exclusivité n'est imposée entre RC. Si la grappe
 // n'existe pas encore pour le village indiqué, elle est créée à la volée.
 function assignGrappeRc_(actor, p) {
-  if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul un ASCQ peut assigner une grappe à un relais communautaire.' };
   const users = readSheet_(SHEETS.USERS);
   const target = users.find(u => u.ID === p.userId);
   if (!target || target.Role !== ROLES.RC) return { ok: false, error: 'Compte RC introuvable.' };
+  // Autorisé pour tout superviseur, direct ou indirect (même règle que la modification de compte,
+  // voir updateUser_) — pas seulement l'ASCQ direct du RC.
   if (!isSupervisorOf_(actor, target)) return { ok: false, error: 'Ce RC ne dépend pas de vous.' };
   if (!p.villageId) return { ok: false, error: 'Village manquant.' };
-  const mesArrs = arrondissementsOfAscq_(actor.ID);
   const villages = readSheet_(SHEETS.VILLAGES);
   const village = villages.find(v => v.ID === p.villageId);
-  if (!village || !mesArrs.includes(village.ArrondissementId)) {
-    return { ok: false, error: 'Ce village ne fait pas partie de votre/vos arrondissement(s).' };
-  }
+  if (!village) return { ok: false, error: 'Village introuvable.' };
 
   let grappeId = p.grappeId, grappeNom = p.grappeNom || '';
   if (!grappeId && grappeNom) {
-    const created = createGeo_(actor, 'Grappes', { villageId: p.villageId, villageNom: village.Nom, nom: grappeNom }, [ROLES.ASCQ, ROLES.PF, ROLES.RCSE, ROLES.NATIONAL]);
+    const created = createGeo_(actor, 'Grappes', { villageId: p.villageId, villageNom: village.Nom, nom: grappeNom }, [ROLES.ASCQ, ROLES.PF, ROLES.RCSE, ROLES.DEPARTEMENT, ROLES.NATIONAL]);
     if (!created.ok) return created;
     grappeId = created.item.ID;
   }
@@ -904,6 +938,38 @@ function assignGrappeRc_(actor, p) {
   appendRow_(SHEETS.PERIMETRES, entry);
   appendRow_(SHEETS.JOURNAL, { ID: newId_('LOG'), Type: 'Grappe', CibleId: grappeId, AssigneA: target.ID, AssignePar: actor.ID, Date: nowStr_() });
   return { ok: true, perimetre: entry };
+}
+
+// Retire une grappe de la couverture d'un RC (sans toucher aux autres grappes qu'il couvre
+// éventuellement). Autorisé pour tout superviseur, direct ou indirect — même règle que
+// assignGrappeRc_. Un RC peut se retrouver sans aucune grappe (ce n'est pas bloqué ici) ; c'est
+// à l'appelant de lui en assigner une nouvelle si besoin.
+function retirerGrappeRc_(actor, p) {
+  const users = readSheet_(SHEETS.USERS);
+  const target = users.find(u => u.ID === p.userId);
+  if (!target || target.Role !== ROLES.RC) return { ok: false, error: 'Compte RC introuvable.' };
+  if (!isSupervisorOf_(actor, target)) return { ok: false, error: 'Ce RC ne dépend pas de vous.' };
+  const entry = readSheet_(SHEETS.PERIMETRES).find(x => x.UserId === target.ID && x.TypeCible === 'Grappe' && x.CibleId === p.grappeId);
+  if (!entry) return { ok: false, error: 'Cette grappe n\'est pas assignée à ce RC.' };
+  deleteRowById_(SHEETS.PERIMETRES, entry.ID);
+  // Si la grappe retirée était la grappe "maison" enregistrée sur le compte, on la vide aussi
+  // pour ne pas laisser un compte pointer vers une grappe qu'il ne couvre plus.
+  if (target.GrappeId === p.grappeId) updateRowById_(SHEETS.USERS, target.ID, { GrappeId: '', GrappeNom: '' });
+  return { ok: true };
+}
+
+// Toutes les grappes actuellement couvertes par un RC (nom + village), pour affichage dans le
+// formulaire de modification de son compte.
+function listGrappesDuRc_(actor, p) {
+  const users = readSheet_(SHEETS.USERS);
+  const target = users.find(u => u.ID === p.userId);
+  if (!target || target.Role !== ROLES.RC) return [];
+  if (!isSupervisorOf_(actor, target) && actor.ID !== target.ID) return [];
+  const grappesSheet = readSheet_(SHEETS.GRAPPES);
+  return readSheet_(SHEETS.PERIMETRES).filter(x => x.UserId === target.ID && x.TypeCible === 'Grappe').map(x => {
+    const g = grappesSheet.find(gg => gg.ID === x.CibleId);
+    return { grappeId: x.CibleId, grappeNom: g ? g.Nom : x.CibleId, villageNom: g ? g.VillageNom : '' };
+  });
 }
 
 // Périmètres grappe des RC, visibles pour : un RC (les siens), un ASCQ (ceux de tous ses RC).
@@ -1000,8 +1066,11 @@ function submitDeces_(actor, p) {
 
 // Notifie l'ASCQ superviseur direct + toute la chaîne au-dessus (PF, RCSE, NATIONAL)
 function cascadeNotify_(rcUser, type, refId, message) {
-  const chain = chainAbove_(rcUser); // [ASCQ, PF, RCSE, NATIONAL]
-  chain.forEach(sup => {
+  const chain = chainAbove_(rcUser); // [ASCQ, PF, RCSE, ...]
+  // Garde-fou : la chaîne remonte uniquement vers les superviseurs (jamais le RC lui-même,
+  // ni un autre RC) — on l'impose explicitement ici pour ne jamais notifier par erreur un
+  // compte RC, même si une donnée de hiérarchie (ResponsableId) venait à être incohérente.
+  chain.filter(sup => sup.Role !== ROLES.RC && sup.ID !== rcUser.ID).forEach(sup => {
     appendRow_(SHEETS.NOTIFICATIONS, {
       ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: type, RefId: refId,
       Message: message, Lu: false, DateCreation: nowStr_()
@@ -1267,12 +1336,21 @@ function genererRapportsManquants_(anneeCourante, semaineCourante) {
   const existants = readSheet_(SHEETS.RAPPORTS);
   const dejaGenere = new Set(existants.map(r => r.Annee + '-' + r.SemaineEpi));
   const today = new Date();
+  // Plafond de semaines traitées en un seul appel : avec le cache de feuilles (readSheet_), un
+  // gros retard à combler reste rapide, mais on borne quand même le pire des cas (première
+  // utilisation après une longue interruption) pour ne jamais faire traîner une simple
+  // consultation du rapport. S'il reste plus de semaines à générer, elles le seront au prochain
+  // appel (chaque semaine traitée est immédiatement marquée générée, donc jamais reprise à zéro).
+  const PLAFOND_SEMAINES_PAR_APPEL = 12;
+  let traitees = 0;
   cal.filter(r => new Date(r.DateFin) <= today && !(String(r.Annee) === String(anneeCourante) && String(r.SemaineEpi) === String(semaineCourante)))
     .sort((a, b) => (Number(a.Annee) - Number(b.Annee)) || (Number(a.SemaineEpi) - Number(b.SemaineEpi)))
     .forEach(r => {
+      if (traitees >= PLAFOND_SEMAINES_PAR_APPEL) return;
       const key = r.Annee + '-' + r.SemaineEpi;
       if (dejaGenere.has(key)) return;
       genererRapportsPourSemaine_(r.Annee, r.SemaineEpi);
+      traitees++;
     });
 }
 
@@ -1843,6 +1921,11 @@ function listCouverture_(actor) {
     if (!u) return {};
     const o = {};
     o[prefixe + 'Id'] = u.ID; o[prefixe + 'NomChamp'] = u.Nom; o[prefixe + 'PrenomChamp'] = u.Prenom; o[prefixe + 'Telephone'] = u.Telephone;
+    o[prefixe + 'Role'] = u.Role;
+    o[prefixe + 'DepartementId'] = u.DepartementId; o[prefixe + 'DepartementNom'] = u.DepartementNom;
+    o[prefixe + 'CommuneId'] = u.CommuneId; o[prefixe + 'CommuneNom'] = u.CommuneNom;
+    o[prefixe + 'ArrondissementId'] = u.ArrondissementId; o[prefixe + 'ArrondissementNom'] = u.ArrondissementNom;
+    o[prefixe + 'VillageId'] = u.VillageId; o[prefixe + 'VillageNom'] = u.VillageNom;
     return o;
   }
 

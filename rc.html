@@ -25,6 +25,7 @@
       <a href="#" data-tab="alerte">Notifier une alerte</a>
       <a href="#" data-tab="deces">Notifier un décès</a>
       <a href="#" data-tab="historique">Historique</a>
+      <a href="#" data-tab="notifications">🔔 Notifications</a>
       <a href="#" data-tab="briefing">📋 Briefing maladies</a>
     </nav>
     <div class="user-box">
@@ -74,6 +75,10 @@
         <div class="card"><div id="histTable">Chargement…</div></div>
       </section>
 
+      <section id="tab-notifications" style="display:none">
+        <div class="card"><h2>Mes notifications</h2><div id="notificationsTable">Chargement…</div></div>
+      </section>
+
       <section id="tab-briefing" style="display:none">
         <div id="briefingContainer">Chargement…</div>
       </section>
@@ -82,6 +87,7 @@
   </main>
 </div>
 
+<script src="assets/notifications-liste.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/forms.js"></script>
 <script src="assets/briefing-data.js"></script>
@@ -100,9 +106,10 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','alerte','deces','historique','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','alerte','deces','historique','notifications','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'historique') loadHistorique('alertes');
+  if (a.dataset.tab === 'notifications') renderNotifications('notificationsTable');
   if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
 }));
 

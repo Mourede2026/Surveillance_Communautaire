@@ -26,6 +26,7 @@
       <a href="#" data-tab="relais">Mes relais (RC)</a>
       <a href="#" data-tab="suivi">👥 Suivi groupé RC</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
+      <a href="#" data-tab="notifications">🔔 Notifications</a>
       <a href="#" data-tab="briefing">📋 Briefing maladies</a>
     </nav>
     <div class="user-box">
@@ -60,6 +61,7 @@
           </p>
           <div id="pendingTable">Chargement…</div>
         </div>
+        <div id="invResumeCard"></div>
         <div class="card" id="invFormCard" style="display:none">
           <h2>Fiche d'investigation (ASCQ)</h2>
           <form id="formInvestigation"></form>
@@ -142,6 +144,10 @@
         <div class="card"><h2>Support 4 — Rapport hebdomadaire (auto-généré)</h2><div id="rapportTable">Chargement…</div></div>
       </section>
 
+      <section id="tab-notifications" style="display:none">
+        <div class="card"><h2>Mes notifications</h2><div id="notificationsTable">Chargement…</div></div>
+      </section>
+
       <section id="tab-briefing" style="display:none">
         <div id="briefingContainer">Chargement…</div>
       </section>
@@ -160,6 +166,7 @@
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
+<script src="assets/notifications-liste.js"></script>
 <script src="assets/alerte-sonore.js"></script>
 <script src="assets/api.js"></script>
 <script>
@@ -173,11 +180,12 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','investiguer','relais','suivi','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','investiguer','relais','suivi','rapport','notifications','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'investiguer') loadPending();
   if (a.dataset.tab === 'relais') loadRC();
   if (a.dataset.tab === 'suivi') { chargerFormulaireSuivi(); loadSuivis(); }
+  if (a.dataset.tab === 'notifications') renderNotifications('notificationsTable');
   if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
   if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
 }));
@@ -192,6 +200,8 @@ async function loadDashboard() {
   } catch (e) { toast(e.message, true); }
 }
 
+let __pendingAlertesParId = {};
+
 async function loadPending() {
   pendingTable.innerHTML = 'Chargement…';
   try {
@@ -200,6 +210,7 @@ async function loadPending() {
     // dans le rapport hebdomadaire, sans étape d'investigation.
     const { alertes } = await Api.call('listAlertes', {});
     const rows = alertes.filter(x => x.Statut !== 'Investigué').map(x => ({ ...x, refType: 'ALERTE' }));
+    __pendingAlertesParId = {}; rows.forEach(r => { __pendingAlertesParId[r.ID] = r; });
     if (!rows.length) { pendingTable.innerHTML = '<div class="empty-state">Aucune alerte en attente d\'investigation. 👍</div>'; return; }
     let html = '<table><thead><tr><th>Type</th><th>Date</th><th>Nom / description</th><th></th></tr></thead><tbody>';
     rows.forEach(r => {
@@ -212,8 +223,31 @@ async function loadPending() {
   } catch (e) { pendingTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
+// Résumé, en lecture seule, du cas tel que notifié par le RC — affiché AVANT le formulaire
+// d'investigation lui-même, pour que l'ASCQ voie d'abord ce qui a été signalé (nom, événement,
+// nombre de personnes/animaux touchés) sans pouvoir le modifier depuis cet écran.
+function resumeAlerteHtml_(r) {
+  if (!r) return '';
+  const champ = (label, val) => `<div><span style="display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--ink-soft)">${label}</span><span style="font-size:.92rem">${val || val === 0 ? val : '—'}</span></div>`;
+  return `
+    <div class="card" style="background:#FAFCFB;border-left:4px solid var(--teal-700)">
+      <h2 style="margin-top:0">Cas notifié par le RC <span style="font-weight:400;font-size:.78rem;color:var(--ink-soft)">(lecture seule)</span></h2>
+      <div class="grid grid-4">
+        ${champ('Nom du cas', r.Nom)}
+        ${champ('Événement', r.AutrePreciser || r.TypeAlerte)}
+        ${champ('Personnes touchées', r.PersonnesTouchees)}
+        ${champ('Personnes décédées', r.PersonnesMortes)}
+        ${champ('Animaux malades', r.AnimauxMalades)}
+        ${champ('Animaux morts', r.AnimauxMorts)}
+        ${champ('Village', r.VillageNom)}
+        ${champ('Date de notification', fmtDate(r.DateNotification))}
+      </div>
+    </div>`;
+}
+
 function openInvestigation(key) {
   const [refType, refId] = key.split('|');
+  document.getElementById('invResumeCard').innerHTML = resumeAlerteHtml_(__pendingAlertesParId[refId]);
   invFormCard.style.display = 'block';
   invFormCard.scrollIntoView({ behavior: 'smooth' });
   const CAT = ['0-11 mois masculin','0-11 mois féminin','1 à 5 ans masculin','1 à 5 ans féminin',
@@ -255,6 +289,7 @@ function openInvestigation(key) {
       await Api.call('submitInvestigation', payload);
       toast('Fiche d\'investigation envoyée.');
       invFormCard.style.display = 'none';
+      document.getElementById('invResumeCard').innerHTML = '';
       loadPending(); loadDashboard();
     } catch (err) { toast(err.message, true); }
   };

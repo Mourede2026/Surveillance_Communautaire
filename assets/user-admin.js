@@ -7,17 +7,23 @@
  * exemple corriger un ASCQ ou un RC de sa zone, pas seulement les comptes qu'il a personnellement
  * créés. Supprimer reste réservé au créateur direct (ou à NATIONAL), plus destructeur.
  *
- * Le formulaire de modification permet aussi de corriger la géographie du compte (village,
- * arrondissement, commune, département — selon ce qui s'applique à son rôle), via des listes
- * déroulantes en cascade identiques à celles utilisées à la création. Dépend de
+ * Le formulaire de modification permet aussi de corriger la géographie "maison" du compte
+ * (village, arrondissement, commune, département — selon ce qui s'applique à son rôle), via des
+ * listes déroulantes en cascade identiques à celles utilisées à la création. Dépend de
  * assets/geo-benin-data.js et assets/geo-utils.js (GEO_BENIN, slugGeo, wireCascadingGeoLive).
  * La "zone sanitaire" d'un RCSE (plusieurs communes) se gère via l'onglet "Assignations", pas ici
  * — un RCSE n'a donc que son département de modifiable dans ce formulaire.
+ *
+ * Pour un RC spécifiquement, les GRAPPES couvertes se gèrent à part, en temps réel (indépendamment
+ * du bouton "Enregistrer") : la liste des grappes déjà couvertes s'affiche avec un bouton de
+ * retrait chacune, et un formulaire permet d'en ajouter une nouvelle (existante ou nouveau numéro
+ * 1 à 10) — que le RC en ait déjà une ou aucune au départ.
  */
 
-// Rubriques géographiques à afficher/modifier selon le rôle du compte édité, dans l'ordre.
+// Rubriques géographiques "maison" à afficher/modifier selon le rôle du compte édité (la grappe
+// d'un RC se gère séparément, voir plus bas).
 const GEO_CHAMPS_PAR_ROLE = {
-  RC: ['departement', 'commune', 'arrondissement', 'village', 'grappe'],
+  RC: ['departement', 'commune', 'arrondissement', 'village'],
   ASCQ: ['departement', 'commune', 'arrondissement'],
   PF_CNLS_TP: ['departement', 'commune'],
   RCSE: ['departement'],
@@ -44,13 +50,14 @@ function ensureUserEditModal_() {
           <button type="button" class="btn-secondary" id="userEditCancel">Annuler</button>
         </div>
       </form>
+      <div id="userEditGrappes"></div>
     </div>`;
   document.body.appendChild(div);
   document.getElementById('userEditCancel').addEventListener('click', () => { div.style.display = 'none'; });
   div.addEventListener('click', (e) => { if (e.target === div) div.style.display = 'none'; });
 }
 
-const GEO_CHAMP_LABEL = { departement: 'Département', commune: 'Commune', arrondissement: 'Arrondissement', village: 'Village', grappe: 'Grappe' };
+const GEO_CHAMP_LABEL = { departement: 'Département', commune: 'Commune', arrondissement: 'Arrondissement', village: 'Village' };
 
 async function openEditUserModal(u, onSaved) {
   ensureUserEditModal_();
@@ -64,13 +71,13 @@ async function openEditUserModal(u, onSaved) {
   const geoEl = document.getElementById('userEditGeo');
   const champs = GEO_CHAMPS_PAR_ROLE[u.Role] || [];
   let geoIdsCourants = null; // rempli une fois la cascade câblée (voir plus bas)
+  let vilSelRef = null; // réutilisé par la gestion des grappes, une fois la cascade câblée
 
   if (!champs.length) {
     geoEl.innerHTML = '';
   } else {
     geoEl.innerHTML = `<fieldset style="margin-top:14px"><legend>Localisation</legend>
       ${champs.map(c => `<div class="field"><label>${GEO_CHAMP_LABEL[c]}</label><select id="edit-${c}"></select></div>`).join('')}
-      ${champs.includes('grappe') ? '<div class="field"><label>Ou numéro d\'une nouvelle grappe (1 à 10)</label><select id="edit-grappe-nouvelle"><option value="">— Aucune —</option></select></div>' : ''}
       ${u.Role === 'RCSE' ? '<p style="font-size:.78rem;color:var(--ink-soft);margin:0">La zone sanitaire (liste des communes) se modifie depuis l\'onglet "Assignations".</p>' : ''}
     </fieldset>`;
 
@@ -80,16 +87,9 @@ async function openEditUserModal(u, onSaved) {
       const comSel = champs.includes('commune') ? document.getElementById('edit-commune') : null;
       const arrSel = champs.includes('arrondissement') ? document.getElementById('edit-arrondissement') : null;
       const vilSel = champs.includes('village') ? document.getElementById('edit-village') : null;
-      const grpSel = champs.includes('grappe') ? document.getElementById('edit-grappe') : null;
-      const grpNouvelleSel = champs.includes('grappe') ? document.getElementById('edit-grappe-nouvelle') : null;
+      vilSelRef = vilSel;
 
-      wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, geo, (ids) => { geoIdsCourants = ids; }, grpSel);
-
-      // Le choix "nouvelle grappe" (numérotée 1 à 10, voir assets/geo-utils.js) se recalcule à
-      // chaque changement de village, pour ne proposer que les numéros encore libres.
-      if (vilSel && grpNouvelleSel) {
-        vilSel.addEventListener('change', () => fillGrappeNumeroteeSelect_(grpNouvelleSel, geo.grappes || [], vilSel.value));
-      }
+      wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, geo, (ids) => { geoIdsCourants = ids; });
 
       // Pré-remplit avec les valeurs actuelles du compte, niveau par niveau (chaque niveau
       // déclenche le suivant, comme une vraie sélection au clavier).
@@ -109,17 +109,14 @@ async function openEditUserModal(u, onSaved) {
         vilSel.value = u.VillageId;
         vilSel.dispatchEvent(new Event('change'));
       }
-      if (grpSel && u.GrappeId) {
-        grpSel.value = u.GrappeId;
-        grpSel.dispatchEvent(new Event('change'));
-      }
     } catch (e) { geoEl.innerHTML += '<p style="font-size:.8rem;color:var(--red-600)">Géographie indisponible pour le moment.</p>'; }
   }
 
-  // Numéros de grappe (1 à 10) encore libres pour le village choisi — voir assets/geo-utils.js.
-  function fillGrappeNumeroteeSelect_(selectEl, grappes, villageId) {
-    const disponibles = villageId ? grappesDisponiblesPourVillage_(grappes, villageId) : GRAPPES_NUMEROTEES;
-    selectEl.innerHTML = '<option value="">— Aucune —</option>' + disponibles.map(nom => `<option value="${nom}">${nom}</option>`).join('');
+  const grappesEl = document.getElementById('userEditGrappes');
+  if (u.Role === 'RC') {
+    await rendreGestionGrappesRc_(grappesEl, u, () => vilSelRef);
+  } else {
+    grappesEl.innerHTML = '';
   }
 
   overlay.style.display = 'flex';
@@ -134,29 +131,6 @@ async function openEditUserModal(u, onSaved) {
       if (champs.includes('commune')) { payload.communeId = geoIdsCourants.comId; payload.communeNom = geoIdsCourants.comNom; }
       if (champs.includes('arrondissement')) { payload.arrondissementId = geoIdsCourants.arrId; payload.arrondissementNom = geoIdsCourants.arrNom; }
       if (champs.includes('village')) { payload.villageId = geoIdsCourants.vilId; payload.villageNom = geoIdsCourants.vilNom; }
-      if (champs.includes('grappe')) { payload.grappeId = geoIdsCourants.grpId; payload.grappeNom = geoIdsCourants.grpNom; }
-    }
-    // La grappe se traite à part : au-delà du champ "maison" du compte (Users), il faut aussi
-    // enregistrer la couverture réelle du RC (table Perimetres) — exactement comme le fait
-    // "Assigner une grappe supplémentaire" — pour que ça fonctionne aussi bien quand le RC en
-    // avait déjà une (on change) que quand il n'en avait aucune (on lui en attribue une la
-    // première fois).
-    if (champs.includes('grappe')) {
-      const villageId = payload.villageId || u.VillageId;
-      const villageNom = payload.villageNom || u.VillageNom;
-      const grpNouvelleSel = document.getElementById('edit-grappe-nouvelle');
-      const grappeChoisie = (grpNouvelleSel && grpNouvelleSel.value) ? { grappeNom: grpNouvelleSel.value } : (geoIdsCourants && geoIdsCourants.grpId ? { grappeId: geoIdsCourants.grpId } : null);
-      if (villageId && grappeChoisie) {
-        try {
-          const res = await Api.call('assignGrappeRc', Object.assign({ userId: u.ID, villageId, villageNom }, grappeChoisie));
-          payload.grappeId = res.perimetre.CibleId;
-          payload.grappeNom = grappeChoisie.grappeNom || (geoIdsCourants && geoIdsCourants.grpNom) || '';
-        } catch (err) {
-          // "Déjà assignée" n'est pas une erreur ici : on voulait justement que ce soit le cas.
-          if (!/déjà assignée/i.test(err.message || '')) { toast(err.message, true); return; }
-          if (geoIdsCourants) { payload.grappeId = geoIdsCourants.grpId; payload.grappeNom = geoIdsCourants.grpNom; }
-        }
-      }
     }
     try {
       await Api.call('updateUser', payload);
@@ -165,6 +139,73 @@ async function openEditUserModal(u, onSaved) {
       if (onSaved) onSaved();
     } catch (err) { toast(err.message, true); }
   };
+}
+
+// Gestion en temps réel (indépendante du bouton "Enregistrer") des grappes couvertes par un RC :
+// liste de ce qu'il couvre déjà, avec un retrait possible pour chacune, et un formulaire
+// d'ajout (grappe existante du village choisi, ou nouveau numéro 1 à 10) — fonctionne aussi bien
+// pour changer complètement de grappe (retirer l'ancienne, en ajouter une nouvelle) que pour
+// ajouter une première grappe à un RC qui n'en avait aucune.
+async function rendreGestionGrappesRc_(el, u, getVilSel) {
+  el.innerHTML = `<fieldset style="margin-top:14px"><legend>Grappes couvertes par ce RC</legend>
+    <div id="userEditGrappesListe" style="margin-bottom:10px">Chargement…</div>
+    <div class="grid grid-2">
+      <div class="field"><label>Ajouter une grappe existante du village choisi ci-dessus</label><select id="userEditGrappeExistante"><option value="">— Choisir —</option></select></div>
+      <div class="field"><label>Ou un nouveau numéro (1 à 10)</label><select id="userEditGrappeNouvelle"><option value="">— Choisir —</option></select></div>
+    </div>
+    <button type="button" class="btn-secondary" id="userEditGrappeAjouter">+ Ajouter cette grappe</button>
+  </fieldset>`;
+
+  const listeEl = document.getElementById('userEditGrappesListe');
+  const existSel = document.getElementById('userEditGrappeExistante');
+  const nouvSel = document.getElementById('userEditGrappeNouvelle');
+  let geoGrappes = [];
+
+  async function rafraichir() {
+    try {
+      const { grappes } = await Api.call('listGrappesDuRc', { userId: u.ID });
+      listeEl.innerHTML = grappes.length
+        ? grappes.map(g => `<span class="chip">${g.grappeNom} (${g.villageNom})<button type="button" data-remove-grappe="${g.grappeId}">×</button></span>`).join(' ')
+        : '<span class="empty-hint">Aucune grappe assignée pour le moment.</span>';
+      listeEl.querySelectorAll('[data-remove-grappe]').forEach(b => b.addEventListener('click', async () => {
+        try { await Api.call('retirerGrappeRc', { userId: u.ID, grappeId: b.dataset.removeGrappe }); toast('Grappe retirée.'); rafraichir(); }
+        catch (err) { toast(err.message, true); }
+      }));
+    } catch (e) { listeEl.innerHTML = '<span class="empty-hint">Erreur de chargement.</span>'; }
+  }
+
+  function rafraichirOptionsVillage() {
+    const vilSel = getVilSel();
+    const villageId = vilSel ? vilSel.value : '';
+    existSel.innerHTML = '<option value="">— Choisir —</option>' + (villageId ? geoGrappes.filter(g => g.VillageId === villageId).map(g => `<option value="${g.ID}">${g.Nom}</option>`).join('') : '');
+    const disponibles = villageId ? grappesDisponiblesPourVillage_(geoGrappes, villageId) : [];
+    nouvSel.innerHTML = '<option value="">— Choisir —</option>' + disponibles.map(nom => `<option value="${nom}">${nom}</option>`).join('');
+  }
+
+  try {
+    const { geo } = await Api.call('listGeo', {});
+    geoGrappes = geo.grappes || [];
+    rafraichirOptionsVillage();
+    const vilSel = getVilSel();
+    if (vilSel) vilSel.addEventListener('change', rafraichirOptionsVillage);
+  } catch (e) { /* le formulaire d'ajout restera vide si la géo ne charge pas */ }
+
+  document.getElementById('userEditGrappeAjouter').addEventListener('click', async () => {
+    const vilSel = getVilSel();
+    const villageId = vilSel ? vilSel.value : '';
+    if (!villageId) { toast('Choisissez d\'abord un village ci-dessus.', true); return; }
+    const villageNom = vilSel.options[vilSel.selectedIndex] ? vilSel.options[vilSel.selectedIndex].textContent : '';
+    const grappeChoisie = nouvSel.value ? { grappeNom: nouvSel.value } : (existSel.value ? { grappeId: existSel.value } : null);
+    if (!grappeChoisie) { toast('Choisissez une grappe existante ou un nouveau numéro.', true); return; }
+    try {
+      await Api.call('assignGrappeRc', Object.assign({ userId: u.ID, villageId, villageNom }, grappeChoisie));
+      toast('Grappe ajoutée.');
+      existSel.value = ''; nouvSel.value = '';
+      rafraichir();
+    } catch (err) { toast(err.message, true); }
+  });
+
+  rafraichir();
 }
 
 async function deleteUserConfirm(u, onDeleted) {

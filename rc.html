@@ -128,7 +128,7 @@ async function loadDashboard() {
     statNotif.textContent = dashboard.notificationsNonLues;
     const cal = await Api.call('listCalendrier', {});
     const today = new Date();
-    const cur = (cal.calendrier || []).find(r => new Date(r.DateDebut) <= today && today <= new Date(r.DateFin));
+    const cur = (cal.calendrier || []).find(r => debutJournee_(r.DateDebut) <= today && today <= finJournee_(r.DateFin));
     if (cur) weekPill.textContent = `Semaine ${cur.SemaineEpi} / ${cur.Annee}`;
   } catch (e) { toast(e.message, true); }
 }

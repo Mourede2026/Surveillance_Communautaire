@@ -23,17 +23,24 @@ const Api = {
 const Session = {
   KEY_TOKEN: 'sc_token',
   KEY_USER: 'sc_user',
+  // sessionStorage (et non localStorage) : la session reste propre à CET ONGLET. Avec
+  // localStorage, partagé entre tous les onglets du même navigateur, tester plusieurs comptes
+  // dans des onglets différents pouvait faire qu'un onglet envoie silencieusement le token d'un
+  // AUTRE compte que celui affiché à l'écran — d'où des refus incohérents ("pas un ASCQ" alors
+  // que si) ou des listes trop larges (droits d'un compte de niveau supérieur appliqués par
+  // erreur). Avec sessionStorage, chaque onglet garde sa propre session, même en se connectant à
+  // plusieurs comptes en parallèle dans des onglets différents.
   setSession(token, user) {
-    localStorage.setItem(this.KEY_TOKEN, token);
-    localStorage.setItem(this.KEY_USER, JSON.stringify(user));
+    sessionStorage.setItem(this.KEY_TOKEN, token);
+    sessionStorage.setItem(this.KEY_USER, JSON.stringify(user));
   },
-  getToken() { return localStorage.getItem(this.KEY_TOKEN); },
+  getToken() { return sessionStorage.getItem(this.KEY_TOKEN); },
   getUser() {
-    try { return JSON.parse(localStorage.getItem(this.KEY_USER)); } catch (e) { return null; }
+    try { return JSON.parse(sessionStorage.getItem(this.KEY_USER)); } catch (e) { return null; }
   },
   clear() {
-    localStorage.removeItem(this.KEY_TOKEN);
-    localStorage.removeItem(this.KEY_USER);
+    sessionStorage.removeItem(this.KEY_TOKEN);
+    sessionStorage.removeItem(this.KEY_USER);
   },
   requireRole(roles) {
     const u = this.getUser();

@@ -13,7 +13,7 @@
 // A remplacer par l'URL obtenue après le déploiement (Extensions -> Apps Script -> Déployer ->
 // Nouveau déploiement -> Type : Application Web -> Exécuter en tant que : Moi -> Accès : Tout le
 // monde). L'URL ressemble à : https://script.google.com/macros/s/XXXXXXXXXXXXXXXX/exec
-const API_URL = 'REMPLACER_PAR_URL_DE_DEPLOIEMENT_APPS_SCRIPT';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwOeptVrskLdaYFZj1uRgEtcqPyDxkygzTT0MZ-9arDzEKG47atalYhLaRi4YHnxtRS/exec';
 
 // ============================================================
 // SESSION (token + utilisateur connecté)

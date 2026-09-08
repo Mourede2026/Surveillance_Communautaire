@@ -13,7 +13,17 @@
 // A remplacer par l'URL obtenue après le déploiement (Extensions -> Apps Script -> Déployer ->
 // Nouveau déploiement -> Type : Application Web -> Exécuter en tant que : Moi -> Accès : Tout le
 // monde). L'URL ressemble à : https://script.google.com/macros/s/XXXXXXXXXXXXXXXX/exec
-const API_URL = 'https://script.google.com/macros/s/AKfycbwOeptVrskLdaYFZj1uRgEtcqPyDxkygzTT0MZ-9arDzEKG47atalYhLaRi4YHnxtRS/exec';
+const API_URL = 'REMPLACER_PAR_URL_DE_DEPLOIEMENT_APPS_SCRIPT';
+
+// ============================================================
+// BORNES DE JOURNÉE (même logique que le backend Code.gs)
+// ============================================================
+// Utilisées par forms.js, rapport.js et les pages *.html pour déterminer la semaine
+// épidémiologique en cours à partir du calendrier importé (comparaison à un intervalle
+// [DateDebut, DateFin]) : sans les bornes 00h00/23h59:59.999, la borne de fin (minuit) ferait
+// "disparaître" le dernier jour de la semaine dès qu'on dépasse minuit ce jour-là.
+function debutJournee_(date) { const d = new Date(date); d.setHours(0, 0, 0, 0); return d; }
+function finJournee_(date) { const d = new Date(date); d.setHours(23, 59, 59, 999); return d; }
 
 // ============================================================
 // SESSION (token + utilisateur connecté)

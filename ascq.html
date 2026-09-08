@@ -31,6 +31,7 @@
     </nav>
     <div class="user-box">
       <div id="userName"></div>
+      <button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button>
       <button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button>
     </div>
   </aside>
@@ -169,10 +170,12 @@
 <script src="assets/notifications-liste.js"></script>
 <script src="assets/alerte-sonore.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
 userName.textContent = user.Prenom + ' ' + user.Nom;
 logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+document.getElementById('monCompteBtn').onclick = () => openMonCompteModal((u) => { document.getElementById('userName').textContent = u.Prenom + ' ' + u.Nom; });
 
 let briefingLoaded = false;
 

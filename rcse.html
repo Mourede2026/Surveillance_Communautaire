@@ -28,7 +28,7 @@
       <a href="#" data-tab="utilisateurs">Mes utilisateurs</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
     </nav>
-    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
+    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
   </aside>
   <main class="main">
     <div class="topbar"><h1>Zone sanitaire — <span id="zoneLabel">…</span></h1><span class="week-pill" id="weekPill">Semaine —</span></div>
@@ -157,10 +157,12 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
 userName.textContent = user.Prenom + ' ' + user.Nom;
 logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
+document.getElementById('monCompteBtn').onclick = () => openMonCompteModal((u) => { document.getElementById('userName').textContent = u.Prenom + ' ' + u.Nom; });
 
 // Communes qui composent la zone sanitaire de ce RCSE — assignées dès la création du compte par
 // le National, donc disponibles immédiatement (aucune étape d'assignation manuelle à attendre).

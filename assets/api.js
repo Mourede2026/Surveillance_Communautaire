@@ -136,3 +136,39 @@ function toast(message, isError) {
   clearTimeout(__toastTimer);
   __toastTimer = setTimeout(() => { el.className = 'toast'; }, 3500);
 }
+
+// ============================================================
+// FORMAT DE DATE (jj/mm/aaaa) — utilisé par tous les tableaux (historique, notifications,
+// suivis...). Accepte "2026-10-14", "2026-10-14 16:19:00", une date ISO ou un objet Date ;
+// renvoie '' si la valeur est vide et la valeur d'origine si elle n'est pas reconnue.
+// ============================================================
+function fmtDate(v) {
+  if (v === undefined || v === null || v === '') return '';
+  const str = String(v);
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
+  if (m) return m[3] + '/' + m[2] + '/' + m[1];
+  m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(str); // format du backend (heure du Bénin)
+  if (m) return m[3] + '/' + m[2] + '/' + m[1] + ' ' + m[4] + ':' + m[5];
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return str;
+  const pad = n => String(n).padStart(2, '0');
+  return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+
+// Échappe le texte venant des données avant de l'injecter dans du HTML.
+function escHtml(v) {
+  return String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ============================================================
+// DÉCONNEXION — tout élément portant la classe "js-logout" (bouton de la barre latérale et bouton
+// de la barre du haut, visible sur smartphone) déconnecte le compte et renvoie à la connexion.
+// ============================================================
+async function logoutEtRedirige() {
+  try { await Api.call('logout', {}); } catch (e) {}
+  Session.clear();
+  location.href = 'index.html';
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.js-logout').forEach(b => { b.onclick = logoutEtRedirige; });
+});

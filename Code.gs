@@ -52,7 +52,8 @@ const SHEETS = {
   NOTIFICATIONS: 'Notifications',
   SESSIONS: 'Sessions',
   JOURNAL: 'JournalAssignations',
-  SUIVIS: 'SuivisGroupes'
+  SUIVIS: 'SuivisGroupes',
+  PLANNINGS: 'PlanningsSuivis'
 };
 
 const ROLES = {
@@ -120,7 +121,13 @@ const COLS = {
   Sessions: ['Token','UserId','Expire'],
   JournalAssignations: ['ID','Type','CibleId','AssigneA','AssignePar','Date'],
   SuivisGroupes: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','Date','Themes',
-    'RcPresentsIds','RcPresentsNoms','NbPresents','PhotosUrls','Commentaires','DateCreation']
+    'RcPresentsIds','RcPresentsNoms','NbPresents','PhotosUrls','Commentaires','DateCreation',
+    'VillageIds','VillageNoms','DocumentsUrls','PlanningId'],
+  // Planning des suivis groupés (créé par l'ASCQ, visible par toute sa hiérarchie : PF, RCSE,
+  // Département, National). Statut : Planifié -> Réalisé (lié au suivi enregistré) ou Annulé.
+  PlanningsSuivis: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','DatePrevue','Heure',
+    'VillageIds','VillageNoms','Lieu','Themes','RcConviesIds','RcConviesNoms','Objectif','Statut',
+    'SuiviId','DateCreation']
 };
 
 // ============================================================
@@ -182,6 +189,9 @@ function doPost(e) {
       submitInvestigation: () => submitInvestigation_(user, payload),
       submitSuiviGroupe: () => submitSuiviGroupe_(user, payload),
       listSuivisGroupes: () => ({ ok: true, suivis: listSuivisGroupes_(user) }),
+      submitPlanningSuivi: () => submitPlanningSuivi_(user, payload),
+      updatePlanningSuivi: () => updatePlanningSuivi_(user, payload),
+      listPlanningsSuivis: () => ({ ok: true, plannings: listPlanningsSuivis_(user) }),
 
       listAlertes: () => ({ ok: true, alertes: listScoped_(SHEETS.ALERTES, user) }),
       listDeces: () => ({ ok: true, deces: listScoped_(SHEETS.DECES, user) }),
@@ -1175,25 +1185,65 @@ function enregistrerPhotosSuivi_(photosDataUrl, nomBase) {
   return urls;
 }
 
+// Types de documents acceptés pour le rapport d'un suivi groupé (en plus des photos).
+const DOCUMENTS_MIME_AUTORISES_ = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.oasis.opendocument.text': 'odt',
+  'text/plain': 'txt'
+};
+
+// Enregistre les documents du rapport (PDF, Word, Excel...) envoyés en data URL et renvoie
+// [{ nom, url }]. Même dossier Drive et même partage "lecture avec le lien" que les photos.
+function enregistrerDocumentsSuivi_(fichiers, nomBase) {
+  const dossier = dossierPhotosSuivi_();
+  const res = [];
+  (fichiers || []).forEach((f, i) => {
+    const m = /^data:([^;,]+);base64,(.*)$/.exec((f && f.dataUrl) || '');
+    if (!m) return;
+    const ext = DOCUMENTS_MIME_AUTORISES_[m[1]];
+    if (!ext) return;
+    const nomPropre = String(f.name || ('document_' + (i + 1) + '.' + ext)).replace(/[^\w.\- ]+/g, '_').slice(0, 80);
+    const blob = Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], `${nomBase}_${nomPropre}`);
+    const file = dossier.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    res.push({ nom: nomPropre, url: file.getUrl() });
+  });
+  return res;
+}
+
 // Enregistre une séance de suivi groupé : thèmes abordés (définitions de cas uniquement — voir
 // assets/briefing-data.js côté frontend, aucune saisie libre), liste de présence des RC (cochés
-// parmi les RC de l'ASCQ, plutôt qu'un simple nombre), et au moins une photo de la séance
-// (obligatoire). La date du suivi est celle choisie par l'ASCQ (peut différer d'aujourd'hui si
-// saisie a posteriori, mais reste la date RETENUE de la séance).
+// parmi les RC de l'ASCQ, village par village), et au moins une pièce justificative du rapport :
+// photo(s) de la séance et/ou document(s) (PDF, Word...). La date du suivi est celle choisie par
+// l'ASCQ. Si le suivi correspond à une séance planifiée (p.planningId), celle-ci passe à "Réalisé".
 function submitSuiviGroupe_(actor, p) {
   if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul un compte ASCQ peut enregistrer un suivi groupé.' };
   if (!p.date) return { ok: false, error: 'La date du suivi est obligatoire.' };
   if (!Array.isArray(p.themes) || !p.themes.length) return { ok: false, error: 'Sélectionnez au moins un thème abordé (définition de cas).' };
   if (!Array.isArray(p.rcPresentsIds) || !p.rcPresentsIds.length) return { ok: false, error: 'Cochez au moins un RC dans la liste de présence.' };
-  if (!Array.isArray(p.photos) || !p.photos.length) return { ok: false, error: 'Au moins une photo de la séance est obligatoire.' };
+  const photos = Array.isArray(p.photos) ? p.photos : [];
+  const fichiers = Array.isArray(p.fichiers) ? p.fichiers : [];
+  if (!photos.length && !fichiers.length) return { ok: false, error: 'Ajoutez au moins une photo ou un document du rapport de suivi.' };
 
   const mesRc = readSheet_(SHEETS.USERS).filter(u => u.Role === ROLES.RC && u.ResponsableId === actor.ID);
   const rcValides = mesRc.filter(u => p.rcPresentsIds.includes(u.ID));
   if (!rcValides.length) return { ok: false, error: 'Aucun des RC cochés ne dépend de votre compte.' };
 
-  let urls;
+  let planning = null;
+  if (p.planningId) {
+    planning = readSheet_(SHEETS.PLANNINGS).find(x => x.ID === p.planningId && x.AscqId === actor.ID);
+    if (!planning) return { ok: false, error: 'Séance planifiée introuvable.' };
+  }
+
+  let urls = [], docs = [];
   try {
-    urls = enregistrerPhotosSuivi_(p.photos, `suivi_${actor.ID}_${p.date}`);
+    const base = `suivi_${actor.ID}_${p.date}`;
+    if (photos.length) urls = enregistrerPhotosSuivi_(photos, base);
+    if (fichiers.length) docs = enregistrerDocumentsSuivi_(fichiers, base);
   } catch (e) {
     // Erreur d'autorisation Drive la plus fréquente : le script n'a pas encore le droit d'y
     // accéder (scope ajouté après la dernière autorisation). Rien n'est enregistré tant que ce
@@ -1201,9 +1251,21 @@ function submitSuiviGroupe_(actor, p) {
     if (/authoriz|autoris|permission/i.test(e.message || '')) {
       return { ok: false, error: 'Le script n\'a pas encore l\'autorisation d\'accéder à Google Drive (nécessaire pour stocker les photos). Dans l\'éditeur Apps Script : ouvrez une fonction, cliquez sur "Exécuter", acceptez l\'autorisation Drive demandée, puis redéployez une nouvelle version de l\'application web.' };
     }
-    return { ok: false, error: 'Erreur lors de l\'enregistrement des photos : ' + e.message };
+    return { ok: false, error: 'Erreur lors de l\'enregistrement des fichiers : ' + e.message };
   }
-  if (!urls.length) return { ok: false, error: 'Les photos envoyées sont invalides ou n\'ont pas pu être enregistrées.' };
+  if (!urls.length && !docs.length) return { ok: false, error: 'Les fichiers envoyés sont invalides (formats acceptés : photos, PDF, Word, Excel, texte) ou n\'ont pas pu être enregistrés.' };
+
+  // Villages couverts par la séance : ceux des RC présents (domicile + grappes assignées)
+  const villagesSheet = readSheet_(SHEETS.VILLAGES);
+  const grappes = readSheet_(SHEETS.GRAPPES);
+  const periGrappes = readSheet_(SHEETS.PERIMETRES).filter(x => x.TypeCible === 'Grappe');
+  const villageIds = [];
+  const ajouteVillage = id => { if (id && villageIds.indexOf(id) === -1) villageIds.push(id); };
+  (Array.isArray(p.villageIds) ? p.villageIds : []).forEach(id => {
+    if (rcValides.some(rc => villagesDuRc_(rc, periGrappes, grappes).indexOf(id) !== -1)) ajouteVillage(id);
+  });
+  rcValides.forEach(rc => { if (!villageIds.length) villagesDuRc_(rc, periGrappes, grappes).forEach(ajouteVillage); });
+  const villageNoms = villageIds.map(id => { const v = villagesSheet.find(x => x.ID === id); return v ? v.Nom : id; });
 
   const rec = {
     ID: newId_('SUI'), AscqId: actor.ID, AscqNom: actor.Prenom + ' ' + actor.Nom,
@@ -1212,10 +1274,93 @@ function submitSuiviGroupe_(actor, p) {
     RcPresentsIds: JSON.stringify(rcValides.map(u => u.ID)),
     RcPresentsNoms: JSON.stringify(rcValides.map(u => u.Prenom + ' ' + u.Nom)),
     NbPresents: rcValides.length, PhotosUrls: JSON.stringify(urls),
+    DocumentsUrls: JSON.stringify(docs),
+    VillageIds: JSON.stringify(villageIds), VillageNoms: JSON.stringify(villageNoms),
+    PlanningId: planning ? planning.ID : '',
     Commentaires: p.commentaires || '', DateCreation: nowStr_()
   };
   appendRow_(SHEETS.SUIVIS, rec);
+  if (planning) updateRowById_(SHEETS.PLANNINGS, planning.ID, { Statut: 'Réalisé', SuiviId: rec.ID });
   return { ok: true, suivi: rec };
+}
+
+// Identifiants des villages couverts par un RC : son village d'origine + les villages de ses grappes.
+function villagesDuRc_(rc, periGrappes, grappes) {
+  const ids = [];
+  if (rc.VillageId) ids.push(rc.VillageId);
+  periGrappes.filter(x => x.UserId === rc.ID).forEach(x => {
+    const g = grappes.find(gg => gg.ID === x.CibleId);
+    if (g && g.VillageId && ids.indexOf(g.VillageId) === -1) ids.push(g.VillageId);
+  });
+  return ids;
+}
+
+// ============================================================
+// PLANNING DES SUIVIS GROUPÉS (par l'ASCQ, visible par sa hiérarchie)
+// ============================================================
+
+// Date au format "yyyy-MM-dd" quel que soit le type renvoyé par la feuille (texte ou Date).
+function dateIso_(v) {
+  if (!v) return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, 'Africa/Porto-Novo', 'yyyy-MM-dd');
+  return String(v).slice(0, 10);
+}
+
+function submitPlanningSuivi_(actor, p) {
+  if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul un compte ASCQ peut planifier un suivi groupé.' };
+  if (!p.datePrevue) return { ok: false, error: 'La date prévue est obligatoire.' };
+  if (dateIso_(p.datePrevue) < dateIso_(new Date())) return { ok: false, error: 'La date prévue ne peut pas être dans le passé.' };
+  const mesRc = readSheet_(SHEETS.USERS).filter(u => u.Role === ROLES.RC && u.ResponsableId === actor.ID);
+  const rcConvies = mesRc.filter(u => (p.rcConviesIds || []).includes(u.ID));
+  const villagesSheet = readSheet_(SHEETS.VILLAGES);
+  const villageIds = (Array.isArray(p.villageIds) ? p.villageIds : []).filter(id => villagesSheet.some(v => v.ID === id));
+  if (!villageIds.length && !rcConvies.length) return { ok: false, error: 'Indiquez au moins un village ou un RC concerné.' };
+  const villageNoms = villageIds.map(id => villagesSheet.find(v => v.ID === id).Nom);
+  const rec = {
+    ID: newId_('PLN'), AscqId: actor.ID, AscqNom: actor.Prenom + ' ' + actor.Nom,
+    ArrondissementId: actor.ArrondissementId || '', ArrondissementNom: actor.ArrondissementNom || '',
+    DatePrevue: dateIso_(p.datePrevue), Heure: String(p.heure || '').replace(':', 'h'), // "09h00" : reste du texte dans Sheets ("09:00" serait converti en heure)
+    VillageIds: JSON.stringify(villageIds), VillageNoms: JSON.stringify(villageNoms),
+    Lieu: p.lieu || '', Themes: JSON.stringify(Array.isArray(p.themes) ? p.themes : []),
+    RcConviesIds: JSON.stringify(rcConvies.map(u => u.ID)),
+    RcConviesNoms: JSON.stringify(rcConvies.map(u => u.Prenom + ' ' + u.Nom)),
+    Objectif: p.objectif || '', Statut: 'Planifié', SuiviId: '', DateCreation: nowStr_()
+  };
+  appendRow_(SHEETS.PLANNINGS, rec);
+  // La hiérarchie (PF, RCSE, Département, National) est prévenue de la séance planifiée.
+  cascadeNotify_(actor, 'PLANNING', rec.ID, `Suivi groupé planifié le ${rec.DatePrevue} par ${rec.AscqNom}${villageNoms.length ? ' - Village(s): ' + villageNoms.join(', ') : ''}`);
+  return { ok: true, planning: rec };
+}
+
+// Annuler, ré-ouvrir ou reporter une séance planifiée (jamais une séance déjà réalisée).
+function updatePlanningSuivi_(actor, p) {
+  if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul un compte ASCQ peut modifier son planning.' };
+  const plan = readSheet_(SHEETS.PLANNINGS).find(x => x.ID === p.id && x.AscqId === actor.ID);
+  if (!plan) return { ok: false, error: 'Séance planifiée introuvable.' };
+  if (plan.Statut === 'Réalisé') return { ok: false, error: 'Cette séance est déjà réalisée.' };
+  const changes = {};
+  if (p.statut) {
+    if (['Planifié', 'Annulé'].indexOf(p.statut) === -1) return { ok: false, error: 'Statut invalide.' };
+    changes.Statut = p.statut;
+  }
+  if (p.datePrevue) {
+    if (dateIso_(p.datePrevue) < dateIso_(new Date())) return { ok: false, error: 'La date prévue ne peut pas être dans le passé.' };
+    changes.DatePrevue = dateIso_(p.datePrevue);
+  }
+  if (!Object.keys(changes).length) return { ok: false, error: 'Aucune modification demandée.' };
+  updateRowById_(SHEETS.PLANNINGS, plan.ID, changes);
+  cascadeNotify_(actor, 'PLANNING', plan.ID, `Suivi groupé ${changes.Statut === 'Annulé' ? 'annulé' : 'modifié'} (prévu le ${dateIso_(plan.DatePrevue)}) par ${plan.AscqNom}`);
+  return { ok: true };
+}
+
+// Plannings visibles : les siens (ASCQ) ou ceux de tous les ASCQ de son périmètre (PF, RCSE,
+// Département, National) — même règle de visibilité que les suivis groupés.
+function listPlanningsSuivis_(actor) {
+  const ascqIds = ascqIdsVisibles_(actor);
+  if (!ascqIds.length) return [];
+  return readSheet_(SHEETS.PLANNINGS).filter(x => ascqIds.includes(x.AscqId))
+    .map(x => Object.assign({}, x, { DatePrevue: dateIso_(x.DatePrevue) }))
+    .sort((a, b) => String(a.DatePrevue).localeCompare(String(b.DatePrevue)));
 }
 
 // Historique des suivis groupés d'un ASCQ (les siens uniquement).
@@ -1248,7 +1393,8 @@ function listSuivisGroupes_(actor) {
   const ascqIds = ascqIdsVisibles_(actor);
   if (!ascqIds.length) return [];
   return readSheet_(SHEETS.SUIVIS).filter(s => ascqIds.includes(s.AscqId))
-    .sort((a, b) => new Date(b.Date) - new Date(a.Date));
+    .map(s => Object.assign({}, s, { Date: dateIso_(s.Date) }))
+    .sort((a, b) => String(b.Date).localeCompare(String(a.Date)));
 }
 
 // Tous les arrondissements situés dans le département d'un compte DEPARTEMENT (union des

@@ -55,3 +55,13 @@ département), en réattachant automatiquement les PF concernés. Vérifiez le r
 et communiquez les nouveaux mots de passe temporaires aux titulaires des comptes RCSE créés — vous
 pourrez ensuite ajuster les communes de chaque zone sanitaire depuis l'écran national si elles ne
 correspondent pas exactement aux vraies zones sanitaires.
+
+
+## Suivi groupé des RC (ASCQ)
+
+- **Planning** : l'ASCQ planifie une séance (date, heure, lieu, village(s), RC convoqués, thèmes). Les niveaux
+  PF, RCSE, Département et National la voient (onglet « Suivi groupé RC ») et reçoivent une notification.
+- **Compte rendu** : filtre par village -> cases à cocher des RC présents (sélection conservée d'un village à
+  l'autre), thèmes, et au moins une photo **ou** un document (PDF, Word, Excel, texte ; 5 Mo max).
+- Nouvelle feuille `PlanningsSuivis` et nouvelles colonnes de `SuivisGroupes` : créées automatiquement.
+  **Après mise à jour de Code.gs, redéployez une nouvelle version de l'application web.**

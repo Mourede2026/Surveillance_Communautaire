@@ -22,16 +22,25 @@
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord national</a>
       <a href="#" data-tab="departements">Comptes Départements</a>
+      <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
       <a href="#" data-tab="geo">Géographie nationale</a>
       <a href="#" data-tab="calendrier">Calendrier épidémiologique</a>
       <a href="#" data-tab="utilisateurs">Tous les utilisateurs</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire national</a>
     </nav>
-    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button><button class="btn-secondary btn-block" id="logoutBtn">Déconnexion</button></div>
+    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button><button class="btn-secondary btn-block js-logout" id="logoutBtn">Déconnexion</button></div>
   </aside>
   <main class="main">
-    <div class="topbar"><h1>Administration nationale</h1><span class="week-pill" id="weekPill">Semaine —</span></div>
+    <div class="topbar"><h1>Administration nationale</h1><span class="topbar-right"><span class="week-pill" id="weekPill">Semaine —</span><button class="btn-logout-top js-logout" type="button" title="Se déconnecter">⎋ Déconnexion</button></span></div>
     <div class="content">
+
+      <section id="tab-suivigroupe" style="display:none">
+        <div class="card">
+          <h2>Suivis groupés des RC — planning et réalisations</h2>
+          <p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">Lecture seule : la planification et la saisie sont faites par les ASCQ.</p>
+          <div id="suiviGroupeTable">Chargement…</div>
+        </div>
+      </section>
 
       <section id="tab-dashboard">
         <div class="grid grid-4">
@@ -145,6 +154,8 @@
 <script src="assets/rapport.js"></script>
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
+<script src="assets/briefing-data.js"></script>
+<script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
@@ -157,9 +168,9 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','departements','geo','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','departements','suivigroupe','geo','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { departements: loadDepartements, geo: loadGeo, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), departements: loadDepartements, geo: loadGeo, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 

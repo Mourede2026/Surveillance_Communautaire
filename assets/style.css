@@ -186,3 +186,38 @@ table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0;
   #rapportPrintArea { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
   .canevas-titre, .canevas-entete, table.canevas-table, .canevas-signature { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* ---------- Bouton de déconnexion dans la barre du haut (visible surtout sur smartphone) ---------- */
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.btn-logout-top { background: #EDF3F1; color: var(--teal-900); padding: 6px 12px; font-size: .82rem; font-weight: 600; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.btn-logout-top:hover { background: var(--line); }
+@media (min-width: 721px) { .btn-logout-top { display: none; } } /* sur ordinateur, le bouton reste dans la barre latérale */
+@media (max-width: 720px) {
+  .topbar { padding: 10px 14px; flex-wrap: nowrap; }
+  .topbar h1 { font-size: .95rem; flex: 1; min-width: 0; }
+  .topbar-right { flex-shrink: 0; gap: 6px; }
+  .week-pill { padding: 5px 10px; font-size: .74rem; }
+  .toast { left: 12px; right: 12px; bottom: 12px; }
+}
+
+/* ---------- Suivis groupés : planning, sélecteur de RC par village ---------- */
+.badge-late { background: #F8D9D3; color: #8F2A18; }
+.badge-cancel { background: #E6E6E6; color: #555; }
+.sous-titre { font-size: .95rem; color: var(--teal-900); margin: 0 0 10px; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.rc-picker { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #FAFCFB; }
+.rc-picker .rc-picker-head { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 10px; }
+.rc-picker .rc-picker-head .field { flex: 1; min-width: 200px; margin: 0; }
+.rc-picker .rc-liste { max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 6px 10px; }
+.rc-picker .rc-liste label { display: flex; align-items: center; gap: 8px; font-weight: 400; margin: 0; padding: 8px 0; border-bottom: 1px solid #F0F4F2; font-size: .9rem; }
+.rc-picker .rc-liste label:last-child { border-bottom: none; }
+.rc-picker .rc-liste input[type="checkbox"], .rc-picker input[type="checkbox"] { width: auto; margin: 0; }
+.rc-picker .rc-resume { margin-top: 10px; font-size: .82rem; color: var(--ink-soft); }
+.btn-mini { padding: 6px 10px; font-size: .78rem; }
+.sub-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.sub-tabs button { background: #EDF3F1; color: var(--teal-900); font-weight: 600; font-size: .85rem; padding: 8px 14px; border-radius: 999px; }
+.sub-tabs button.active { background: var(--teal-700); color: #fff; }
+.bandeau-planning { background: #FFF6E5; border: 1px solid #F0D9A8; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: .85rem; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.fichiers-apercu { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
+.fichiers-apercu .doc-chip { display: inline-flex; align-items: center; gap: 6px; background: #DCEFEA; border-radius: 8px; padding: 6px 10px; font-size: .8rem; }
+.fichiers-apercu img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }

@@ -65,3 +65,59 @@ correspondent pas exactement aux vraies zones sanitaires.
   l'autre), thèmes, et au moins une photo **ou** un document (PDF, Word, Excel, texte ; 5 Mo max).
 - Nouvelle feuille `PlanningsSuivis` et nouvelles colonnes de `SuivisGroupes` : créées automatiquement.
   **Après mise à jour de Code.gs, redéployez une nouvelle version de l'application web.**
+
+
+## Serveur autonome (sans Google Sheets) — recommandé
+
+Le dossier `server/` fait de l'application **son propre serveur** : plus de Google Sheets ni d'Apps Script.
+Il exécute `Code.gs` (mêmes règles métier) sur une base locale `data/db.json`, stocke les photos et
+documents dans `data/uploads/`, sert l'application et fournit l'**interface d'administration des données**
+(`admin.html`, compte NATIONAL : voir/chercher/modifier/supprimer chaque table, exports JSON/Excel/CSV,
+import, sauvegardes).
+
+```bash
+cd server && npm install        # une seule fois (Excel import/export)
+cd .. && node server/server.js  # puis ouvrir http://localhost:3000
+```
+
+Variables utiles : `PORT` (3000), `DATA_DIR` (./data), `PUBLIC_URL` (URL publique du site, pour les liens des
+fichiers), `INITIAL_NATIONAL_PASSWORD` (mot de passe du premier compte NATIONAL), `ALLOWED_ORIGIN` (*).
+
+**Premier démarrage** : compte NATIONAL `61790075` / `national2026` (ou `INITIAL_NATIONAL_PASSWORD`) — changez le
+mot de passe immédiatement (« Mon compte »).
+
+**Reprendre vos données Google Sheets** : Google Sheets > Fichier > Télécharger > Excel (.xlsx), puis
+`admin.html` > « Importer des données » > classeur Excel. (Les photos déjà stockées sur Drive gardent leurs liens Drive.)
+
+**Hébergement** : le serveur doit tourner sur une machine allumée en permanence avec un **disque persistant**
+(VPS, Render/Railway/Fly avec volume, etc.). Un `Dockerfile` est fourni (volume `/data`). GitHub Pages ne peut pas
+l'héberger. Placez-le derrière HTTPS (reverse proxy / hébergeur). **Sauvegardes** : automatiques chaque nuit dans
+`data/backups` (30 jours) ; téléchargez-les régulièrement ailleurs.
+
+Le mode Google Sheets reste possible : sans serveur, `assets/api.js` utilise l'URL Apps Script d'origine.
+
+
+## Cycle de vie d'un suivi groupé (preuves et traçabilité)
+
+1. **Planification** (ASCQ) : date, heure, lieu, village(s), RC convoqués, thèmes. Les RC convoqués sont notifiés ;
+   PF, RCSE, Département et National voient le planning et sont notifiés.
+2. **Compte rendu** (ASCQ, après la séance) : date réelle (jamais dans le futur), lieu, village(s) -> RC présents,
+   thèmes, au moins une photo **ou** un document, commentaires. Les absents (convoqués non présents) sont déduits
+   automatiquement. Confirmation avant dépôt.
+3. **Verrouillage** : une fois déposé, le rapport ne peut plus être modifié ni remplacé (aucune action de
+   modification n'existe côté API ; un doublon et un second dépôt pour la même séance sont refusés).
+   L'ASCQ peut le consulter à tout moment (Historique -> « Voir la fiche »).
+4. **Contrôle hiérarchique** : chaque niveau supérieur voit, pour son périmètre, le planning, l'historique avec
+   la mention Réalisé / Non réalisé / À venir, le taux de réalisation, et la fiche complète de chaque séance
+   (présence nominative, photos, documents, commentaires), imprimable ou exportable en PDF.
+   Filtres : statut, ASCQ, période, recherche libre.
+
+Seul le compte NATIONAL peut intervenir directement sur les données brutes, via `admin.html` (serveur autonome).
+
+
+## Décès communautaires : confirmation par l'ASCQ
+
+Un décès notifié par un RC arrive à l'ASCQ avec le statut « En attente ». L'ASCQ (onglet « Décès à confirmer »)
+le **confirme** ou **ne le confirme pas** (motif obligatoire) ; la décision est définitive. Seuls les décès
+**confirmés** sont comptés dans le rapport hebdomadaire (synthèse et détail). Le RC et la hiérarchie sont notifiés
+de la décision. Les décès enregistrés avant cette mise à jour restent « En attente » jusqu'à leur confirmation.

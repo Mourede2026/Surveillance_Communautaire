@@ -34,74 +34,102 @@
   }
 
   // ------------------------------------------------------------------
-  // Sélecteur « village -> relais communautaires à cocher »
-  // La sélection est conservée quand on change de village (une séance peut réunir des RC de
-  // plusieurs villages) ; le récapitulatif en dessous liste tous les RC cochés.
+  // Sélecteur « villages -> relais communautaires à cocher »
+  // On peut cocher UN SEUL village ou PLUSIEURS à la fois : les RC de chaque village coché
+  // s'affichent par groupe, et la sélection des RC est conservée quand on (dé)coche des villages.
   // ------------------------------------------------------------------
-  function creerSelecteur(containerId) {
+  function creerSelecteur(containerId, options) {
+    const autoCocher = !!(options && options.autoCocher); // planning : cocher un village convoque tous ses RC (décochables)
     const el = $(containerId);
-    const selection = new Map(); // rcId -> villageId d'où il a été coché
-    let villageCourant = '';
+    const rcSel = new Set();      // RC cochés
+    const villagesSel = new Set(); // villages affichés (cochés dans le filtre)
 
     el.classList.add('rc-picker');
     el.innerHTML = `
-      <div class="rc-picker-head">
-        <div class="field"><label>Village de couverture</label><select class="rcp-village"></select></div>
-        <button type="button" class="btn-secondary btn-mini rcp-tout">Tout cocher</button>
-        <button type="button" class="btn-secondary btn-mini rcp-rien">Tout décocher</button>
+      <div class="rcp-bloc-titre">1. Village(s) concerné(s) <span class="rcp-aide">— un seul ou plusieurs</span></div>
+      <div class="rcp-actions">
+        <input type="search" class="rcp-recherche" placeholder="Rechercher un village…" style="flex:1;min-width:160px">
+        <button type="button" class="btn-secondary btn-mini rcp-v-tous">Tous</button>
+        <button type="button" class="btn-secondary btn-mini rcp-v-aucun">Aucun</button>
       </div>
+      <div class="rcp-villages"></div>
+      <div class="rcp-bloc-titre" style="margin-top:12px">2. Relais communautaires à cocher</div>
       <div class="rc-liste rcp-liste"><div class="empty-hint">Chargement…</div></div>
       <div class="rc-resume rcp-resume"></div>`;
-    const selVillage = el.querySelector('.rcp-village'), liste = el.querySelector('.rcp-liste'), resume = el.querySelector('.rcp-resume');
+    const zoneVillages = el.querySelector('.rcp-villages'), liste = el.querySelector('.rcp-liste'), resume = el.querySelector('.rcp-resume'), recherche = el.querySelector('.rcp-recherche');
+    let villageIds = [];
 
-    function rcsDuVillage() { return donnees.rcs.filter(r => r.villageIds.includes(villageCourant)); }
+    const rcsDe = vid => donnees.rcs.filter(r => r.villageIds.includes(vid));
 
+    function dessinerVillages() {
+      const q = recherche.value.trim().toLowerCase();
+      const visibles = villageIds.filter(id => !q || donnees.villages[id].toLowerCase().includes(q));
+      zoneVillages.innerHTML = visibles.length ? visibles.map(id => `<label class="rcp-village-chip ${villagesSel.has(id) ? 'on' : ''}"><input type="checkbox" value="${escHtml(id)}" ${villagesSel.has(id) ? 'checked' : ''}> ${escHtml(donnees.villages[id])} <small>(${rcsDe(id).length} RC)</small></label>`).join('') : '<div class="empty-hint">Aucun village.</div>';
+    }
     function dessinerListe() {
-      if (!villageCourant) { liste.innerHTML = '<div class="empty-hint">Choisissez un village pour voir ses relais communautaires.</div>'; return; }
-      const rcs = rcsDuVillage();
-      if (!rcs.length) { liste.innerHTML = '<div class="empty-hint">Aucun RC dans ce village.</div>'; return; }
-      liste.innerHTML = rcs.map(r => `<label><input type="checkbox" value="${escHtml(r.id)}" ${selection.has(r.id) ? 'checked' : ''}> ${escHtml(r.nom)}${r.tel ? ' <span style="color:var(--ink-soft)">· ' + escHtml(r.tel) + '</span>' : ''}</label>`).join('');
+      if (!villagesSel.size) { liste.innerHTML = '<div class="empty-hint">Cochez un ou plusieurs villages pour voir leurs relais communautaires.</div>'; return; }
+      liste.innerHTML = [...villagesSel].sort((a, b) => donnees.villages[a].localeCompare(donnees.villages[b], 'fr')).map(vid => {
+        const rcs = rcsDe(vid);
+        return `<div class="rcp-groupe"><div class="rcp-groupe-titre"><strong>${escHtml(donnees.villages[vid])}</strong>
+          <span><button type="button" class="btn-secondary btn-mini" data-g="tout" data-v="${escHtml(vid)}">Tout cocher</button> <button type="button" class="btn-secondary btn-mini" data-g="rien" data-v="${escHtml(vid)}">Tout décocher</button></span></div>` +
+          (rcs.length ? rcs.map(r => `<label><input type="checkbox" value="${escHtml(r.id)}" ${rcSel.has(r.id) ? 'checked' : ''}> ${escHtml(r.nom)}${r.tel ? ' <span style="color:var(--ink-soft)">· ' + escHtml(r.tel) + '</span>' : ''}</label>`).join('') : '<div class="empty-hint">Aucun RC dans ce village.</div>') + '</div>';
+      }).join('');
     }
     function dessinerResume() {
-      if (!selection.size) { resume.textContent = 'Aucun RC coché pour le moment.'; return; }
-      const parVillage = {};
-      selection.forEach((vid, rid) => { const rc = donnees.rcs.find(r => r.id === rid); if (rc) (parVillage[vid] = parVillage[vid] || []).push(rc.nom); });
-      resume.innerHTML = `<strong>${selection.size} RC coché(s)</strong><br>` + Object.keys(parVillage).map(vid => `${escHtml(donnees.villages[vid] || vid)} : ${escHtml(parVillage[vid].join(', '))}`).join('<br>');
+      resume.innerHTML = rcSel.size ? `<strong>${rcSel.size} RC coché(s)</strong> dans ${villagesConcernes().length} village(s) : ` + escHtml([...rcSel].map(id => (donnees.rcs.find(r => r.id === id) || {}).nom).filter(Boolean).join(', ')) : 'Aucun RC coché pour le moment.';
     }
+    // Villages cochés qui contiennent au moins un RC coché
+    function villagesConcernes() { return [...villagesSel].filter(v => rcsDe(v).some(r => rcSel.has(r.id))); }
+    function tout() { dessinerVillages(); dessinerListe(); dessinerResume(); }
 
-    selVillage.addEventListener('change', () => { villageCourant = selVillage.value; dessinerListe(); });
+    zoneVillages.addEventListener('change', e => {
+      if (e.target.type !== 'checkbox') return;
+      if (e.target.checked) { villagesSel.add(e.target.value); if (autoCocher) rcsDe(e.target.value).forEach(r => rcSel.add(r.id)); }
+      else {
+        villagesSel.delete(e.target.value);
+        if (autoCocher) [...rcSel].forEach(id => { const rc = donnees.rcs.find(r => r.id === id); if (rc && !rc.villageIds.some(v => villagesSel.has(v))) rcSel.delete(id); });
+      }
+      e.target.closest('label').classList.toggle('on', e.target.checked);
+      dessinerListe(); dessinerResume();
+    });
+    recherche.addEventListener('input', dessinerVillages);
+    el.querySelector('.rcp-v-tous').onclick = () => { villageIds.forEach(id => { villagesSel.add(id); if (autoCocher) rcsDe(id).forEach(r => rcSel.add(r.id)); }); tout(); };
+    el.querySelector('.rcp-v-aucun').onclick = () => { villagesSel.clear(); if (autoCocher) rcSel.clear(); tout(); };
     liste.addEventListener('change', e => {
       if (e.target.type !== 'checkbox') return;
-      if (e.target.checked) selection.set(e.target.value, villageCourant); else selection.delete(e.target.value);
+      if (e.target.checked) rcSel.add(e.target.value); else rcSel.delete(e.target.value);
+      // un RC peut figurer dans plusieurs villages : on synchronise toutes ses cases
+      liste.querySelectorAll(`input[value="${CSS.escape(e.target.value)}"]`).forEach(c => { c.checked = e.target.checked; });
       dessinerResume();
     });
-    el.querySelector('.rcp-tout').onclick = () => { rcsDuVillage().forEach(r => selection.set(r.id, villageCourant)); dessinerListe(); dessinerResume(); };
-    el.querySelector('.rcp-rien').onclick = () => { rcsDuVillage().forEach(r => selection.delete(r.id)); dessinerListe(); dessinerResume(); };
+    liste.addEventListener('click', e => {
+      const b = e.target.closest('button[data-g]'); if (!b) return;
+      rcsDe(b.dataset.v).forEach(r => b.dataset.g === 'tout' ? rcSel.add(r.id) : rcSel.delete(r.id));
+      dessinerListe(); dessinerResume();
+    });
 
     return {
       async init() {
         try {
           await chargerDonnees();
-          const ids = Object.keys(donnees.villages).filter(id => donnees.rcs.some(r => r.villageIds.includes(id)));
-          ids.sort((a, b) => donnees.villages[a].localeCompare(donnees.villages[b], 'fr'));
-          if (!donnees.rcs.length) { selVillage.innerHTML = '<option value="">Aucun RC créé pour le moment</option>'; liste.innerHTML = ''; dessinerResume(); return; }
-          selVillage.innerHTML = '<option value="">— Choisir un village —</option>' + ids.map(id => `<option value="${escHtml(id)}">${escHtml(donnees.villages[id])} (${donnees.rcs.filter(r => r.villageIds.includes(id)).length} RC)</option>`).join('');
-          if (!villageCourant && ids.length === 1) { villageCourant = ids[0]; selVillage.value = villageCourant; }
-          dessinerListe(); dessinerResume();
+          villageIds = Object.keys(donnees.villages).filter(id => rcsDe(id).length);
+          villageIds.sort((a, b) => donnees.villages[a].localeCompare(donnees.villages[b], 'fr'));
+          if (!donnees.rcs.length) { zoneVillages.innerHTML = '<div class="empty-hint">Aucun RC créé pour le moment.</div>'; liste.innerHTML = ''; return; }
+          if (!villagesSel.size && villageIds.length === 1) { villagesSel.add(villageIds[0]); if (autoCocher) rcsDe(villageIds[0]).forEach(r => rcSel.add(r.id)); }
+          tout();
         } catch (e) { liste.innerHTML = '<div class="empty-hint">Erreur de chargement des RC : ' + escHtml(e.message) + '</div>'; }
       },
-      ids: () => [...selection.keys()],
-      villageIds: () => [...new Set(selection.values())],
+      ids: () => [...rcSel],
+      villageIds: () => villagesConcernes(),
       // Remplace la sélection (ex. pré-remplissage depuis une séance planifiée)
       set(rcIds, villageIdsPrefs) {
-        selection.clear();
-        (rcIds || []).forEach(id => {
-          const rc = donnees.rcs.find(r => r.id === id); if (!rc) return;
-          selection.set(id, (villageIdsPrefs || []).find(v => rc.villageIds.includes(v)) || rc.villageIds[0] || '');
-        });
-        dessinerListe(); dessinerResume();
+        rcSel.clear(); villagesSel.clear();
+        (rcIds || []).forEach(id => { if (donnees.rcs.some(r => r.id === id)) rcSel.add(id); });
+        (villageIdsPrefs || []).forEach(v => { if (villageIds.includes(v)) villagesSel.add(v); });
+        rcSel.forEach(id => { const rc = donnees.rcs.find(r => r.id === id); if (!rc.villageIds.some(v => villagesSel.has(v)) && rc.villageIds[0]) villagesSel.add(rc.villageIds[0]); });
+        tout();
       },
-      reset() { selection.clear(); dessinerListe(); dessinerResume(); }
+      reset() { rcSel.clear(); tout(); }
     };
   }
 
@@ -179,8 +207,8 @@
       remplirThemes('suiviThemes', 'themes');
       remplirThemes('planThemes', 'planThemes');
       pickerSuivi = creerSelecteur('suiviRcPicker');
-      pickerPlan = creerSelecteur('planRcPicker');
-      $('suiviDate').value = aujourdhui();
+      pickerPlan = creerSelecteur('planRcPicker', { autoCocher: true });
+      $('suiviDate').value = aujourdhui(); $('suiviDate').max = aujourdhui();
       $('planDate').value = aujourdhui();
       $('planDate').min = aujourdhui();
       document.querySelectorAll('[data-suivi-sub]').forEach(b => b.addEventListener('click', () => afficherSousOnglet(b.dataset.suiviSub)));
@@ -202,17 +230,18 @@
         const fd = new FormData($('formSuivi'));
         const themes = fd.getAll('themes'), rcPresentsIds = pickerSuivi.ids();
         if (!themes.length) { toast('Sélectionnez au moins un thème abordé.', true); return; }
-        if (!rcPresentsIds.length) { toast('Cochez au moins un RC présent (choisissez un village, puis cochez ses RC).', true); return; }
+        if (!rcPresentsIds.length) { toast('Cochez au moins un RC présent (cochez un ou plusieurs villages, puis leurs RC).', true); return; }
         if (!photos.length && !documents.length) { toast('Ajoutez au moins une photo ou un document du rapport de suivi.', true); return; }
+        if (!confirm('Enregistrer ce suivi groupé ?\n\n' + rcPresentsIds.length + ' RC présent(s), ' + (photos.length + documents.length) + ' pièce(s) jointe(s).\nUne fois enregistré, le rapport est VERROUILLÉ : vous pourrez le consulter mais plus le modifier.')) return;
         const btn = $('formSuivi').querySelector('button[type=submit]'); btn.disabled = true;
         try {
           await Api.call('submitSuiviGroupe', {
-            date: fd.get('date'), themes, rcPresentsIds, villageIds: pickerSuivi.villageIds(),
+            date: fd.get('date'), lieu: fd.get('lieu') || '', themes, rcPresentsIds, villageIds: pickerSuivi.villageIds(),
             photos, fichiers: documents, commentaires: fd.get('commentaires') || '',
             planningId: planningLie ? planningLie.ID : undefined
           });
           toast('Suivi groupé enregistré.');
-          $('formSuivi').reset(); $('suiviDate').value = aujourdhui();
+          $('formSuivi').reset(); $('suiviDate').value = aujourdhui(); $('suiviLieu').value = '';
           photos = []; documents = []; planningLie = null; apercuFichiers(); majBandeauPlanning(); pickerSuivi.reset();
           afficherSousOnglet('historique');
         } catch (err) { toast(err.message, true); }
@@ -222,7 +251,7 @@
       $('formPlanning').addEventListener('submit', async e => {
         e.preventDefault();
         const fd = new FormData($('formPlanning'));
-        if (!pickerPlan.ids().length) { toast('Cochez au moins un RC à convoquer (choisissez un village, puis cochez ses RC).', true); return; }
+        if (!pickerPlan.ids().length) { toast('Cochez un ou plusieurs villages : leurs relais communautaires sont convoqués automatiquement (vous pouvez en décocher).', true); return; }
         const btn = $('formPlanning').querySelector('button[type=submit]'); btn.disabled = true;
         try {
           await Api.call('submitPlanningSuivi', {
@@ -244,6 +273,7 @@
           afficherSousOnglet('compte');
           await chargerDonnees();
           $('suiviDate').value = String(plan.DatePrevue) > aujourdhui() ? aujourdhui() : plan.DatePrevue;
+          $('suiviLieu').value = plan.Lieu || '';
           document.querySelectorAll('#suiviThemes input').forEach(i => { i.checked = jsonArr_(plan.Themes).includes(i.value); });
           pickerSuivi.set(jsonArr_(plan.RcConviesIds), jsonArr_(plan.VillageIds));
           majBandeauPlanning();
@@ -269,13 +299,15 @@
       planningsCache = plannings;
       if (!plannings.length) { el.innerHTML = '<div class="empty-state">Aucun suivi groupé planifié.</div>'; return; }
       const ordre = p => (p.Statut === 'Planifié' ? 0 : 1);
-      let html = '<div class="table-wrap"><table><thead><tr><th>Date prévue</th><th>Village(s)</th><th>RC convoqués</th><th>Lieu / objectif</th><th>Statut</th><th></th></tr></thead><tbody>';
+      let html = '<div class="table-wrap"><table><thead><tr><th>Date / heure</th><th>Village(s)</th><th>RC convoqués</th><th>Lieu</th><th>Objectif / thèmes</th><th>Statut</th><th></th></tr></thead><tbody>';
       plannings.slice().sort((a, b) => ordre(a) - ordre(b) || String(a.DatePrevue).localeCompare(String(b.DatePrevue))).forEach(p => {
         let actions = '';
         if (p.Statut === 'Planifié') actions = `<button class="btn-mini" data-plan="rapport" data-id="${escHtml(p.ID)}">Faire le compte rendu</button> <button class="btn-secondary btn-mini" data-plan="annuler" data-id="${escHtml(p.ID)}">Annuler</button>`;
         else if (p.Statut === 'Annulé') actions = `<button class="btn-secondary btn-mini" data-plan="reactiver" data-id="${escHtml(p.ID)}">Réactiver</button>`;
-        html += `<tr><td>${planningQuandHtml_(p)}</td><td>${escHtml(jsonArr_(p.VillageNoms).join(', '))}</td><td>${escHtml(jsonArr_(p.RcConviesNoms).join(', '))}</td>
-          <td>${escHtml([p.Lieu, p.Objectif].filter(Boolean).join(' — '))}</td><td>${statutPlanningBadge_(p)}</td><td style="white-space:nowrap">${actions}</td></tr>`;
+        const th = themesLabels_(jsonArr_(p.Themes)).join(', ');
+        html += `<tr><td>${planningQuandHtml_(p)}</td><td>${escHtml(jsonArr_(p.VillageNoms).join(', '))}</td>
+          <td>${jsonArr_(p.RcConviesNoms).length} — ${escHtml(jsonArr_(p.RcConviesNoms).join(', '))}</td><td>${escHtml(p.Lieu || '—')}</td>
+          <td>${escHtml(p.Objectif || '')}${th ? `<div class="petit">${escHtml(th)}</div>` : (p.Objectif ? '' : '—')}</td><td>${statutPlanningBadge_(p)}</td><td style="white-space:nowrap">${actions}</td></tr>`;
       });
       el.innerHTML = html + '</tbody></table></div>';
     } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement : ' + escHtml(e.message) + '</div>'; }
@@ -285,14 +317,8 @@
     const el = $('suiviTable');
     el.innerHTML = 'Chargement…';
     try {
-      const { suivis } = await Api.call('listSuivisGroupes', {});
-      if (!suivis.length) { el.innerHTML = '<div class="empty-state">Aucun suivi groupé enregistré pour le moment.</div>'; return; }
-      let html = '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Village(s)</th><th>Thèmes</th><th>RC présents</th><th>Rapport (photos / documents)</th></tr></thead><tbody>';
-      suivis.forEach(s => {
-        html += `<tr><td>${fmtDate(s.Date)}</td><td>${escHtml(jsonArr_(s.VillageNoms).join(', '))}</td><td>${escHtml(themesLabels_(jsonArr_(s.Themes)).join(', '))}</td>
-          <td>${s.NbPresents} — ${escHtml(jsonArr_(s.RcPresentsNoms).join(', '))}</td><td>${piecesLiensHtml_(s)}</td></tr>`;
-      });
-      el.innerHTML = html + '</tbody></table></div>';
+      const [rs, rp] = await Promise.all([Api.call('listSuivisGroupes', {}), Api.call('listPlanningsSuivis', {})]);
+      montrerHistorique_(el, rp.plannings || [], rs.suivis || [], false);
     } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement : ' + escHtml(e.message) + '</div>'; }
   }
 })();

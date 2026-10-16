@@ -107,7 +107,8 @@ const COLS = {
     'CommuneId','ArrondissementId','VillageId','NGrappe','Adresse','Nom','NomParent',
     'TelephoneParent','DateNaissance','AgeAnnees','AgeMois','AgeJours','Sexe','GPSLon','GPSLat',
     'TypeDeces','DateDeces','DateNotification','LieuDeces','Circonstances','CauseProbable',
-    'NotificateurId','NotificateurNom','Titre','CentreSante','DateSaisie','Statut','InvestigationId'],
+    'NotificateurId','NotificateurNom','Titre','CentreSante','DateSaisie','Statut','InvestigationId',
+    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation'],
   Investigations: ['ID','RefType','RefId','ASCQId','Departement','ZoneSanitaire','CommuneId',
     'ArrondissementId','VillageId','Relais','TelRelais','ASCQNom','TelASCQ','GPSLon','GPSLat',
     'EvenementAvere','Source','Maladie','Description','Circonstances','DateSurvenue',
@@ -122,7 +123,7 @@ const COLS = {
   JournalAssignations: ['ID','Type','CibleId','AssigneA','AssignePar','Date'],
   SuivisGroupes: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','Date','Themes',
     'RcPresentsIds','RcPresentsNoms','NbPresents','PhotosUrls','Commentaires','DateCreation',
-    'VillageIds','VillageNoms','DocumentsUrls','PlanningId'],
+    'VillageIds','VillageNoms','DocumentsUrls','PlanningId','Lieu','RcConviesNoms','RcAbsentsNoms'],
   // Planning des suivis groupés (créé par l'ASCQ, visible par toute sa hiérarchie : PF, RCSE,
   // Département, National). Statut : Planifié -> Réalisé (lié au suivi enregistré) ou Annulé.
   PlanningsSuivis: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','DatePrevue','Heure',
@@ -187,14 +188,15 @@ function doPost(e) {
       submitAlerte: () => submitAlerte_(user, payload),
       submitDeces: () => submitDeces_(user, payload),
       submitInvestigation: () => submitInvestigation_(user, payload),
+      confirmerDeces: () => confirmerDeces_(user, payload),
       submitSuiviGroupe: () => submitSuiviGroupe_(user, payload),
       listSuivisGroupes: () => ({ ok: true, suivis: listSuivisGroupes_(user) }),
       submitPlanningSuivi: () => submitPlanningSuivi_(user, payload),
       updatePlanningSuivi: () => updatePlanningSuivi_(user, payload),
       listPlanningsSuivis: () => ({ ok: true, plannings: listPlanningsSuivis_(user) }),
 
-      listAlertes: () => ({ ok: true, alertes: listScoped_(SHEETS.ALERTES, user) }),
-      listDeces: () => ({ ok: true, deces: listScoped_(SHEETS.DECES, user) }),
+      listAlertes: () => ({ ok: true, alertes: avecNomVillage_(listScoped_(SHEETS.ALERTES, user)) }),
+      listDeces: () => ({ ok: true, deces: avecNomVillage_(listScoped_(SHEETS.DECES, user)) }),
       listInvestigations: () => ({ ok: true, investigations: listScoped_(SHEETS.INVESTIGATIONS, user) }),
       listRapports: () => ({ ok: true, rapports: listRapports_(user) }),
       listPerimetreRapport: () => ({ ok: true, perimetre: listPerimetreRapport_(user) }),
@@ -1130,6 +1132,45 @@ function marquerToutesNotificationsLues_(actor) {
   return { count: notifs.length };
 }
 
+// Marque comme lues les notifications d'un destinataire qui portent sur un élément donné
+// (alerte ou décès) — appelé quand l'ASCQ traite l'élément (investigation / confirmation).
+function marquerNotificationsLuesPourRef_(destinataireId, refId) {
+  readSheet_(SHEETS.NOTIFICATIONS)
+    .filter(n => n.DestinataireId === destinataireId && n.RefId === refId && (n.Lu === false || n.Lu === 'FALSE'))
+    .forEach(n => updateRowById_(SHEETS.NOTIFICATIONS, n.ID, { Lu: true }));
+}
+
+// ============================================================
+// DÉCÈS COMMUNAUTAIRES — confirmation par l'ASCQ (pas d'investigation)
+// ============================================================
+// Le RC notifie un décès -> l'ASCQ est notifié et le CONFIRME (décès avéré) ou ne le confirme pas
+// (non avéré, doublon... motif obligatoire). Seuls les décès confirmés sont comptés dans le
+// rapport hebdomadaire. La décision est définitive (verrouillée) : Statut passe de « Nouveau » à
+// « Confirmé » ou « Non confirmé ».
+function confirmerDeces_(actor, p) {
+  if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul un ASCQ peut confirmer un décès.' };
+  const d = listScoped_(SHEETS.DECES, actor).find(x => x.ID === p.id);
+  if (!d) return { ok: false, error: 'Décès introuvable dans votre périmètre.' };
+  if (d.Statut !== 'Nouveau') return { ok: false, error: 'Ce décès a déjà été traité (' + d.Statut + ') : la décision est définitive.' };
+  const confirme = p.decision === 'confirmer';
+  if (!confirme && p.decision !== 'rejeter') return { ok: false, error: 'Décision invalide.' };
+  const commentaire = String(p.commentaire || '').trim();
+  if (!confirme && !commentaire) return { ok: false, error: 'Indiquez le motif pour lequel ce décès n\'est pas confirmé.' };
+  const nomAscq = actor.Prenom + ' ' + actor.Nom;
+  const statut = confirme ? 'Confirmé' : 'Non confirmé';
+  updateRowById_(SHEETS.DECES, d.ID, { Statut: statut, ConfirmePar: actor.ID, ConfirmeParNom: nomAscq, DateConfirmation: nowStr_(), CommentaireConfirmation: commentaire });
+  marquerNotificationsLuesPourRef_(actor.ID, d.ID);
+  const village = avecNomVillage_([d])[0].VillageNom;
+  const msg = `Décès de ${d.Nom || 'personne non nommée'} (village ${village}) ${confirme ? 'confirmé' : 'non confirmé'} par ${nomAscq}` + (commentaire ? ' - ' + commentaire : '');
+  chainAbove_(actor).forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
+    ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_()
+  }));
+  if (d.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, {
+    ID: newId_('NOTIF'), DestinataireId: d.NotificateurId, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_()
+  });
+  return { ok: true, statut };
+}
+
 // ============================================================
 // FORMULAIRE 3 (ASCQ) — investigation d'une alerte/décès
 // ============================================================
@@ -1145,6 +1186,8 @@ function submitInvestigation_(actor, p) {
   appendRow_(SHEETS.INVESTIGATIONS, obj);
   const targetSheet = p.refType === 'DECES' ? SHEETS.DECES : SHEETS.ALERTES;
   updateRowById_(targetSheet, p.refId, { Statut: 'Investigué', InvestigationId: obj.ID });
+  // L'alerte est traitée : la notification correspondante n'est plus « non lue » pour l'ASCQ.
+  marquerNotificationsLuesPourRef_(actor.ID, p.refId);
   const chain = chainAbove_(actor); // [PF, RCSE, NATIONAL]
   chain.forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
     ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'INVESTIGATION', RefId: obj.ID,
@@ -1156,6 +1199,13 @@ function submitInvestigation_(actor, p) {
 // ============================================================
 // SUIVI GROUPÉ DES RC (par l'ASCQ)
 // ============================================================
+
+// À EXÉCUTER UNE FOIS depuis l'éditeur Apps Script (liste de fonctions -> autoriserDrive -> Exécuter)
+// pour accorder au script l'accès à Google Drive (stockage des photos et documents des suivis).
+function autoriserDrive() {
+  const dossier = dossierPhotosSuivi_();
+  Logger.log('Accès Drive autorisé. Dossier : ' + dossier.getUrl());
+}
 
 // Dossier Drive où sont rangées les photos de séance des suivis groupés (créé une seule fois).
 function dossierPhotosSuivi_() {
@@ -1173,7 +1223,7 @@ function enregistrerPhotosSuivi_(photosDataUrl, nomBase) {
   const dossier = dossierPhotosSuivi_();
   const urls = [];
   (photosDataUrl || []).forEach((dataUrl, i) => {
-    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/.exec(dataUrl || '');
+    const m = /^data:(image\/(?:jpeg|png|webp|gif|heic|heif));base64,(.*)$/.exec(dataUrl || '');
     if (!m) return;
     const mime = m[1], data = m[2];
     const ext = mime.split('/')[1].replace('jpeg', 'jpg');
@@ -1233,11 +1283,19 @@ function submitSuiviGroupe_(actor, p) {
   const rcValides = mesRc.filter(u => p.rcPresentsIds.includes(u.ID));
   if (!rcValides.length) return { ok: false, error: 'Aucun des RC cochés ne dépend de votre compte.' };
 
+  // Un rapport est une PREUVE : la séance ne peut pas être datée dans le futur.
+  if (dateIso_(p.date) > dateIso_(new Date())) return { ok: false, error: 'La date du suivi ne peut pas être dans le futur : enregistrez le compte rendu une fois la séance tenue.' };
+
   let planning = null;
   if (p.planningId) {
     planning = readSheet_(SHEETS.PLANNINGS).find(x => x.ID === p.planningId && x.AscqId === actor.ID);
     if (!planning) return { ok: false, error: 'Séance planifiée introuvable.' };
+    if (planning.Statut === 'Réalisé') return { ok: false, error: 'Cette séance a déjà un compte rendu : il est verrouillé et ne peut plus être modifié ni remplacé.' };
   }
+  // Garde-fou contre le double envoi : même ASCQ, même date, mêmes présents.
+  const cle = JSON.stringify(rcValides.map(u => u.ID).sort());
+  const doublon = readSheet_(SHEETS.SUIVIS).some(x => x.AscqId === actor.ID && dateIso_(x.Date) === dateIso_(p.date) && JSON.stringify(parseArr_(x.RcPresentsIds).slice().sort()) === cle);
+  if (doublon) return { ok: false, error: 'Un suivi groupé identique (même date, mêmes RC présents) est déjà enregistré.' };
 
   let urls = [], docs = [];
   try {
@@ -1249,7 +1307,7 @@ function submitSuiviGroupe_(actor, p) {
     // accéder (scope ajouté après la dernière autorisation). Rien n'est enregistré tant que ce
     // n'est pas résolu — message explicite plutôt que l'erreur brute d'Apps Script.
     if (/authoriz|autoris|permission/i.test(e.message || '')) {
-      return { ok: false, error: 'Le script n\'a pas encore l\'autorisation d\'accéder à Google Drive (nécessaire pour stocker les photos). Dans l\'éditeur Apps Script : ouvrez une fonction, cliquez sur "Exécuter", acceptez l\'autorisation Drive demandée, puis redéployez une nouvelle version de l\'application web.' };
+      return { ok: false, error: 'Le script n\'a pas encore l\'autorisation d\'accéder à Google Drive (nécessaire pour stocker les photos). Dans l\'éditeur Apps Script : choisissez la fonction "autoriserDrive" dans la liste, cliquez sur "Exécuter", acceptez l\'autorisation Drive demandée, puis redéployez une nouvelle version de l\'application web (Déployer > Gérer les déploiements > Modifier > Nouvelle version).' };
     }
     return { ok: false, error: 'Erreur lors de l\'enregistrement des fichiers : ' + e.message };
   }
@@ -1277,6 +1335,11 @@ function submitSuiviGroupe_(actor, p) {
     DocumentsUrls: JSON.stringify(docs),
     VillageIds: JSON.stringify(villageIds), VillageNoms: JSON.stringify(villageNoms),
     PlanningId: planning ? planning.ID : '',
+    Lieu: p.lieu || (planning ? planning.Lieu : '') || '',
+    RcConviesNoms: planning ? planning.RcConviesNoms : '',
+    RcAbsentsNoms: planning ? JSON.stringify(
+      parseArr_(planning.RcConviesIds).filter(id => !rcValides.some(u => u.ID === id))
+        .map(id => { const u = mesRc.find(x => x.ID === id); return u ? u.Prenom + ' ' + u.Nom : id; })) : '',
     Commentaires: p.commentaires || '', DateCreation: nowStr_()
   };
   appendRow_(SHEETS.SUIVIS, rec);
@@ -1327,9 +1390,26 @@ function submitPlanningSuivi_(actor, p) {
     Objectif: p.objectif || '', Statut: 'Planifié', SuiviId: '', DateCreation: nowStr_()
   };
   appendRow_(SHEETS.PLANNINGS, rec);
-  // La hiérarchie (PF, RCSE, Département, National) est prévenue de la séance planifiée.
+  // La hiérarchie (PF, RCSE, Département, National) est prévenue de la séance planifiée...
   cascadeNotify_(actor, 'PLANNING', rec.ID, `Suivi groupé planifié le ${rec.DatePrevue} par ${rec.AscqNom}${villageNoms.length ? ' - Village(s): ' + villageNoms.join(', ') : ''}`);
+  // ... et chaque RC convoqué reçoit sa propre notification (date, heure, lieu, objectif).
+  notifierRcConvoques_(rcConvies, rec, 'Vous êtes convoqué(e) à un suivi groupé');
   return { ok: true, planning: rec };
+}
+
+// Tableau JSON stocké en texte dans une cellule -> tableau (vide si absent ou invalide).
+function parseArr_(v) { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+
+// Notification individuelle à chaque RC concerné par une séance de suivi groupé.
+function notifierRcConvoques_(rcs, plan, titre) {
+  const villages = parseArr_(plan.VillageNoms).join(', ');
+  const d = dateIso_(plan.DatePrevue).split('-').reverse().join('/');
+  const msg = `${titre} : le ${d}${plan.Heure ? ' à ' + plan.Heure : ''}` + (plan.Lieu ? ' - Lieu: ' + plan.Lieu : '') +
+    (villages ? ' - Village(s): ' + villages : '') + (plan.Objectif ? ' - Objectif: ' + plan.Objectif : '') +
+    ` - Organisé par ${plan.AscqNom}`;
+  rcs.forEach(rc => appendRow_(SHEETS.NOTIFICATIONS, {
+    ID: newId_('NOTIF'), DestinataireId: rc.ID, Type: 'PLANNING', RefId: plan.ID, Message: msg, Lu: false, DateCreation: nowStr_()
+  }));
 }
 
 // Annuler, ré-ouvrir ou reporter une séance planifiée (jamais une séance déjà réalisée).
@@ -1349,7 +1429,11 @@ function updatePlanningSuivi_(actor, p) {
   }
   if (!Object.keys(changes).length) return { ok: false, error: 'Aucune modification demandée.' };
   updateRowById_(SHEETS.PLANNINGS, plan.ID, changes);
-  cascadeNotify_(actor, 'PLANNING', plan.ID, `Suivi groupé ${changes.Statut === 'Annulé' ? 'annulé' : 'modifié'} (prévu le ${dateIso_(plan.DatePrevue)}) par ${plan.AscqNom}`);
+  const action = changes.Statut === 'Annulé' ? 'annulé' : (changes.Statut === 'Planifié' ? 'réactivé' : 'reporté');
+  cascadeNotify_(actor, 'PLANNING', plan.ID, `Suivi groupé ${action} (prévu le ${dateIso_(plan.DatePrevue)}) par ${plan.AscqNom}`);
+  const ids = parseArr_(plan.RcConviesIds);
+  const rcs = readSheet_(SHEETS.USERS).filter(u => u.Role === ROLES.RC && ids.includes(u.ID));
+  notifierRcConvoques_(rcs, Object.assign({}, plan, changes), 'Suivi groupé ' + action);
   return { ok: true };
 }
 
@@ -1405,6 +1489,13 @@ function arrondissementsOfDepartement_(departementId) {
   const arrs = new Set();
   rcses.forEach(rcse => arrondissementsOfRcse_(rcse.ID).forEach(id => arrs.add(id)));
   return [...arrs];
+}
+
+// Ajoute VillageNom (absent des feuilles Alertes/Deces, qui ne stockent que VillageId) pour l'affichage.
+function avecNomVillage_(rows) {
+  const noms = {};
+  readSheet_(SHEETS.VILLAGES).forEach(v => { noms[v.ID] = v.Nom; });
+  return rows.map(r => Object.assign({}, r, { VillageNom: r.VillageNom || noms[r.VillageId] || '' }));
 }
 
 function listScoped_(sheetName, actor) {
@@ -1537,7 +1628,8 @@ function genererRapportsManquants_(anneeCourante, semaineCourante) {
 
 function genererRapportsPourSemaine_(annee, semaine) {
   const alertes = readSheet_(SHEETS.ALERTES).filter(a => String(a.Annee) === String(annee) && String(a.SemaineEpi) === String(semaine));
-  const deces = readSheet_(SHEETS.DECES).filter(d => String(d.Annee) === String(annee) && String(d.SemaineEpi) === String(semaine));
+  // Seuls les décès CONFIRMÉS par l'ASCQ (Statut = 'Confirmé') entrent dans le rapport hebdomadaire.
+  const deces = readSheet_(SHEETS.DECES).filter(d => d.Statut === 'Confirmé' && String(d.Annee) === String(annee) && String(d.SemaineEpi) === String(semaine));
   const investigations = readSheet_(SHEETS.INVESTIGATIONS);
   const users = readSheet_(SHEETS.USERS);
   const perimetres = readSheet_(SHEETS.PERIMETRES);
@@ -1788,7 +1880,8 @@ function listRapportDetail_(actor, p) {
   }
 
   let alertes = readSheet_(SHEETS.ALERTES).filter(a => String(a.Annee) === String(annee) && String(a.SemaineEpi) === String(semaine));
-  let deces = readSheet_(SHEETS.DECES).filter(d => String(d.Annee) === String(annee) && String(d.SemaineEpi) === String(semaine));
+  // Seuls les décès CONFIRMÉS par l'ASCQ figurent dans le détail du rapport.
+  let deces = readSheet_(SHEETS.DECES).filter(d => d.Statut === 'Confirmé' && String(d.Annee) === String(annee) && String(d.SemaineEpi) === String(semaine));
 
   // Périmètre PROPRE de l'utilisateur connecté (sert de garde-fou de sécurité ci-dessous).
   let mesArrondissements = null; // null = pas de restriction (NATIONAL)
@@ -2029,6 +2122,8 @@ function getDashboard_(actor) {
     totalAlertes: alertes.length,
     alertesNonInvestiguees: alertes.filter(a => a.Statut !== 'Investigué').length,
     totalDeces: deces.length,
+    decesAConfirmer: deces.filter(d => d.Statut === 'Nouveau').length,
+    decesConfirmes: deces.filter(d => d.Statut === 'Confirmé').length,
     notificationsNonLues: notifications.filter(n => n.Lu === false || n.Lu === 'FALSE').length
   };
 }

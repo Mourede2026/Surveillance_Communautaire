@@ -13,7 +13,8 @@
 // A remplacer par l'URL obtenue après le déploiement (Extensions -> Apps Script -> Déployer ->
 // Nouveau déploiement -> Type : Application Web -> Exécuter en tant que : Moi -> Accès : Tout le
 // monde). L'URL ressemble à : https://script.google.com/macros/s/XXXXXXXXXXXXXXXX/exec
-const API_URL = 'https://script.google.com/macros/s/AKfycbwOeptVrskLdaYFZj1uRgEtcqPyDxkygzTT0MZ-9arDzEKG47atalYhLaRi4YHnxtRS/exec';
+// Mode serveur autonome : le serveur injecte window.SC_API_URL = "/api" dans chaque page (voir server/server.js).
+const API_URL = (typeof window !== 'undefined' && window.SC_API_URL) || 'https://script.google.com/macros/s/AKfycbwOeptVrskLdaYFZj1uRgEtcqPyDxkygzTT0MZ-9arDzEKG47atalYhLaRi4YHnxtRS/exec';
 
 // ============================================================
 // BORNES DE JOURNÉE (même logique que le backend Code.gs)
@@ -172,3 +173,22 @@ async function logoutEtRedirige() {
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.js-logout').forEach(b => { b.onclick = logoutEtRedirige; });
 });
+
+// Pastille « Semaine épidémiologique » de la barre du haut (semaine du calendrier importé par le
+// National). Appelée par toutes les pages d'espace (ASCQ, PF, RCSE, Département, National).
+async function loadWeekPill() {
+  try {
+    const cal = await Api.call('listCalendrier', {});
+    const today = new Date();
+    const cur = (cal.calendrier || []).find(r => debutJournee_(r.DateDebut) <= today && today <= finJournee_(r.DateFin));
+    const el = document.getElementById('weekPill');
+    if (cur && el) el.textContent = `Semaine ${cur.SemaineEpi} / ${cur.Annee}`;
+  } catch (e) { /* pastille facultative */ }
+}
+
+// Pastille de statut d'une alerte ou d'un décès (Nouveau / Investigué / Confirmé / Non confirmé).
+function badgeStatut_(statut) {
+  const cls = (statut === 'Investigué' || statut === 'Confirmé') ? 'badge-done' : (statut === 'Non confirmé' ? 'badge-cancel' : 'badge-new');
+  const lib = statut === 'Nouveau' ? 'En attente' : statut;
+  return `<span class="badge ${cls}">${escHtml(lib)}</span>`;
+}

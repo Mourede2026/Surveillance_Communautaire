@@ -23,6 +23,7 @@
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="investiguer">À investiguer</a>
+      <a href="#" data-tab="deces" id="navDeces">⚰️ Décès à confirmer</a>
       <a href="#" data-tab="relais">Mes relais (RC)</a>
       <a href="#" data-tab="suivi">👥 Suivi groupé RC</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
@@ -42,7 +43,7 @@
       <section id="tab-dashboard">
         <div class="grid grid-4">
           <div class="stat-card"><div class="n" id="statAlertes">–</div><div class="l">Alertes reçues</div></div>
-          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès reçus</div></div>
+          <div class="stat-card"><div class="n" id="statDeces">–</div><div class="l">Décès reçus · <span id="statDecesAConf">0</span> à confirmer</div></div>
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">En attente d'investigation</div></div>
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
@@ -57,8 +58,8 @@
           <h2>Alertes en attente d'investigation</h2>
           <p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">
             Seules les alertes (événements) nécessitent une fiche d'investigation. Les décès
-            communautaires notifiés par les RC sont comptabilisés automatiquement dans le rapport
-            hebdomadaire dès leur notification — ils n'ont pas besoin d'être investigués ici.
+            communautaires notifiés par les RC se traitent dans l'onglet « Décès à confirmer » :
+            seuls les décès confirmés sont comptés dans le rapport hebdomadaire.
           </p>
           <div id="pendingTable">Chargement…</div>
         </div>
@@ -67,6 +68,18 @@
           <h2>Fiche d'investigation (ASCQ)</h2>
           <form id="formInvestigation"></form>
         </div>
+      </section>
+
+      <section id="tab-deces" style="display:none">
+        <div class="card">
+          <h2>Décès communautaires notifiés par vos RC</h2>
+          <p style="font-size:.85rem;color:var(--ink-soft);margin:0">
+            Vérifiez chaque décès notifié puis <strong>confirmez-le</strong> (décès avéré) ou ne le confirmez pas
+            (motif obligatoire). <strong>Seuls les décès confirmés sont comptés dans le rapport hebdomadaire.</strong>
+            La décision est définitive.
+          </p>
+        </div>
+        <div id="decesAConfirmerZone">Chargement…</div>
       </section>
 
       <section id="tab-relais" style="display:none">
@@ -118,8 +131,9 @@
           <div class="card">
             <h2>Planifier un suivi groupé</h2>
             <p style="font-size:.85rem;color:var(--ink-soft);margin:0 0 12px">
-              Programmez la séance : date, village(s) et RC convoqués. Le planning est visible par vos
-              niveaux hiérarchiques (Point Focal, RCSE, Département, National), qui sont notifiés.
+              Programmez la séance : date, village(s) et RC convoqués. Cocher un village convoque tous ses RC
+              (décochez ceux qui ne sont pas concernés). Les RC convoqués reçoivent une notification, et votre
+              hiérarchie (Point Focal, RCSE, Département, National) est informée et voit le planning.
             </p>
             <form id="formPlanning">
               <div class="grid grid-2">
@@ -149,10 +163,14 @@
               Choisissez un village pour afficher ses relais communautaires, cochez ceux qui étaient
               présents (vous pouvez changer de village : vos coches sont conservées), sélectionnez les
               thèmes abordés (définitions de cas officielles) et joignez le rapport : photo(s) et/ou document(s).
+              <strong>Une fois enregistré, le rapport est verrouillé : vous pourrez le consulter à tout moment (onglet Historique) mais plus le modifier.</strong>
             </p>
             <div id="suiviBandeauPlanning" class="bandeau-planning" style="display:none"></div>
             <form id="formSuivi">
-              <div class="field"><label>Date du suivi</label><input type="date" name="date" id="suiviDate" required></div>
+              <div class="grid grid-2">
+                <div class="field"><label>Date de la séance (tenue)</label><input type="date" name="date" id="suiviDate" required></div>
+                <div class="field"><label>Lieu de la séance</label><input name="lieu" id="suiviLieu" placeholder="Ex : centre de santé de Djegbe"></div>
+              </div>
               <fieldset>
                 <legend>Liste de présence — filtrer par village</legend>
                 <div id="suiviRcPicker"></div>
@@ -211,6 +229,7 @@
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
 <script src="assets/notifications-liste.js"></script>
+<script src="assets/deces-confirmation.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/suivi-groupe-ascq.js"></script>
 <script src="assets/alerte-sonore.js"></script>
@@ -228,9 +247,10 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','investiguer','relais','suivi','rapport','notifications','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','investiguer','deces','relais','suivi','rapport','notifications','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'investiguer') loadPending();
+  if (a.dataset.tab === 'deces') loadDecesAConfirmer();
   if (a.dataset.tab === 'relais') loadRC();
   if (a.dataset.tab === 'suivi') initSuiviGroupeAscq();
   if (a.dataset.tab === 'notifications') renderNotifications('notificationsTable');
@@ -245,6 +265,8 @@ async function loadDashboard() {
     statDeces.textContent = dashboard.totalDeces;
     statNonInv.textContent = dashboard.alertesNonInvestiguees;
     statNotif.textContent = dashboard.notificationsNonLues;
+    statDecesAConf.textContent = dashboard.decesAConfirmer || 0;
+    navDeces.textContent = '⚰️ Décès à confirmer' + (dashboard.decesAConfirmer ? ' (' + dashboard.decesAConfirmer + ')' : '');
   } catch (e) { toast(e.message, true); }
 }
 
@@ -254,8 +276,7 @@ async function loadPending() {
   pendingTable.innerHTML = 'Chargement…';
   try {
     // Seules les ALERTES (événements) nécessitent une fiche d'investigation ASCQ — les décès
-    // notifiés par un RC sont considérés avérés dès leur notification et comptés directement
-    // dans le rapport hebdomadaire, sans étape d'investigation.
+    // notifiés par un RC sont à CONFIRMER dans l'onglet « Décès à confirmer » (pas d'investigation).
     const { alertes } = await Api.call('listAlertes', {});
     const rows = alertes.filter(x => x.Statut !== 'Investigué').map(x => ({ ...x, refType: 'ALERTE' }));
     __pendingAlertesParId = {}; rows.forEach(r => { __pendingAlertesParId[r.ID] = r; });

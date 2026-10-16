@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'surveillance-v2';
+const CACHE_VERSION = 'surveillance-v5';
 
 const APP_SHELL = [
   './',
@@ -15,6 +15,7 @@ const APP_SHELL = [
   './pf.html',
   './rcse.html',
   './national.html',
+  './admin.html',
   './manifest.json',
   './assets/style.css',
   './assets/briefing.css',
@@ -29,6 +30,8 @@ const APP_SHELL = [
   './assets/briefing-data.js',
   './assets/suivi-groupe-lecture.js',
   './assets/suivi-groupe-ascq.js',
+  './assets/admin.js',
+  './assets/deces-confirmation.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/apple-touch-icon.png',

@@ -1,0 +1,68 @@
+/**
+ * Espace ASCQ — « Décès à confirmer ».
+ * Un décès notifié par un RC doit être CONFIRMÉ (avéré) ou NON CONFIRMÉ (motif obligatoire) par
+ * l'ASCQ. Seuls les décès confirmés sont comptés dans le rapport hebdomadaire. La décision est
+ * définitive (verrouillée). Dépend de api.js (Api, toast, fmtDate, escHtml).
+ */
+(function () {
+  const TYPES = { 1: 'Décès maternel', 2: 'Décès de bébé (0-28 jours)', 3: 'Décès d\'enfant de 1 mois à 1 an', 4: 'Décès d\'enfant de 1 à 5 ans', 5: 'Décès de personne de plus de 5 ans' };
+  const LIEUX = { 1: 'Domicile', 2: 'Accoucheuse', 3: 'Lieu de culte', 4: 'Au cours du transport', 5: 'À l\'étranger', 6: 'Autre' };
+  const CIRC = { 1: 'Grossesse / avortement / accouchement / suites de couches', 2: 'Maladie', 3: 'Accident de route', 4: 'Accident domestique', 5: 'Mort subite', 6: 'Violence', 7: 'Autre' };
+  const lib = (m, v) => m[String(v)] || (v === '' || v === undefined ? '' : String(v));
+  const champ = (k, v) => (v === '' || v === undefined || v === null) ? '' : `<div class="deces-champ"><span>${k}</span>${escHtml(v)}</div>`;
+
+  function age(d) {
+    const p = [];
+    if (d.AgeAnnees !== '' && d.AgeAnnees !== undefined) p.push(d.AgeAnnees + ' an(s)');
+    if (d.AgeMois) p.push(d.AgeMois + ' mois');
+    if (d.AgeJours) p.push(d.AgeJours + ' jour(s)');
+    return p.join(' ');
+  }
+
+  function carte(d, actions) {
+    const statut = d.Statut === 'Confirmé' ? '<span class="badge badge-done">✔ Confirmé</span>' : d.Statut === 'Non confirmé' ? '<span class="badge badge-cancel">✖ Non confirmé</span>' : '<span class="badge badge-new">À confirmer</span>';
+    const decision = d.Statut !== 'Nouveau' ? `<div class="verrou">🔒 ${escHtml(d.Statut)} par ${escHtml(d.ConfirmeParNom || '')} le ${fmtDate(d.DateConfirmation)}${d.CommentaireConfirmation ? ' — ' + escHtml(d.CommentaireConfirmation) : ''}. Décision définitive.</div>` : '';
+    return `<div class="card deces-card">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><strong>${escHtml(d.Nom || 'Personne non nommée')}</strong>${statut}</div>
+      <div class="deces-grille">
+        ${champ('Type de décès', lib(TYPES, d.TypeDeces))}${champ('Date du décès', fmtDate(d.DateDeces))}${champ('Âge', age(d))}${champ('Sexe', d.Sexe)}
+        ${champ('Village', d.VillageNom)}${champ('Lieu du décès', lib(LIEUX, d.LieuDeces))}${champ('Circonstances', lib(CIRC, d.Circonstances))}${champ('Cause probable', d.CauseProbable)}
+        ${champ('Parent / proche', d.NomParent)}${champ('Téléphone du proche', d.TelephoneParent)}${champ('Notifié par (RC)', d.NotificateurNom)}${champ('Notifié le', fmtDate(d.DateSaisie))}
+      </div>${decision}${actions || ''}</div>`;
+  }
+
+  window.loadDecesAConfirmer = async function () {
+    const el = document.getElementById('decesAConfirmerZone');
+    el.innerHTML = 'Chargement…';
+    try {
+      const { deces } = await Api.call('listDeces', {});
+      const aTraiter = deces.filter(d => d.Statut === 'Nouveau').sort((a, b) => String(a.DateSaisie).localeCompare(String(b.DateSaisie)));
+      const traites = deces.filter(d => d.Statut !== 'Nouveau').sort((a, b) => String(b.DateConfirmation).localeCompare(String(a.DateConfirmation)));
+      let html = `<h3 class="sous-titre">⏳ À confirmer (${aTraiter.length})</h3>`;
+      html += aTraiter.length ? aTraiter.map(d => carte(d, `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button data-dec="confirmer" data-id="${escHtml(d.ID)}">✔ Confirmer ce décès</button>
+          <button class="btn-secondary" data-dec="rejeter" data-id="${escHtml(d.ID)}">✖ Ne pas confirmer…</button></div>`)).join('') : '<div class="empty-state">Aucun décès en attente de confirmation. 👍</div>';
+      html += `<h3 class="sous-titre" style="margin-top:22px">📁 Décès traités (${traites.length})</h3>` + (traites.length ? traites.map(d => carte(d)).join('') : '<div class="empty-state">Aucun décès traité pour le moment.</div>');
+      el.innerHTML = html;
+    } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement : ' + escHtml(e.message) + '</div>'; }
+  };
+
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('button[data-dec]'); if (!b) return;
+    const id = b.dataset.id, decision = b.dataset.dec;
+    let commentaire = '';
+    if (decision === 'confirmer') {
+      if (!confirm('Confirmer ce décès ?\n\nIl sera compté dans le rapport hebdomadaire. Cette décision est définitive.')) return;
+    } else {
+      commentaire = (prompt('Motif de la non-confirmation (obligatoire) — ex. information erronée, doublon, personne toujours en vie :') || '').trim();
+      if (!commentaire) { toast('Le motif est obligatoire pour ne pas confirmer un décès.', true); return; }
+    }
+    b.disabled = true;
+    try {
+      await Api.call('confirmerDeces', { id, decision, commentaire });
+      toast(decision === 'confirmer' ? 'Décès confirmé : il sera compté dans le rapport hebdomadaire.' : 'Décès non confirmé (motif enregistré).');
+      window.loadDecesAConfirmer();
+      if (typeof loadDashboard === 'function') loadDashboard();
+    } catch (err) { toast(err.message, true); b.disabled = false; }
+  });
+})();

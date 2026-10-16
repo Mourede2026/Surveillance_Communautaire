@@ -236,7 +236,7 @@ async function loadSuivi() {
     if (!rows.length) { suiviTable.innerHTML = '<div class="empty-state">Aucune donnée pour le moment. Vérifiez que le RCSE vous a assigné des arrondissements.</div>'; return; }
     let html = '<table><thead><tr><th>Type</th><th>Date</th><th>Nom / description</th><th>Statut</th></tr></thead><tbody>';
     rows.slice().reverse().forEach(r => html += `<tr><td>${r.t}</td><td>${fmtDate(r.DateSaisie)}</td><td>${r.Nom || r.TypeAlerte}</td>
-      <td><span class="badge ${r.Statut === 'Investigué' ? 'badge-done' : 'badge-new'}">${r.Statut}</span></td></tr>`);
+      <td>${badgeStatut_(r.Statut)}</td></tr>`);
     suiviTable.innerHTML = html + '</tbody></table>';
   } catch (e) { suiviTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }

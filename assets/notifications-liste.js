@@ -11,14 +11,18 @@ async function renderNotifications(containerId) {
   try {
     const { notifications } = await Api.call('listNotifications', {});
     if (!notifications.length) { el.innerHTML = '<div class="empty-state">Aucune notification pour le moment.</div>'; return; }
-    let html = '<table><thead><tr><th>Type</th><th>Message</th><th>Date</th><th>Statut</th><th></th></tr></thead><tbody>';
+    const nonLues = notifications.filter(n => !(n.Lu === true || n.Lu === 'TRUE')).length;
+    let html = (nonLues ? `<div style="margin-bottom:10px"><button class="btn-secondary btn-mini" id="toutLuBtn">✔ Tout marquer comme lu (${nonLues})</button></div>` : '') + '<table><thead><tr><th>Type</th><th>Message</th><th>Date</th><th>Statut</th><th></th></tr></thead><tbody>';
     notifications.forEach(n => {
       const lu = n.Lu === true || n.Lu === 'TRUE';
-      html += `<tr><td>${n.Type}</td><td>${n.Message}</td><td>${fmtDate(n.DateCreation)}</td>
+      const TYPES = { ALERTE: '🚨 Alerte', DECES: '🕯️ Décès', INVESTIGATION: '🔎 Investigation', PLANNING: '📅 Suivi groupé', DECES_DECISION: '⚰️ Décès : décision' };
+      html += `<tr><td>${TYPES[n.Type] || escHtml(n.Type)}</td><td>${escHtml(n.Message)}</td><td>${fmtDate(n.DateCreation)}</td>
         <td><span class="badge ${lu ? 'badge-done' : 'badge-new'}">${lu ? 'Lue' : 'Non lue'}</span></td>
         <td>${lu ? '' : `<button class="btn-secondary" data-mark-read="${n.ID}">Marquer comme lue</button>`}</td></tr>`;
     });
     el.innerHTML = html + '</tbody></table>';
+    const tl = el.querySelector('#toutLuBtn');
+    if (tl) tl.addEventListener('click', async () => { try { await Api.call('marquerToutesNotificationsLues', {}); renderNotifications(containerId); if (typeof loadDashboard === 'function') loadDashboard(); } catch (e) { toast(e.message, true); } });
     el.querySelectorAll('[data-mark-read]').forEach(b => b.addEventListener('click', async () => {
       try { await Api.call('markNotificationRead', { id: b.dataset.markRead }); renderNotifications(containerId); }
       catch (e) { toast(e.message, true); }

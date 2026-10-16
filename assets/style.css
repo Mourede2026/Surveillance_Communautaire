@@ -221,3 +221,45 @@ table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0;
 .fichiers-apercu { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
 .fichiers-apercu .doc-chip { display: inline-flex; align-items: center; gap: 6px; background: #DCEFEA; border-radius: 8px; padding: 6px 10px; font-size: .8rem; }
 .fichiers-apercu img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+
+.rcp-bloc-titre { font-weight: 700; font-size: .85rem; color: var(--teal-900); margin-bottom: 6px; }
+.rcp-aide { font-weight: 400; color: var(--ink-soft); }
+.rcp-actions { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+.rcp-actions input[type="search"] { width: auto; padding: 7px 10px; }
+.rcp-villages { display: flex; flex-wrap: wrap; gap: 6px; max-height: 150px; overflow-y: auto; padding: 2px; }
+.rcp-village-chip { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: .85rem; font-weight: 500 !important; cursor: pointer; margin: 0 !important; }
+.rcp-village-chip.on { background: #DCEFEA; border-color: var(--teal-500); }
+.rcp-village-chip input { width: auto; margin: 0; }
+.rcp-village-chip small { color: var(--ink-soft); }
+.rcp-groupe { border-bottom: 2px solid var(--line); padding-bottom: 6px; margin-bottom: 6px; }
+.rcp-groupe:last-child { border-bottom: none; }
+.rcp-groupe-titre { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; color: var(--teal-900); }
+.rc-picker .rc-liste { max-height: 300px; }
+
+.petit { font-size: .75rem; color: var(--ink-soft); }
+
+/* ---------- Administration des données ---------- */
+.admin-barre { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.admin-barre input[type="search"] { flex: 1; min-width: 180px; max-width: 360px; }
+.admin-pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+#tab-tables td { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Fiche de suivi groupé (consultation + impression) ---------- */
+.fiche-box { width: 760px; max-height: 92vh; overflow: auto; }
+.fiche-box table th, .fiche-box table td { font-size: .85rem; }
+.fiche-photos { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.fiche-photos img { width: 150px; height: 110px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.verrou { background: #EAF4F1; border: 1px solid #BBD9D2; color: var(--teal-900); border-radius: 8px; padding: 8px 12px; font-size: .82rem; margin-bottom: 10px; }
+@media print {
+  #fichePrintArea, #fichePrintArea * { visibility: visible; }
+  #fichePrintArea { position: absolute; left: 0; top: 0; width: 100%; }
+  .fiche-overlay { position: absolute !important; display: block !important; background: none !important; padding: 0 !important; }
+  .fiche-box { max-height: none !important; overflow: visible !important; box-shadow: none !important; width: 100% !important; padding: 0 !important; }
+  .fiche-photos img { break-inside: avoid; }
+}
+
+/* ---------- Décès à confirmer ---------- */
+.deces-card { border-left: 4px solid var(--amber-500); }
+.deces-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 16px; margin-top: 10px; }
+.deces-champ { font-size: .9rem; }
+.deces-champ span { display: block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--ink-soft); }

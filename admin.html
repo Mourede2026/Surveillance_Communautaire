@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administration des données — Surveillance</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B3D3A">
+<link rel="icon" href="assets/icons/favicon.ico" sizes="any">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><strong>Surveillance</strong><span>Administration des données</span></div>
+    <nav>
+      <a href="#" data-tab="tables" class="active">🗄️ Tables de données</a>
+      <a href="#" data-tab="sauvegardes">💾 Sauvegardes &amp; exports</a>
+      <a href="#" data-tab="import">⬆️ Importer des données</a>
+      <a href="national.html">← Espace national</a>
+    </nav>
+    <div class="user-box">
+      <div id="userName"></div>
+      <button class="btn-secondary btn-block js-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><h1>Base de données centrale</h1><span class="topbar-right"><span class="week-pill" id="infoBase">…</span><button class="btn-logout-top js-logout" type="button">⎋ Déconnexion</button></span></div>
+    <div class="content">
+
+      <div id="avertServeur" class="card" style="display:none;border-color:#E8A33D">
+        <strong>Cette page n'est disponible qu'avec le serveur autonome.</strong> L'application est actuellement connectée à Google Sheets : consultez vos données directement dans le Google Sheet, ou démarrez le serveur (voir README, « Serveur autonome »).
+      </div>
+
+      <section id="tab-tables">
+        <div class="grid grid-4" id="kpis"></div>
+        <div class="card" style="margin-top:18px">
+          <h2>Tables</h2>
+          <div class="tabs" id="tableTabs" style="flex-wrap:wrap"></div>
+          <div class="admin-barre">
+            <input type="search" id="rechercheTable" placeholder="Rechercher dans la table…">
+            <button class="btn-secondary btn-mini" id="btnAjouter">+ Ajouter une ligne</button>
+            <button class="btn-secondary btn-mini" id="btnCsv">⬇ CSV</button>
+            <span id="compteLignes" class="petit"></span>
+          </div>
+          <div id="tableContenu">Chargement…</div>
+          <div class="admin-pagination"><button class="btn-secondary btn-mini" id="pagePrec">← Précédent</button><span id="pageInfo" class="petit"></span><button class="btn-secondary btn-mini" id="pageSuiv">Suivant →</button></div>
+        </div>
+      </section>
+
+      <section id="tab-sauvegardes" style="display:none">
+        <div class="card">
+          <h2>Exporter toutes les données</h2>
+          <p class="petit">Une sauvegarde complète contient toutes les tables (utilisateurs, alertes, décès, suivis, géographie…). Les photos et documents joints sont dans le dossier <code>data/uploads</code> du serveur.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button id="btnExportJson">⬇ Sauvegarde complète (JSON)</button>
+            <button id="btnExportXlsx" class="btn-secondary">⬇ Classeur Excel (.xlsx)</button>
+            <button id="btnBackupNow" class="btn-secondary">💾 Créer une sauvegarde sur le serveur</button>
+          </div>
+        </div>
+        <div class="card"><h2>Sauvegardes enregistrées sur le serveur (quotidiennes, 30 jours)</h2><div id="listeSauvegardes">Chargement…</div></div>
+      </section>
+
+      <section id="tab-import" style="display:none">
+        <div class="card">
+          <h2>Importer des données (remplace TOUTE la base actuelle)</h2>
+          <p class="petit">Une sauvegarde automatique est créée juste avant le remplacement. Deux sources sont acceptées :</p>
+          <ul class="petit">
+            <li><strong>Votre ancien Google Sheet</strong> : dans Google Sheets, <em>Fichier → Télécharger → Microsoft Excel (.xlsx)</em>, puis importez ce fichier ici. Les onglets (Utilisateurs, Alertes, Décès…) sont repris tels quels.</li>
+            <li><strong>Une sauvegarde JSON</strong> exportée depuis cette page.</li>
+          </ul>
+          <div class="grid grid-2">
+            <div class="field"><label>Classeur Excel (.xlsx)</label><input type="file" id="fileXlsx" accept=".xlsx"></div>
+            <div class="field"><label>Sauvegarde JSON</label><input type="file" id="fileJson" accept=".json,application/json"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="modalLigne" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:560px;max-height:90vh;overflow:auto">
+    <h3 id="modalTitre" style="margin-top:0"></h3>
+    <form id="formLigne"></form>
+    <div style="display:flex;gap:8px;margin-top:12px"><button id="btnSauverLigne" class="btn-block">Enregistrer</button><button id="btnFermerLigne" class="btn-secondary btn-block" type="button">Annuler</button></div>
+  </div>
+</div>
+
+<script src="assets/api.js"></script>
+<script src="assets/admin.js"></script>
+<script src="assets/pwa-register.js"></script>
+</body>
+</html>

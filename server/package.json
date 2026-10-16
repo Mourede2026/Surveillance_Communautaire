@@ -1,0 +1,10 @@
+{
+  "name": "surveillance-communautaire-serveur",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serveur autonome (remplace Google Sheets / Apps Script)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "xlsx": "^0.18.5" }
+}

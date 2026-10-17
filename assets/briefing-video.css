@@ -241,3 +241,36 @@
 @media (prefers-reduced-motion: reduce) {
   .bv-slide-title, .bv-line { animation: none; opacity: 1; }
 }
+
+.bv-voice-label { flex-wrap: wrap; justify-content: center; }
+.bv-voice-select { max-width: 230px; background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.3); border-radius: 8px; padding: 5px 6px; font-size: .78rem; }
+.bv-voice-select option { color: #111; }
+
+/* ---------------- Choix vidéo / texte à l'ouverture du Briefing ---------------- */
+.bv-choice {
+  margin: 0 0 16px; padding: 16px; border-radius: 16px;
+  background: #fff; border: 2px solid var(--teal-700,#0E5E59);
+  box-shadow: 0 4px 14px rgba(0,0,0,.08);
+}
+.bv-choice-title { font-weight: 800; font-size: 1.02rem; color: var(--teal-900,#0B3D3A); text-align: center; margin-bottom: 12px; }
+.bv-choice-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.bv-choice-btn {
+  flex: 1 1 200px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 14px 12px; border-radius: 14px; border: 2px solid transparent;
+  font-size: 1.7rem; line-height: 1.1; cursor: pointer; font-family: inherit;
+}
+.bv-choice-btn span { font-size: 1rem; font-weight: 800; }
+.bv-choice-btn small { font-size: .74rem; font-weight: 500; opacity: .85; }
+.bv-choice-video { background: linear-gradient(135deg, var(--teal-900,#0B3D3A), var(--teal-700,#0E5E59)); color: #fff; }
+.bv-choice-text { background: #FFF6E5; color: #5a3b00; border-color: #E8A33D; }
+.bv-choice-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.bv-choice-remember { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; font-size: .8rem; color: #555; }
+.bv-choice-remember input { width: auto; }
+.bv-choice-mini { margin: 0 0 12px; font-size: .82rem; color: #555; text-align: right; }
+.bv-choice-link { background: none; border: none; color: var(--teal-700,#0E5E59); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; padding: 0; }
+.bv-body-play {
+  display: block; width: 100%; margin: 0 0 12px; padding: 10px 14px; border-radius: 999px; border: none;
+  background: linear-gradient(135deg, var(--teal-900,#0B3D3A), var(--teal-700,#0E5E59)); color: #fff;
+  font-weight: 700; font-size: .88rem; cursor: pointer; font-family: inherit;
+}
+.bv-body-play:hover { filter: brightness(1.08); }

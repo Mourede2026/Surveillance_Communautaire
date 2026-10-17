@@ -57,10 +57,13 @@ function __ttsSpeakNextChunk(id) {
     __ttsCurrentPlayingId = null;
     return;
   }
-  const utter = new SpeechSynthesisUtterance(__ttsQueue[__ttsQueueIndex]);
+  const chunk = __ttsQueue[__ttsQueueIndex];
+  const utter = new SpeechSynthesisUtterance(typeof bvPrepareSpeech === 'function' ? bvPrepareSpeech(chunk) : chunk);
   utter.lang = 'fr-FR';
-  if (__ttsFrenchVoice) utter.voice = __ttsFrenchVoice;
-  utter.rate = 0.95;
+  const voice = (typeof bvPickFrenchVoice_ === 'function' ? bvPickFrenchVoice_() : null) || __ttsFrenchVoice;
+  if (voice) { utter.voice = voice; utter.lang = voice.lang || 'fr-FR'; }
+  utter.rate = 0.94;
+  utter.pitch = typeof bvVoicePitch_ === 'function' ? bvVoicePitch_(voice) : 1;
   utter.onend = () => { __ttsQueueIndex++; __ttsSpeakNextChunk(id); };
   utter.onerror = () => {
     __ttsSetStatus(id, '❌ La lecture vocale a été interrompue par une erreur.');

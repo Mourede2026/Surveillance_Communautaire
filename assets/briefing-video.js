@@ -134,7 +134,7 @@ function parseModuleToSlides(m) {
   slides.push({
     kind: 'outro', icon: '📞', title: "Règle d'or",
     lines: [{ type: 'warning', text: "Dès qu'un signe alerte apparaît → notifie immédiatement ton ASCQ, sans attendre." }],
-    narration: "Règle d'or : dès qu'un signe alerte apparaît, notifie immédiatement ton A-S-C-Q, sans attendre."
+    narration: "Règle d'or : dès qu'un signe alerte apparaît, notifie immédiatement ton ASCQ, sans attendre."
   });
 
   return slides;
@@ -152,10 +152,74 @@ function bvEstimateDurationMs_(text) {
   return Math.max(3500, Math.min(30000, Math.round(ms) + 900));
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * Voix et prononciation
+ *  - bvPrepareSpeech(texte) : transforme les sigles en lettres épelées pour la synthèse vocale
+ *    (ASCQ → « a èsse cé ku », RC → « èr cé »…). Seule la voix est modifiée : les sous-titres
+ *    gardent le texte d'origine.
+ *  - bvPickFrenchVoice_() : choisit la voix française la plus proche d'une voix d'homme naturelle
+ *    (voix « Natural/Online/Neural » d'abord ; noms masculins connus favorisés ; voix
+ *    féminines connues pénalisées). La personne peut imposer sa voix via le menu « Voix »
+ *    du lecteur (choix mémorisé).
+ * ------------------------------------------------------------------------------------------- */
+const BV_LETTER_NAMES_ = {
+  A: 'a', B: 'bé', C: 'cé', D: 'dé', E: 'eu', F: 'èf', G: 'gé', H: 'ache', I: 'i', J: 'ji', K: 'ka', L: 'èl', M: 'èm',
+  N: 'èn', O: 'o', P: 'pé', Q: 'ku', R: 'èr', S: 'èsse', T: 'té', U: 'u', V: 'vé', W: 'double vé', X: 'iks', Y: 'i grec', Z: 'zède'
+};
+// Sigles à épeler lettre par lettre (les mots entièrement en majuscules comme « NE PAS TOUCHER » restent lus normalement).
+const BV_SIGLES_ = ['CNLS-TP', 'CCLS-TP', 'ASCQ', 'RCSE', 'MIILD', 'COVID-19', 'RR1', 'RR2', 'PFA', 'MVE', 'VPO', 'CPN', 'SRO', 'CAT', 'RC', 'PF', 'CS'];
+const BV_SIGLE_RE_ = new RegExp('(?<![A-Za-zÀ-ÿ0-9])(' + BV_SIGLES_.join('|') + ')(?![A-Za-zÀ-ÿ0-9])', 'g');
+
+function bvSpellSigle_(sigle) {
+  if (sigle === 'COVID-19') return 'covid dix-neuf';
+  return sigle.replace(/-/g, '').split('').map((ch) => {
+    if (ch === '1') return 'un';
+    if (ch === '2') return 'deux';
+    return BV_LETTER_NAMES_[ch] || ch;
+  }).join(' ');
+}
+function bvPrepareSpeech(text) {
+  return String(text || '').replace(BV_SIGLE_RE_, (m) => bvSpellSigle_(m));
+}
+
+const BV_MALE_RE_ = /\b(henri|r[ée]my|r[ée]mi|paul|thomas|claude|antoine|mathieu|guillaume|bernard|julien|nicolas|pierre|olivier|lo[iï]c|hugo|lucas|maxime|fabrice|male|homme|masculin)\b/i;
+const BV_FEMALE_RE_ = /\b(am[ée]lie|aur[ée]lie|c[ée]line|denise|[ée]lo[iï]se|hortense|julie|marie|audrey|l[ée]a|sylvie|virginie|vivienne|female|femme|f[ée]minin|google fran[cç]ais)\b/i;
+function bvVoiceScore_(v) {
+  const n = (v.name || '') + ' ' + (v.voiceURI || '');
+  let sc = 0;
+  if (BV_MALE_RE_.test(n)) sc += 6;
+  if (BV_FEMALE_RE_.test(n)) sc -= 5;
+  if (/natural|online|neural|premium|enhanced|wavenet|multilingual/i.test(n)) sc += 3;
+  if ((v.lang || '').toLowerCase().replace('_', '-') === 'fr-fr') sc += 1;
+  return sc;
+}
+function bvFrenchVoices_() {
+  if (!('speechSynthesis' in window)) return [];
+  return (window.speechSynthesis.getVoices() || []).filter((v) => v.lang && v.lang.toLowerCase().startsWith('fr'));
+}
 function bvPickFrenchVoice_() {
-  if (!('speechSynthesis' in window)) return null;
-  const voices = window.speechSynthesis.getVoices() || [];
-  return voices.find((v) => v.lang && v.lang.toLowerCase().startsWith('fr')) || null;
+  const list = bvFrenchVoices_();
+  if (!list.length) return null;
+  let saved = '';
+  try { saved = localStorage.getItem('bvVoice') || ''; } catch (e) { /* stockage indisponible */ }
+  if (saved) { const hit = list.find((v) => v.voiceURI === saved || v.name === saved); if (hit) return hit; }
+  return list.slice().sort((a, b) => bvVoiceScore_(b) - bvVoiceScore_(a))[0];
+}
+// Voix sans indice masculin : on baisse un peu la hauteur pour se rapprocher d'une voix d'homme
+// (certaines voix en ligne ignorent ce réglage).
+function bvVoicePitch_(voice) {
+  if (!voice) return 0.85;
+  return BV_MALE_RE_.test((voice.name || '') + ' ' + (voice.voiceURI || '')) ? 0.95 : 0.8;
+}
+function bvFillVoiceList_() {
+  const sel = BV && BV.el && BV.el.voiceSel;
+  if (!sel) return;
+  const list = bvFrenchVoices_();
+  let saved = '';
+  try { saved = localStorage.getItem('bvVoice') || ''; } catch (e) { /* stockage indisponible */ }
+  sel.innerHTML = '<option value="">Automatique (voix d\'homme si disponible)</option>' +
+    list.map((v) => `<option value="${bvEscapeHtml_(v.voiceURI || v.name)}">${bvEscapeHtml_(v.name)} (${bvEscapeHtml_(v.lang)})</option>`).join('');
+  sel.value = list.some((v) => (v.voiceURI || v.name) === saved) ? saved : '';
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -193,11 +257,12 @@ function bvPlayCurrentSlide_() {
   if (!BV.muted && 'speechSynthesis' in window && slide.narration) {
     const estMs = bvEstimateDurationMs_(slide.narration) * 1.15;
     BV.slideDurationMs = estMs;
-    const u = new SpeechSynthesisUtterance(slide.narration);
+    const u = new SpeechSynthesisUtterance(bvPrepareSpeech(slide.narration));
     u.lang = 'fr-FR';
     const voice = bvPickFrenchVoice_();
-    if (voice) u.voice = voice;
-    u.rate = 0.98;
+    if (voice) { u.voice = voice; u.lang = voice.lang || 'fr-FR'; }
+    u.rate = 0.94;
+    u.pitch = bvVoicePitch_(voice);
     u.onend = () => { if (BV.playing) bvGoNext_(true); };
     u.onerror = () => { if (BV.playing) bvGoNext_(true); };
     window.speechSynthesis.speak(u);
@@ -376,7 +441,7 @@ function bvEnsureOverlay_() {
       <button class="bv-icon-btn" id="bvNextModule" title="Maladie suivante" aria-label="Maladie suivante">⏭</button>
       <button class="bv-icon-btn" id="bvMute" title="Son" aria-label="Couper / activer le son">🔊</button>
       <label class="bv-autonext"><input type="checkbox" id="bvAutoNext" checked> Lecture auto</label>
-      <label class="bv-autonext"><input type="checkbox" id="bvAutoOpen"> Lancer à l'ouverture du Briefing</label>
+      <label class="bv-autonext bv-voice-label">Voix <select id="bvVoice" class="bv-voice-select"></select></label>
     </div>
     <div class="bv-playlist-panel">
       <div class="bv-playlist-header">Toutes les maladies</div>
@@ -396,6 +461,7 @@ function bvEnsureOverlay_() {
   BV.el = {
     stage: div.querySelector('#bvStage'),
     scene: div.querySelector('#bvScene'),
+    voiceSel: div.querySelector('#bvVoice'),
     slide: div.querySelector('.bv-slide'),
     bigIcon: div.querySelector('#bvBigIcon'),
     slideTitle: div.querySelector('#bvSlideTitle'),
@@ -421,9 +487,12 @@ function bvEnsureOverlay_() {
   div.querySelector('#bvPrevModule').addEventListener('click', () => bvJumpToModule_(BV.moduleIndex - 1 < 0 ? 0 : BV.moduleIndex - 1));
   div.querySelector('#bvNextModule').addEventListener('click', () => bvJumpToModule_(BV.moduleIndex + 1));
   div.querySelector('#bvAutoNext').addEventListener('change', (e) => { BV.autoNext = e.target.checked; });
-  const autoOpenBox = div.querySelector('#bvAutoOpen');
-  try { autoOpenBox.checked = localStorage.getItem('bvAutoOpen') !== '0'; } catch (e) { autoOpenBox.checked = true; }
-  autoOpenBox.addEventListener('change', (e) => { try { localStorage.setItem('bvAutoOpen', e.target.checked ? '1' : '0'); } catch (err) { /* stockage indisponible */ } });
+  bvFillVoiceList_();
+  if ('speechSynthesis' in window) window.speechSynthesis.addEventListener('voiceschanged', bvFillVoiceList_);
+  BV.el.voiceSel.addEventListener('change', (e) => {
+    try { localStorage.setItem('bvVoice', e.target.value); } catch (err) { /* stockage indisponible */ }
+    if (BV.playing) bvPlayCurrentSlide_();
+  });
   div.querySelector('#bvReplay').addEventListener('click', () => bvJumpToModule_(0));
   div.querySelector('#bvCloseEnd').addEventListener('click', bvClose_);
   div.addEventListener('click', (e) => { if (e.target === div) bvClose_(); });

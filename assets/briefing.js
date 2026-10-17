@@ -20,6 +20,7 @@ function renderBriefingModule(containerId) {
   if (!el || typeof BRIEFING_MODULES === 'undefined') return;
 
   el.innerHTML = `
+    <div id="briefingChoice"></div>
     <div class="briefing-intro">
       👋 Ce mémo t'aide à reconnaître les maladies et événements sous surveillance, à savoir comment ils se
       transmettent, comment les prévenir et <strong>quoi faire face à un cas suspect</strong>.
@@ -49,7 +50,7 @@ function renderBriefingModule(containerId) {
         <button class="bv-play-trigger" type="button" data-play="${m.id}" title="Regarder la vidéo de cette maladie" aria-label="Regarder la vidéo : ${m.title}">▶</button>
         <span class="d-chevron">▾</span>
       </div>
-      <div class="disease-body">${m.body}${videoBlock}</div>
+      <div class="disease-body"><button class="bv-body-play" type="button" data-play="${m.id}">🎬 Voir cette maladie en vidéo</button>${m.body}${videoBlock}</div>
     </div>
   `; }).join('');
 
@@ -77,13 +78,48 @@ function renderBriefingModule(containerId) {
 
 
 /**
- * Appelée à chaque ouverture de l'onglet « Briefing maladies » (rc.html, ascq.html, pf.html) :
- * lance la vidéo (scènes animées + voix + sous-titres) depuis le début, sauf si la personne a
- * décoché « Lancer à l'ouverture du Briefing » dans le lecteur.
+ * Appelée à chaque ouverture de l'onglet « Briefing maladies » (rc.html, ascq.html, pf.html).
+ * Ne lance JAMAIS la vidéo d'office : la personne choisit entre « Regarder la vidéo » et
+ * « Lire le texte ». Elle peut cocher « Se souvenir de mon choix » ; dans ce cas son mode
+ * (vidéo ou texte) est appliqué directement aux ouvertures suivantes, avec un lien « Changer »
+ * pour revenir au choix. Cliquer sur une maladie ouvre toujours son texte ; la vidéo d'une
+ * maladie se lance uniquement via le bouton ▶ / « Voir en vidéo ».
  */
 function maybeAutoOpenBriefingVideo() {
-  if (typeof openBriefingVideo !== 'function') return;
-  let off = false;
-  try { off = localStorage.getItem('bvAutoOpen') === '0'; } catch (e) { /* stockage indisponible */ }
-  if (!off) openBriefingVideo();
+  const box = document.getElementById('briefingChoice');
+  if (!box) return;
+  let mode = '';
+  try { mode = localStorage.getItem('bvMode') || ''; } catch (e) { /* stockage indisponible */ }
+  const canVideo = typeof openBriefingVideo === 'function';
+
+  if (mode === 'video' && canVideo) {
+    box.innerHTML = '<div class="bv-choice-mini">🎬 Mode mémorisé : vidéo · <button type="button" class="bv-choice-link" id="bvChoiceReset">Changer</button></div>';
+    document.getElementById('bvChoiceReset').addEventListener('click', () => { try { localStorage.removeItem('bvMode'); } catch (e) {} maybeAutoOpenBriefingVideo(); });
+    openBriefingVideo();
+    return;
+  }
+  if (mode === 'text' || !canVideo) {
+    box.innerHTML = canVideo ? '<div class="bv-choice-mini">📖 Mode mémorisé : texte · <button type="button" class="bv-choice-link" id="bvChoiceReset">Changer</button></div>' : '';
+    const r = document.getElementById('bvChoiceReset');
+    if (r) r.addEventListener('click', () => { try { localStorage.removeItem('bvMode'); } catch (e) {} maybeAutoOpenBriefingVideo(); });
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="bv-choice">
+      <div class="bv-choice-title">Comment voulez-vous suivre le briefing ?</div>
+      <div class="bv-choice-actions">
+        <button type="button" class="bv-choice-btn bv-choice-video" id="bvChoiceVideo">🎬<span>Regarder la vidéo</span><small>Scènes animées, voix et sous-titres</small></button>
+        <button type="button" class="bv-choice-btn bv-choice-text" id="bvChoiceText">📖<span>Lire le texte</span><small>Les fiches maladie par maladie</small></button>
+      </div>
+      <label class="bv-choice-remember"><input type="checkbox" id="bvChoiceRemember"> Se souvenir de mon choix</label>
+    </div>`;
+  const remember = () => document.getElementById('bvChoiceRemember').checked;
+  const save = (m) => { if (remember()) { try { localStorage.setItem('bvMode', m); } catch (e) {} } };
+  document.getElementById('bvChoiceVideo').addEventListener('click', () => { save('video'); openBriefingVideo(); });
+  document.getElementById('bvChoiceText').addEventListener('click', () => {
+    save('text');
+    const l = document.getElementById('briefingList');
+    if (l) l.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }

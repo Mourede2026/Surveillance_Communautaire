@@ -154,15 +154,40 @@ function wireCascadingGeoLive(depSel, comSel, arrSel, vilSel, liveGeo, onChange,
   if (grpSel) grpSel.addEventListener('change', emit);
 }
 
-// Un village est découpé en au maximum 10 grappes (numérotées "Grappe 1" à "Grappe 10") — c'est
-// la convention terrain. On propose donc un choix numéroté plutôt qu'un texte libre, pour éviter
-// les doublons créés par des variantes de saisie (ex. "Grappe1" vs "Grappe 1" vs "grappe 1").
-const GRAPPES_NUMEROTEES = Array.from({ length: 10 }, (_, i) => `Grappe ${i + 1}`);
+// Grappes : un village compte au plus 20 grappes, identifiées par un NUMÉRO (entier de 1 à 20) ;
+// un nom est facultatif. Les anciennes grappes « Grappe 3 » sont reconnues par le chiffre de leur nom.
+const GRAPPE_NUM_MIN = 1, GRAPPE_NUM_MAX = 20;
 
-// Numéros de grappe encore disponibles pour un village donné (parmi Grappe 1 à Grappe 10),
-// c'est-à-dire ceux qui n'ont pas déjà été créés pour ce village. `grappesExistantes` : le
-// tableau `geo.grappes` tel que renvoyé par Api.call('listGeo', {}).
-function grappesDisponiblesPourVillage_(grappesExistantes, villageId) {
-  const nomsPris = new Set((grappesExistantes || []).filter(g => g.VillageId === villageId).map(g => g.Nom));
-  return GRAPPES_NUMEROTEES.filter(nom => !nomsPris.has(nom));
+// Numéro d'une grappe telle que renvoyée par listGeo (colonne Numero, sinon chiffre du nom).
+function numeroGrappe_(g) {
+  if (!g) return null;
+  const n = parseInt(g.Numero, 10);
+  if (!isNaN(n) && n > 0) return n;
+  const m = String(g.Nom || '').match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Grappe existante d'un village pour un numéro donné (ou undefined).
+function grappeDuVillageParNumero_(grappes, villageId, numero) {
+  return (grappes || []).find(g => g.VillageId === villageId && numeroGrappe_(g) === Number(numero));
+}
+
+// Affiche sous le champ « numéro de grappe » si la grappe existe déjà dans le village choisi
+// (elle sera alors réutilisée) et préremplit son nom, sinon indique qu'elle sera créée.
+function brancherIndiceGrappe_(villageSel, numInput, nomInput, hintEl, getGrappes) {
+  function maj() {
+    const n = parseInt(numInput.value, 10);
+    if (!villageSel.value || isNaN(n)) { hintEl.textContent = ''; return; }
+    if (n < GRAPPE_NUM_MIN || n > GRAPPE_NUM_MAX) { hintEl.textContent = 'Le numéro doit être compris entre ' + GRAPPE_NUM_MIN + ' et ' + GRAPPE_NUM_MAX + '.'; return; }
+    const g = grappeDuVillageParNumero_(getGrappes(), villageSel.value, n);
+    if (g) {
+      hintEl.textContent = 'Cette grappe existe déjà dans ce village (' + g.Nom + ') : elle sera réutilisée.';
+      if (g.NomPerso && !nomInput.value) nomInput.value = g.NomPerso;
+    } else {
+      hintEl.textContent = 'Nouvelle grappe : elle sera créée dans ce village.';
+    }
+  }
+  numInput.addEventListener('input', maj);
+  villageSel.addEventListener('change', maj);
+  return maj;
 }

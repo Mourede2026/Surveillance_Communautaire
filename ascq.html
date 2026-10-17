@@ -96,31 +96,35 @@
         <div class="card">
           <h2>Créer un compte Relais Communautaire</h2>
           <p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">
-            Le(s) arrondissement(s) qui vous ont été assignés sont déjà connus depuis votre compte :
-            choisissez le village, puis la grappe (sous-unité du village, numérotée de 1 à 10) que
-            ce RC couvrira. Une même grappe peut être couverte par plusieurs RC, et un RC pourra
-            couvrir d'autres grappes plus tard (voir "Assigner une grappe supplémentaire" ci-dessous).
+            Un relais communautaire est rattaché à <strong>un seul village</strong>, choisi parmi ceux de
+            votre/vos arrondissement(s). Indiquez le <strong>numéro de sa grappe</strong> (de 1 à 20) ;
+            le nom de la grappe est facultatif. Une même grappe peut être couverte par plusieurs RC.
+            Vous pourrez, si besoin, lui assigner une autre grappe plus tard (voir « Assigner une
+            grappe supplémentaire » ci-dessous).
           </p>
           <form id="formCreateRC" class="grid grid-2">
             <div class="field"><label>Nom</label><input name="nom" required></div>
             <div class="field"><label>Prénom</label><input name="prenom" required></div>
             <div class="field"><label>Téléphone (identifiant)</label><input name="telephone" required></div>
             <div class="field"><label>Mot de passe</label><input name="motDePasse" type="password" required></div>
-            <div class="field"><label>Village</label><select id="rcVillageSelect" required></select></div>
-            <div class="field"><label>Grappe existante (optionnel)</label><select id="rcGrappeSelect"><option value="">— Aucune / voir champ ci-dessous —</option></select></div>
-            <div class="field" style="grid-column:1/-1"><label>Ou numéro d'une nouvelle grappe (optionnel, 1 à 10)</label><select id="rcGrappeNouvelle"><option value="">— Aucune —</option></select></div>
+            <div class="field"><label>Village du RC (un seul)</label><select id="rcVillageSelect" required></select></div>
+            <div class="field"><label>Numéro de la grappe (1 à 20)</label><input type="number" id="rcGrappeNumero" name="grappeNumero" min="1" max="20" step="1" inputmode="numeric" required></div>
+            <div class="field" style="grid-column:1/-1"><label>Nom de la grappe (facultatif)</label><input id="rcGrappeNomPerso" name="grappeNomPerso" maxlength="60" placeholder="Ex. : quartier du marché">
+              <div id="rcGrappeHint" style="font-size:.78rem;color:var(--ink-soft);margin-top:4px;min-height:1em"></div></div>
             <div style="grid-column:1/-1"><button type="submit">Créer le compte</button></div>
           </form>
         </div>
         <div class="card"><h2>Mes relais communautaires</h2><div id="rcTable">Chargement…</div></div>
         <div class="card">
-          <h2>Assigner une grappe supplémentaire à un RC existant</h2>
-          <p style="font-size:.85rem;color:var(--ink-soft)">Un RC peut couvrir plusieurs grappes (dans un même village ou dans un autre village de votre/vos arrondissement(s)).</p>
+          <h2>Assigner une grappe supplémentaire à un RC existant <span style="font-weight:400;font-size:.8rem">(optionnel)</span></h2>
+          <p style="font-size:.85rem;color:var(--ink-soft)">Le RC garde son village et sa grappe principale. Vous pouvez lui confier en plus une autre grappe : dans son même village, dans un autre village de son arrondissement, ou dans un autre arrondissement de votre commune.</p>
           <form id="formAssignGrappe" class="grid grid-2">
             <div class="field"><label>Relais communautaire</label><select id="selRcForGrappe" required></select></div>
+            <div class="field"><label>Arrondissement</label><select id="agArrSelect" required></select></div>
             <div class="field"><label>Village</label><select id="agVillageSelect" required></select></div>
-            <div class="field"><label>Grappe existante</label><select id="agGrappeSelect"><option value="">— Aucune / voir champ ci-dessous —</option></select></div>
-            <div class="field"><label>Ou numéro d'une nouvelle grappe (1 à 10)</label><select id="agGrappeNouvelle"><option value="">— Aucune —</option></select></div>
+            <div class="field"><label>Numéro de la grappe (1 à 20)</label><input type="number" id="agGrappeNumero" min="1" max="20" step="1" inputmode="numeric" required></div>
+            <div class="field" style="grid-column:1/-1"><label>Nom de la grappe (facultatif)</label><input id="agGrappeNomPerso" maxlength="60">
+              <div id="agGrappeHint" style="font-size:.78rem;color:var(--ink-soft);margin-top:4px;min-height:1em"></div></div>
             <div style="grid-column:1/-1"><button type="submit">Assigner</button></div>
           </form>
         </div>
@@ -391,14 +395,22 @@ function fillVillageSelect_(selectEl, villages, mesArrIds) {
     selectEl.innerHTML = villages.map(v => `<option value="${v.ID}">${v.Nom}${mesArrIds.length > 1 && v.ArrondissementNom ? ' (' + v.ArrondissementNom + ')' : ''}</option>`).join('');
   }
 }
-function fillGrappeSelect_(selectEl, grappes, villageId) {
-  const mine = grappes.filter(g => g.VillageId === villageId);
-  selectEl.innerHTML = '<option value="">— Aucune / voir champ ci-dessous —</option>' + mine.map(g => `<option value="${g.ID}">${g.Nom}</option>`).join('');
+const grappesGeo_ = () => (window.GEO_LOOKUP ? window.GEO_LOOKUP.grappes : []);
+
+// Formulaire « grappe supplémentaire » : arrondissement (de la commune de l'ASCQ) puis village.
+function fillAgArrondissements_(selectedArrId) {
+  const G = window.GEO_LOOKUP; if (!G) return;
+  const mes = G.mesArrIds;
+  agArrSelect.innerHTML = G.arrondissementsCommune.map(a => `<option value="${a.ID}">${a.Nom}${mes.includes(a.ID) ? ' (le vôtre)' : ''}</option>`).join('');
+  if (selectedArrId && G.arrondissementsCommune.some(a => a.ID === selectedArrId)) agArrSelect.value = selectedArrId;
+  fillAgVillages_();
 }
-// Numéros de grappe (1 à 10) encore libres pour le village choisi — voir assets/geo-utils.js.
-function fillGrappeNumeroteeSelect_(selectEl, grappes, villageId) {
-  const disponibles = villageId ? grappesDisponiblesPourVillage_(grappes, villageId) : GRAPPES_NUMEROTEES;
-  selectEl.innerHTML = '<option value="">— Aucune —</option>' + disponibles.map(nom => `<option value="${nom}">${nom}</option>`).join('');
+function fillAgVillages_(selectedVilId) {
+  const G = window.GEO_LOOKUP; if (!G) return;
+  const vils = G.villages.filter(v => v.ArrondissementId === agArrSelect.value);
+  agVillageSelect.innerHTML = vils.length ? vils.map(v => `<option value="${v.ID}">${v.Nom}</option>`).join('') : '<option value="">Aucun village dans cet arrondissement</option>';
+  if (selectedVilId && vils.some(v => v.ID === selectedVilId)) agVillageSelect.value = selectedVilId;
+  majAgHint_();
 }
 
 async function loadRC() {
@@ -407,32 +419,42 @@ async function loadRC() {
     const [{ users }, { geo }, { perimetres }] = await Promise.all([
       Api.call('listUsers', {}), Api.call('listGeo', {}), Api.call('listArrondissementsAscq', {})
     ]);
-    // Villages des arrondissements couverts par cet ASCQ (pour le formulaire de création de RC) :
-    // ils sont déjà connus depuis son compte, il ne reste qu'à choisir le village puis la grappe.
+    // Villages des arrondissements couverts par cet ASCQ : le village d'un RC est choisi parmi eux.
     const mesArrIds = perimetres.map(p => p.CibleId);
     const myVillages = geo.villages.filter(v => mesArrIds.includes(v.ArrondissementId));
     fillVillageSelect_(rcVillageSelect, myVillages, mesArrIds);
-    fillGrappeSelect_(rcGrappeSelect, geo.grappes || [], rcVillageSelect.value);
-    fillGrappeNumeroteeSelect_(document.getElementById('rcGrappeNouvelle'), geo.grappes || [], rcVillageSelect.value);
-    fillVillageSelect_(agVillageSelect, myVillages, mesArrIds);
-    fillGrappeSelect_(agGrappeSelect, geo.grappes || [], agVillageSelect.value);
-    fillGrappeNumeroteeSelect_(document.getElementById('agGrappeNouvelle'), geo.grappes || [], agVillageSelect.value);
-    window.GEO_LOOKUP = { villages: geo.villages, arrondissements: geo.arrondissements, communes: geo.communes, grappes: geo.grappes || [] };
+    // Arrondissements de la commune de l'ASCQ (pour une grappe supplémentaire dans un autre arrondissement).
+    const mesArrs = geo.arrondissements.filter(a => mesArrIds.includes(a.ID));
+    const communeId = user.CommuneId || (mesArrs[0] ? mesArrs[0].CommuneId : '');
+    let arrCommune = communeId ? geo.arrondissements.filter(a => a.CommuneId === communeId) : mesArrs;
+    mesArrs.forEach(a => { if (!arrCommune.some(x => x.ID === a.ID)) arrCommune.push(a); });
+    window.GEO_LOOKUP = { villages: geo.villages, arrondissements: geo.arrondissements, communes: geo.communes, grappes: geo.grappes || [], mesArrIds, arrondissementsCommune: arrCommune };
 
     const rcs = users.filter(u => u.Role === 'RC');
     const usersById = {}; rcs.forEach(u => usersById[u.ID] = u);
+    window.RC_PAR_ID = usersById;
     selRcForGrappe.innerHTML = rcs.map(u => `<option value="${u.ID}">${u.Prenom} ${u.Nom}</option>`).join('');
+    const rc0 = rcs[0];
+    fillAgArrondissements_(rc0 ? rc0.ArrondissementId : '');
+    if (rc0) fillAgVillages_(rc0.VillageId);
+    majRcHint_();
     if (!rcs.length) { rcTable.innerHTML = '<div class="empty-state">Aucun relais créé pour le moment.</div>'; return; }
 
-    // Grappes couvertes par chaque RC (peut être plusieurs), pour affichage dans le tableau.
+    // Grappes couvertes par chaque RC (la principale + d'éventuelles grappes supplémentaires).
     const { perimetres: perimGrappes } = await Api.call('listGrappesRc', {});
-    const grappeNomById = {}; (geo.grappes || []).forEach(g => grappeNomById[g.ID] = g.Nom);
+    const grappeParId = {}; (geo.grappes || []).forEach(g => grappeParId[g.ID] = g);
 
-    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Village</th><th>Grappe(s)</th><th>Statut</th><th></th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Nom</th><th>Téléphone</th><th>Village</th><th>Grappe principale</th><th>Autres grappes</th><th>Statut</th><th></th></tr></thead><tbody>';
     rcs.forEach(u => {
       const actif = u.Actif === true || u.Actif === 'TRUE';
-      const mesGrappes = perimGrappes.filter(p => p.UserId === u.ID).map(p => grappeNomById[p.CibleId] || p.CibleId);
-      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.VillageNom||''}</td><td>${mesGrappes.join(', ')}</td>
+      const mes = perimGrappes.filter(p => p.UserId === u.ID).map(p => ({ id: p.CibleId, g: grappeParId[p.CibleId] }));
+      const principale = mes.find(m => m.id === u.GrappeId);
+      const autres = mes.filter(m => m.id !== u.GrappeId).map(m => {
+        const nom = m.g ? m.g.Nom : m.id;
+        return m.g && m.g.VillageId !== u.VillageId ? `${nom} (${m.g.VillageNom})` : nom;
+      });
+      html += `<tr><td>${u.Prenom} ${u.Nom}</td><td>${u.Telephone}</td><td>${u.VillageNom||''}</td>
+        <td>${principale && principale.g ? principale.g.Nom : (u.GrappeNom || '<span class="empty-hint">à renseigner</span>')}</td><td>${autres.join(', ')}</td>
         <td><span class="badge ${actif ? 'badge-done' : 'badge-new'}">${actif ? 'Actif' : 'Désactivé'}</span></td>
         <td>${userRowActionsHtml(u, user.ID, user.Role)}</td></tr>`;
     });
@@ -441,37 +463,24 @@ async function loadRC() {
   } catch (e) { rcTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
-rcVillageSelect.addEventListener('change', () => {
-  fillGrappeSelect_(rcGrappeSelect, window.GEO_LOOKUP ? window.GEO_LOOKUP.grappes : [], rcVillageSelect.value);
-  fillGrappeNumeroteeSelect_(document.getElementById('rcGrappeNouvelle'), window.GEO_LOOKUP ? window.GEO_LOOKUP.grappes : [], rcVillageSelect.value);
-});
-agVillageSelect.addEventListener('change', () => {
-  fillGrappeSelect_(agGrappeSelect, window.GEO_LOOKUP ? window.GEO_LOOKUP.grappes : [], agVillageSelect.value);
-  fillGrappeNumeroteeSelect_(document.getElementById('agGrappeNouvelle'), window.GEO_LOOKUP ? window.GEO_LOOKUP.grappes : [], agVillageSelect.value);
+const majRcHint_ = brancherIndiceGrappe_(rcVillageSelect, rcGrappeNumero, rcGrappeNomPerso, rcGrappeHint, grappesGeo_);
+const majAgHint_ = brancherIndiceGrappe_(agVillageSelect, agGrappeNumero, agGrappeNomPerso, agGrappeHint, grappesGeo_);
+agArrSelect.addEventListener('change', () => fillAgVillages_());
+selRcForGrappe.addEventListener('change', () => {
+  const u = window.RC_PAR_ID && window.RC_PAR_ID[selRcForGrappe.value];
+  if (u) { fillAgArrondissements_(u.ArrondissementId); fillAgVillages_(u.VillageId); }
 });
 
 formCreateRC.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = Object.fromEntries(new FormData(formCreateRC).entries());
   const villageId = rcVillageSelect.value;
-  if (!villageId) { toast('Sélectionnez un village.', true); return; }
-  const village = window.GEO_LOOKUP.villages.find(v => v.ID === villageId);
-  const arr = village ? window.GEO_LOOKUP.arrondissements.find(a => a.ID === village.ArrondissementId) : null;
-  const com = arr ? window.GEO_LOOKUP.communes.find(c => c.ID === arr.CommuneId) : null;
+  if (!villageId) { toast('Sélectionnez le village du RC.', true); return; }
+  const numero = parseInt(fd.grappeNumero, 10);
+  if (isNaN(numero) || numero < GRAPPE_NUM_MIN || numero > GRAPPE_NUM_MAX) { toast('Le numéro de grappe doit être compris entre 1 et 20.', true); return; }
   fd.role = 'RC';
-  fd.villageId = villageId; fd.villageNom = village ? village.Nom : '';
-  fd.arrondissementId = arr ? arr.ID : ''; fd.arrondissementNom = arr ? arr.Nom : '';
-  fd.communeId = com ? com.ID : ''; fd.communeNom = com ? com.Nom : '';
-  fd.departementId = com ? com.DepartementId : ''; fd.departementNom = com ? com.DepartementNom : '';
-  const grappeNouvelle = document.getElementById('rcGrappeNouvelle').value;
-  if (rcGrappeSelect.value) {
-    const g = window.GEO_LOOKUP.grappes.find(x => x.ID === rcGrappeSelect.value);
-    fd.grappeId = rcGrappeSelect.value; fd.grappeNom = g ? g.Nom : '';
-  } else if (grappeNouvelle) {
-    const created = await Api.call('createGrappe', { villageId, villageNom: village ? village.Nom : '', nom: grappeNouvelle }).catch(err => { toast(err.message, true); return null; });
-    if (!created) return;
-    fd.grappeId = created.item.ID; fd.grappeNom = created.item.Nom;
-  }
+  fd.villageId = villageId;
+  fd.grappeNumero = String(numero);
   try {
     await Api.call('createUser', fd);
     toast('Compte relais créé.');
@@ -484,12 +493,12 @@ formAssignGrappe.addEventListener('submit', async (e) => {
   e.preventDefault();
   const villageId = agVillageSelect.value;
   if (!selRcForGrappe.value || !villageId) { toast('Sélectionnez un RC et un village.', true); return; }
-  const grappeNouvelle = document.getElementById('agGrappeNouvelle').value;
-  if (!agGrappeSelect.value && !grappeNouvelle) { toast('Sélectionnez une grappe existante ou un numéro de nouvelle grappe.', true); return; }
+  const numero = parseInt(agGrappeNumero.value, 10);
+  if (isNaN(numero) || numero < GRAPPE_NUM_MIN || numero > GRAPPE_NUM_MAX) { toast('Le numéro de grappe doit être compris entre 1 et 20.', true); return; }
   try {
-    await Api.call('assignGrappeRc', { userId: selRcForGrappe.value, villageId, grappeId: agGrappeSelect.value || undefined, grappeNom: agGrappeSelect.value ? undefined : grappeNouvelle });
+    await Api.call('assignGrappeRc', { userId: selRcForGrappe.value, villageId, grappeNumero: String(numero), grappeNomPerso: agGrappeNomPerso.value.trim() });
     toast('Grappe assignée.');
-    formAssignGrappe.reset();
+    agGrappeNumero.value = ''; agGrappeNomPerso.value = ''; agGrappeHint.textContent = '';
     loadRC();
   } catch (err) { toast(err.message, true); }
 });
@@ -501,7 +510,7 @@ genRapportBtn.addEventListener('click', async () => {
 
 renderImportActeurs({
   containerId: 'importRcContainer', role: 'RC',
-  columns: [{ key: 'villageNom', label: 'Village' }, { key: 'arrondissementNom', label: 'Arrondissement (si ambiguïté)' }],
+  columns: [{ key: 'villageNom', label: 'Village' }, { key: 'arrondissementNom', label: 'Arrondissement (si ambiguïté)' }, { key: 'grappeNumero', label: 'N° de grappe (1 à 20)' }, { key: 'grappeNom', label: 'Nom de la grappe (facultatif)' }],
   onDone: loadRC
 });
 

@@ -25,8 +25,11 @@
  *                 communes de départements différents), choisies par le NATIONAL.
  *   - PF_CNLS_TP: UNE SEULE commune, choisie par le RCSE parmi les communes de sa zone.
  *   - ASCQ      : un ou plusieurs arrondissements, choisis par le PF parmi ceux de sa commune.
- *   - RC        : un ou plusieurs grappes (créées à la volée), choisies par l'ASCQ parmi
- *                 les villages de son/ses arrondissement(s).
+ *   - RC        : UN SEUL village (choisi par l'ASCQ parmi les villages de son/ses
+ *                 arrondissement(s)) et, dans ce village, une grappe principale identifiée par un
+ *                 numéro de 1 à 20 (nom facultatif). Optionnellement, d'autres grappes peuvent lui
+ *                 être assignées ensuite (autre grappe du même village, autre village ou autre
+ *                 arrondissement de la commune de son ASCQ).
  * Le modèle de périmètre (feuille Perimetres) reste générique : TypeCible peut être
  * 'Commune' | 'Arrondissement' | 'Grappe'. Seul le PF reste limité à UNE SEULE commune ;
  * tous les autres niveaux acceptent plusieurs périmètres pour un même compte.
@@ -93,11 +96,11 @@ const COLS = {
   Utilisateurs: ['ID','Nom','Prenom','Telephone','MotDePasse','Role','ResponsableId',
     'DepartementId','CommuneId','ArrondissementId','VillageId','GrappeId',
     'DepartementNom','CommuneNom','ArrondissementNom','VillageNom','GrappeNom',
-    'ZoneSanitaireNom','Actif','DateCreation','CreePar','Photo'],
+    'ZoneSanitaireNom','Actif','DateCreation','CreePar','Photo','Couleur'],
   Communes: ['ID','Nom','DepartementId','DepartementNom'],
   Arrondissements: ['ID','Nom','CommuneId','CommuneNom'],
   Villages: ['ID','Nom','ArrondissementId','ArrondissementNom'],
-  Grappes: ['ID','Nom','VillageId','VillageNom'],
+  Grappes: ['ID','Nom','VillageId','VillageNom','Numero','NomPerso'],
   Perimetres: ['ID','UserId','TypeCible','CibleId','AssignePar','Date'],
   Alertes: ['ID','Annee','SemaineEpi','Mois','NPI','NAlerte','Departement','ZoneSanitaire',
     'CommuneId','ArrondissementId','VillageId','NGrappe','Adresse','Nom','Sexe','Telephone',
@@ -182,7 +185,7 @@ function doPost(e) {
       createCommune: () => createGeo_(user, 'Communes', payload, [ROLES.DEPARTEMENT, ROLES.RCSE, ROLES.NATIONAL]),
       createArrondissement: () => createGeo_(user, 'Arrondissements', payload, [ROLES.DEPARTEMENT, ROLES.RCSE, ROLES.NATIONAL]),
       createVillage: () => createGeo_(user, 'Villages', payload, [ROLES.DEPARTEMENT, ROLES.RCSE, ROLES.NATIONAL]),
-      createGrappe: () => createGeo_(user, 'Grappes', payload, [ROLES.ASCQ, ROLES.PF, ROLES.RCSE, ROLES.DEPARTEMENT, ROLES.NATIONAL]),
+      createGrappe: () => createGrappe_(user, payload),
       listGeo: () => ({ ok: true, geo: listGeo_() }),
       importGeoBulk: () => importGeoBulk_(user, payload),
 
@@ -450,6 +453,24 @@ function createUser_(actor, p) {
     });
     if (horsDepartement) return { ok: false, error: 'Toutes les communes de la zone sanitaire doivent appartenir à votre département.' };
   }
+  // Un RC n'a qu'UN SEUL village, qui doit appartenir à l'arrondissement de l'ASCQ qui le crée ; il
+  // reçoit dans ce village une grappe principale (numéro de 1 à 20, nom facultatif).
+  let villageRc = null, grappeRc = null;
+  if (p.role === ROLES.RC) {
+    if (!p.villageId) return { ok: false, error: 'Sélectionnez le village de ce relais communautaire (un seul village par RC).' };
+    villageRc = readSheet_(SHEETS.VILLAGES).find(v => v.ID === p.villageId);
+    if (!villageRc) return { ok: false, error: 'Village introuvable.' };
+    if (!arrondissementsOfAscq_(actor.ID).includes(villageRc.ArrondissementId)) {
+      return { ok: false, error: 'Le village d\'un RC doit appartenir à l\'arrondissement de l\'ASCQ qui crée son compte.' };
+    }
+    const grappesToutes = readSheet_(SHEETS.GRAPPES);
+    let numeroRc = numeroDepuisPayload_(p);
+    if (!numeroRc && !p.grappeNumero && p.grappeId) {
+      numeroRc = numeroGrappe_(grappesToutes.find(g => g.ID === p.grappeId && g.VillageId === villageRc.ID));
+    }
+    if (!numeroRc) return { ok: false, error: 'Indiquez le numéro de la grappe de ce RC : ' + MSG_NUM_GRAPPE };
+    grappeRc = trouverOuPreparerGrappe_(grappesToutes, villageRc, numeroRc, p.grappeNomPerso);
+  }
   const users = readSheet_(SHEETS.USERS);
   if (users.some(u => String(u.Telephone) === String(p.telephone))) {
     return { ok: false, error: 'Ce numéro de téléphone est déjà utilisé.' };
@@ -470,6 +491,15 @@ function createUser_(actor, p) {
     ZoneSanitaireNom: p.zoneSanitaireNom || '',
     Actif: true, DateCreation: nowStr_(), CreePar: actor.ID
   };
+  if (p.role === ROLES.RC) {
+    // Géographie du RC issue des enregistrements (pas du formulaire) : village unique + grappe principale.
+    const grappe = enregistrerGrappe_(grappeRc);
+    newUser.VillageId = villageRc.ID; newUser.VillageNom = villageRc.Nom;
+    newUser.ArrondissementId = villageRc.ArrondissementId; newUser.ArrondissementNom = villageRc.ArrondissementNom;
+    newUser.CommuneId = actor.CommuneId || newUser.CommuneId; newUser.CommuneNom = actor.CommuneNom || newUser.CommuneNom;
+    newUser.DepartementId = actor.DepartementId || newUser.DepartementId; newUser.DepartementNom = actor.DepartementNom || newUser.DepartementNom;
+    newUser.GrappeId = grappe.ID; newUser.GrappeNom = grappe.Nom;
+  }
   appendRow_(SHEETS.USERS, newUser);
 
   // Le "poste" choisi à la création est enregistré comme un périmètre au même titre que ceux
@@ -544,6 +574,10 @@ function importActeursBulk_(actor, p) {
     vilsScope = readSheet_(SHEETS.VILLAGES).filter(v => mesArr.includes(v.ArrondissementId));
   }
 
+  // Import RC : colonnes facultatives grappeNumero (1 à 20) et grappeNom (nom facultatif). Si la
+  // colonne grappeNumero est présente, elle est obligatoire pour chaque ligne.
+  const grappesCache = role === ROLES.RC ? readSheet_(SHEETS.GRAPPES).slice() : [];
+  const nouvellesGrappes = [], majGrappes = [];
   const newUserRows = [];
   const newPerimetreRows = [];
   const skipped = [];
@@ -565,6 +599,7 @@ function importActeursBulk_(actor, p) {
 
     let dep = { id: '', nom: '' }, com = { id: '', nom: '' }, arr = { id: '', nom: '' }, vil = { id: '', nom: '' };
     let zoneSanitaireNom = '', communeIdsRcse = [];
+    let grappeImport = null;
 
     if (role === ROLES.RCSE) {
       zoneSanitaireNom = String(row.zoneSanitaireNom || '').trim();
@@ -603,13 +638,21 @@ function importActeursBulk_(actor, p) {
       const v = matches[0];
       dep = { id: actor.DepartementId, nom: actor.DepartementNom }; com = { id: actor.CommuneId, nom: actor.CommuneNom };
       arr = { id: v.ArrondissementId, nom: v.ArrondissementNom }; vil = { id: v.ID, nom: v.Nom };
+      if (row.grappeNumero !== undefined) {
+        const numero = lireNumeroGrappe_(row.grappeNumero);
+        if (!numero) { skipped.push({ line, raison: MSG_NUM_GRAPPE }); return; }
+        const res = trouverOuPreparerGrappe_(grappesCache, v, numero, row.grappeNom);
+        grappeImport = res.grappe;
+        if (res.nouvelle) { nouvellesGrappes.push(res.grappe); grappesCache.push(res.grappe); }
+        else if (res.modifiee) { Object.assign(res.grappe, res.modifiee); majGrappes.push({ id: res.grappe.ID, changes: res.modifiee }); }
+      }
     }
 
     const newUser = {
       ID: newId_('U') + '-' + idx, Nom: nom, Prenom: prenom, Telephone: telephone, MotDePasse: motDePasse,
       Role: role, ResponsableId: actor.ID,
-      DepartementId: dep.id, CommuneId: com.id, ArrondissementId: arr.id, VillageId: vil.id, GrappeId: '',
-      DepartementNom: dep.nom, CommuneNom: com.nom, ArrondissementNom: arr.nom, VillageNom: vil.nom, GrappeNom: '',
+      DepartementId: dep.id, CommuneId: com.id, ArrondissementId: arr.id, VillageId: vil.id, GrappeId: grappeImport ? grappeImport.ID : '',
+      DepartementNom: dep.nom, CommuneNom: com.nom, ArrondissementNom: arr.nom, VillageNom: vil.nom, GrappeNom: grappeImport ? grappeImport.Nom : '',
       ZoneSanitaireNom: zoneSanitaireNom,
       Actif: true, DateCreation: nowStr_(), CreePar: actor.ID
     };
@@ -622,11 +665,16 @@ function importActeursBulk_(actor, p) {
     } else if (role === ROLES.ASCQ && arr.id) {
       const perimetre = { ID: newId_('PER') + '-' + idx, UserId: newUser.ID, TypeCible: 'Arrondissement', CibleId: arr.id, AssignePar: actor.ID, Date: nowStr_() };
       newPerimetreRows.push(COLS.Perimetres.map(h => (perimetre[h] !== undefined ? perimetre[h] : '')));
+    } else if (role === ROLES.RC && grappeImport) {
+      const perimetre = { ID: newId_('PER') + '-' + idx, UserId: newUser.ID, TypeCible: 'Grappe', CibleId: grappeImport.ID, AssignePar: actor.ID, Date: nowStr_() };
+      newPerimetreRows.push(COLS.Perimetres.map(h => (perimetre[h] !== undefined ? perimetre[h] : '')));
     }
     seenPhones[telephone] = true;
     created++;
   });
 
+  if (nouvellesGrappes.length) appendRowsBulk_(SHEETS.GRAPPES, nouvellesGrappes.map(g => COLS.Grappes.map(h => (g[h] !== undefined ? g[h] : ''))));
+  majGrappes.forEach(m => updateRowById_(SHEETS.GRAPPES, m.id, m.changes));
   if (newUserRows.length) appendRowsBulk_(SHEETS.USERS, newUserRows);
   if (newPerimetreRows.length) appendRowsBulk_(SHEETS.PERIMETRES, newPerimetreRows);
 
@@ -654,6 +702,12 @@ function updateUser_(actor, p) {
   }
   const changes = {};
   ['Nom', 'Prenom', 'Telephone'].forEach(f => { if (p[f] !== undefined) changes[f] = p[f]; });
+  // Couleur du thème : préférence strictement personnelle (chacun ne modifie que la sienne).
+  if (p.Couleur !== undefined && actor.ID === target.ID) {
+    const couleur = String(p.Couleur || '').trim();
+    if (!/^[A-Za-z0-9#_-]{0,24}$/.test(couleur)) return { ok: false, error: 'Couleur de thème invalide.' };
+    changes.Couleur = couleur;
+  }
   // Les champs géographiques arrivent en camelCase (departementId, communeNom...) — même
   // convention que createUser_ — et non en PascalCase comme les colonnes du Sheet ; on les
   // fait donc correspondre explicitement plutôt que de comparer les noms tels quels.
@@ -666,6 +720,51 @@ function updateUser_(actor, p) {
   };
   Object.keys(champsGeo).forEach(f => { if (p[f] !== undefined) changes[champsGeo[f]] = p[f]; });
   if (p.motDePasse) changes.MotDePasse = p.motDePasse;
+
+  // Règles propres au RC : un SEUL village (dans l'arrondissement de son ASCQ) et une grappe
+  // principale dans ce village (numéro 1 à 20, nom facultatif). Changer de village impose d'indiquer
+  // le numéro de la grappe principale dans le nouveau village ; les grappes supplémentaires
+  // (optionnelles) se gèrent à part (assignGrappeRc_ / retirerGrappeRc_).
+  if (target.Role === ROLES.RC) {
+    const villageDemande = p.villageId ? String(p.villageId) : '';
+    const villageChange = !!villageDemande && villageDemande !== target.VillageId;
+    // Un RC garde toujours un village : un village vide dans le formulaire n'efface rien.
+    if (!villageDemande) { delete changes.VillageId; delete changes.VillageNom; delete changes.ArrondissementId; delete changes.ArrondissementNom; }
+    const numeroSaisi = p.grappeNumero !== undefined && String(p.grappeNumero).trim() !== '';
+    const numeroDemande = numeroSaisi ? lireNumeroGrappe_(p.grappeNumero) : null;
+    if (numeroSaisi && !numeroDemande) return { ok: false, error: MSG_NUM_GRAPPE };
+    if (villageChange || numeroDemande) {
+      const village = readSheet_(SHEETS.VILLAGES).find(v => v.ID === (villageDemande || target.VillageId));
+      if (!village) return { ok: false, error: 'Village introuvable.' };
+      if (villageChange) {
+        const arrAscq = target.ResponsableId ? arrondissementsOfAscq_(target.ResponsableId) : [];
+        if (arrAscq.length && !arrAscq.includes(village.ArrondissementId)) {
+          return { ok: false, error: 'Le village d\'un RC doit appartenir à l\'arrondissement de son ASCQ.' };
+        }
+      }
+      const grappes = readSheet_(SHEETS.GRAPPES);
+      const ancienne = target.GrappeId ? grappes.find(g => g.ID === target.GrappeId) : null;
+      if (!numeroDemande && ancienne && ancienne.VillageId !== village.ID) {
+        return { ok: false, error: 'Ce RC change de village : indiquez le numéro (1 à 20) de sa grappe principale dans le nouveau village.' };
+      }
+      if (numeroDemande) {
+        const grappe = enregistrerGrappe_(trouverOuPreparerGrappe_(grappes, village, numeroDemande, p.grappeNomPerso));
+        if (grappe.ID !== target.GrappeId) {
+          const perims = readSheet_(SHEETS.PERIMETRES);
+          if (target.GrappeId) {
+            const ancien = perims.find(x => x.UserId === target.ID && x.TypeCible === 'Grappe' && x.CibleId === target.GrappeId);
+            if (ancien) deleteRowById_(SHEETS.PERIMETRES, ancien.ID);
+          }
+          if (!perims.some(x => x.UserId === target.ID && x.TypeCible === 'Grappe' && x.CibleId === grappe.ID)) {
+            appendRow_(SHEETS.PERIMETRES, { ID: newId_('PER'), UserId: target.ID, TypeCible: 'Grappe', CibleId: grappe.ID, AssignePar: actor.ID, Date: nowStr_() });
+          }
+        }
+        changes.GrappeId = grappe.ID; changes.GrappeNom = grappe.Nom;
+      }
+      changes.VillageId = village.ID; changes.VillageNom = village.Nom;
+      changes.ArrondissementId = village.ArrondissementId; changes.ArrondissementNom = village.ArrondissementNom;
+    }
+  }
   updateRowById_(SHEETS.USERS, p.id, changes);
   return { ok: true };
 }
@@ -819,9 +918,8 @@ function createGeo_(actor, sheetName, p, allowedRoles) {
     obj = { ID: p.communeId + '__ARR-' + slug_(p.nom), Nom: p.nom, CommuneId: p.communeId, CommuneNom: p.communeNom || '' };
   } else if (sheetName === 'Villages') {
     obj = { ID: p.arrondissementId + '__VIL-' + slug_(p.nom), Nom: p.nom, ArrondissementId: p.arrondissementId, ArrondissementNom: p.arrondissementNom || '' };
-  } else if (sheetName === 'Grappes') {
-    if (!p.villageId) return { ok: false, error: 'Village requis pour créer une grappe.' };
-    obj = { ID: p.villageId + '__GRP-' + slug_(p.nom), Nom: p.nom, VillageId: p.villageId, VillageNom: p.villageNom || '' };
+  } else {
+    return { ok: false, error: 'Type de géographie non géré ici (les grappes passent par createGrappe_).' };
   }
   const existing = readSheet_(sheetName);
   if (existing.some(x => x.ID === obj.ID)) return { ok: false, error: 'Cet élément existe déjà.' };
@@ -886,6 +984,89 @@ function listGeo_() {
     villages: readSheet_(SHEETS.VILLAGES),
     grappes: readSheet_(SHEETS.GRAPPES)
   };
+}
+
+
+// ============================================================
+// GRAPPES — identifiées par un NUMÉRO de 1 à 20 (un village compte au plus 20 grappes), avec un
+// nom facultatif. Clé fonctionnelle = (village, numéro) : on réutilise la grappe si elle existe
+// déjà, sinon on la crée. Colonnes : Numero (entier) et NomPerso (nom facultatif) ; Nom reste le
+// libellé affiché partout ("Grappe 3" ou "Grappe 3 – Quartier du marché"). Les anciennes grappes
+// (sans colonne Numero, nommées "Grappe 3") restent reconnues grâce au chiffre de leur nom.
+// ============================================================
+const GRAPPE_NUM_MAX = 20;
+const MSG_NUM_GRAPPE = 'Le numéro de grappe doit être un nombre entier compris entre 1 et 20.';
+
+function numeroGrappe_(g) {
+  if (!g) return null;
+  const n = parseInt(g.Numero, 10);
+  if (!isNaN(n) && n > 0) return n;
+  const m = String(g.Nom || '').match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function libelleGrappe_(numero, nomPerso) {
+  return 'Grappe ' + numero + (nomPerso ? ' – ' + nomPerso : '');
+}
+
+function lireNumeroGrappe_(valeur) {
+  const s = String(valeur === undefined || valeur === null ? '' : valeur).trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = parseInt(s, 10);
+  return (n >= 1 && n <= GRAPPE_NUM_MAX) ? n : null;
+}
+
+// Numéro de grappe reçu dans une requête : champ grappeNumero (nouveau) ou, pour les anciennes
+// versions de l'application encore en cache, le chiffre contenu dans un libellé "Grappe 3".
+function numeroDepuisPayload_(p) {
+  const brut = p.grappeNumero;
+  if (brut !== undefined && String(brut).trim() !== '') return lireNumeroGrappe_(brut);
+  const m = String(p.grappeNom || p.nom || '').match(/(\d+)/);
+  return m ? lireNumeroGrappe_(m[1]) : null;
+}
+
+// Prépare (sans rien écrire) la grappe (village, numéro) : existante (éventuellement à renommer)
+// ou nouvelle. enregistrerGrappe_ persiste ensuite le résultat.
+function trouverOuPreparerGrappe_(grappes, village, numero, nomPerso) {
+  nomPerso = String(nomPerso || '').trim().slice(0, 60);
+  const existante = (grappes || []).find(g => g.VillageId === village.ID && numeroGrappe_(g) === numero);
+  if (existante) {
+    const changes = {};
+    if (existante.Numero === '' || existante.Numero === undefined || parseInt(existante.Numero, 10) !== numero) changes.Numero = numero;
+    if (nomPerso && nomPerso !== (existante.NomPerso || '')) {
+      changes.NomPerso = nomPerso;
+      changes.Nom = libelleGrappe_(numero, nomPerso);
+    }
+    return { grappe: existante, modifiee: Object.keys(changes).length ? changes : null };
+  }
+  return {
+    nouvelle: true,
+    grappe: { ID: village.ID + '__GRP-' + numero, Nom: libelleGrappe_(numero, nomPerso), VillageId: village.ID,
+              VillageNom: village.Nom, Numero: numero, NomPerso: nomPerso }
+  };
+}
+
+function enregistrerGrappe_(res) {
+  if (res.nouvelle) appendRow_(SHEETS.GRAPPES, res.grappe);
+  else if (res.modifiee) { updateRowById_(SHEETS.GRAPPES, res.grappe.ID, res.modifiee); Object.assign(res.grappe, res.modifiee); }
+  return res.grappe;
+}
+
+// Création/réutilisation d'une grappe depuis l'API (numéro obligatoire, nom facultatif).
+function createGrappe_(actor, p) {
+  if (![ROLES.ASCQ, ROLES.PF, ROLES.RCSE, ROLES.DEPARTEMENT, ROLES.NATIONAL].includes(actor.Role)) return { ok: false, error: 'Non autorisé.' };
+  const village = readSheet_(SHEETS.VILLAGES).find(v => v.ID === p.villageId);
+  if (!village) return { ok: false, error: 'Village introuvable.' };
+  const numero = numeroDepuisPayload_(p);
+  if (!numero) return { ok: false, error: MSG_NUM_GRAPPE };
+  const res = trouverOuPreparerGrappe_(readSheet_(SHEETS.GRAPPES), village, numero, p.grappeNomPerso !== undefined ? p.grappeNomPerso : p.nomPerso);
+  return { ok: true, item: enregistrerGrappe_(res), existait: !res.nouvelle };
+}
+
+// Commune de l'ASCQ responsable d'un RC (repli : commune enregistrée sur le RC lui-même).
+function communeDuRc_(users, rc) {
+  const ascq = users.find(u => u.ID === rc.ResponsableId);
+  return (ascq && ascq.CommuneId) || rc.CommuneId || '';
 }
 
 // ============================================================
@@ -985,10 +1166,11 @@ function listArrondissementsDesAscq_(actor) {
   return [];
 }
 
-// Un ASCQ assigne une grappe supplémentaire à un de ses RC (en plus de celle, éventuelle, choisie
-// à la création du compte). Un RC peut ainsi couvrir plusieurs grappes, et une même grappe/village
-// peut être couverte par plusieurs RC — aucune exclusivité n'est imposée entre RC. Si la grappe
-// n'existe pas encore pour le village indiqué, elle est créée à la volée.
+// Assignation OPTIONNELLE d'une grappe supplémentaire à un RC (en plus de sa grappe principale, qui
+// est dans son village). La grappe peut être : une autre grappe du même village, un autre village
+// de son arrondissement, ou un village d'un autre arrondissement de la commune de son ASCQ. Elle est
+// identifiée par son numéro (1 à 20) ; nom facultatif ; créée à la volée si elle n'existe pas encore.
+// Plusieurs RC peuvent couvrir la même grappe — aucune exclusivité n'est imposée entre RC.
 function assignGrappeRc_(actor, p) {
   const users = readSheet_(SHEETS.USERS);
   const target = users.find(u => u.ID === p.userId);
@@ -997,23 +1179,30 @@ function assignGrappeRc_(actor, p) {
   // voir updateUser_) — pas seulement l'ASCQ direct du RC.
   if (!isSupervisorOf_(actor, target)) return { ok: false, error: 'Ce RC ne dépend pas de vous.' };
   if (!p.villageId) return { ok: false, error: 'Village manquant.' };
-  const villages = readSheet_(SHEETS.VILLAGES);
-  const village = villages.find(v => v.ID === p.villageId);
+  const village = readSheet_(SHEETS.VILLAGES).find(v => v.ID === p.villageId);
   if (!village) return { ok: false, error: 'Village introuvable.' };
-
-  let grappeId = p.grappeId, grappeNom = p.grappeNom || '';
-  if (!grappeId && grappeNom) {
-    const created = createGeo_(actor, 'Grappes', { villageId: p.villageId, villageNom: village.Nom, nom: grappeNom }, [ROLES.ASCQ, ROLES.PF, ROLES.RCSE, ROLES.DEPARTEMENT, ROLES.NATIONAL]);
-    if (!created.ok) return created;
-    grappeId = created.item.ID;
+  // Le village doit rester dans la commune de l'ASCQ du RC (même arrondissement ou autre arrondissement).
+  const communeId = communeDuRc_(users, target);
+  if (communeId) {
+    const arr = readSheet_(SHEETS.ARRONDISSEMENTS).find(a => a.ID === village.ArrondissementId);
+    if (!arr || arr.CommuneId !== communeId) return { ok: false, error: 'Ce village n\'est pas dans la commune de l\'ASCQ de ce RC.' };
   }
-  if (!grappeId) return { ok: false, error: 'Sélectionnez une grappe existante ou indiquez le nom d\'une nouvelle grappe.' };
+  const grappes = readSheet_(SHEETS.GRAPPES);
+  let numero = numeroDepuisPayload_(p);
+  if (!numero && !p.grappeNumero && p.grappeId) {
+    numero = numeroGrappe_(grappes.find(g => g.ID === p.grappeId && g.VillageId === village.ID));
+  }
+  if (!numero) return { ok: false, error: MSG_NUM_GRAPPE };
 
-  const dejaAssigne = readSheet_(SHEETS.PERIMETRES).some(x => x.UserId === target.ID && x.TypeCible === 'Grappe' && x.CibleId === grappeId);
-  if (dejaAssigne) return { ok: false, error: 'Cette grappe est déjà assignée à ce RC.' };
-  const entry = { ID: newId_('PER'), UserId: target.ID, TypeCible: 'Grappe', CibleId: grappeId, AssignePar: actor.ID, Date: nowStr_() };
+  const res = trouverOuPreparerGrappe_(grappes, village, numero, p.grappeNomPerso);
+  if (!res.nouvelle) {
+    const dejaAssigne = readSheet_(SHEETS.PERIMETRES).some(x => x.UserId === target.ID && x.TypeCible === 'Grappe' && x.CibleId === res.grappe.ID);
+    if (dejaAssigne) return { ok: false, error: 'Cette grappe est déjà assignée à ce RC.' };
+  }
+  const grappe = enregistrerGrappe_(res);
+  const entry = { ID: newId_('PER'), UserId: target.ID, TypeCible: 'Grappe', CibleId: grappe.ID, AssignePar: actor.ID, Date: nowStr_() };
   appendRow_(SHEETS.PERIMETRES, entry);
-  appendRow_(SHEETS.JOURNAL, { ID: newId_('LOG'), Type: 'Grappe', CibleId: grappeId, AssigneA: target.ID, AssignePar: actor.ID, Date: nowStr_() });
+  appendRow_(SHEETS.JOURNAL, { ID: newId_('LOG'), Type: 'Grappe', CibleId: grappe.ID, AssigneA: target.ID, AssignePar: actor.ID, Date: nowStr_() });
   return { ok: true, perimetre: entry };
 }
 
@@ -1026,12 +1215,14 @@ function retirerGrappeRc_(actor, p) {
   const target = users.find(u => u.ID === p.userId);
   if (!target || target.Role !== ROLES.RC) return { ok: false, error: 'Compte RC introuvable.' };
   if (!isSupervisorOf_(actor, target)) return { ok: false, error: 'Ce RC ne dépend pas de vous.' };
+  // La grappe principale (dans le village du RC) est obligatoire : on ne la retire pas, on la
+  // remplace en modifiant le compte (champ « Grappe principale »).
+  if (target.GrappeId && target.GrappeId === p.grappeId) {
+    return { ok: false, error: 'La grappe principale d\'un RC ne peut pas être retirée : modifiez-la dans le champ « Grappe principale » du compte.' };
+  }
   const entry = readSheet_(SHEETS.PERIMETRES).find(x => x.UserId === target.ID && x.TypeCible === 'Grappe' && x.CibleId === p.grappeId);
   if (!entry) return { ok: false, error: 'Cette grappe n\'est pas assignée à ce RC.' };
   deleteRowById_(SHEETS.PERIMETRES, entry.ID);
-  // Si la grappe retirée était la grappe "maison" enregistrée sur le compte, on la vide aussi
-  // pour ne pas laisser un compte pointer vers une grappe qu'il ne couvre plus.
-  if (target.GrappeId === p.grappeId) updateRowById_(SHEETS.USERS, target.ID, { GrappeId: '', GrappeNom: '' });
   return { ok: true };
 }
 
@@ -1045,7 +1236,10 @@ function listGrappesDuRc_(actor, p) {
   const grappesSheet = readSheet_(SHEETS.GRAPPES);
   return readSheet_(SHEETS.PERIMETRES).filter(x => x.UserId === target.ID && x.TypeCible === 'Grappe').map(x => {
     const g = grappesSheet.find(gg => gg.ID === x.CibleId);
-    return { grappeId: x.CibleId, grappeNom: g ? g.Nom : x.CibleId, villageNom: g ? g.VillageNom : '' };
+    return {
+      grappeId: x.CibleId, grappeNom: g ? g.Nom : x.CibleId, villageNom: g ? g.VillageNom : '', villageId: g ? g.VillageId : '',
+      numero: g ? numeroGrappe_(g) : null, nomPerso: g ? (g.NomPerso || '') : '', principale: !!target.GrappeId && x.CibleId === target.GrappeId
+    };
   });
 }
 

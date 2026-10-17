@@ -19,9 +19,11 @@ NATIONAL  ->  RCSE  ->  PF CNLS-TP  ->  ASCQ  ->  RC
   assignable à un PF). Crée les comptes **ASCQ** et leur assigne des arrondissements.
 - **ASCQ** — rattaché à un ou plusieurs **arrondissements**. Crée les comptes **RC** et leur
   assigne des grappes.
-- **RC** (relais communautaire) — rattaché à un village et à une ou plusieurs **grappes**
-  (sous-unité du village, créées à la volée par l'ASCQ). Une même grappe peut être couverte par
-  plusieurs RC.
+- **RC** (relais communautaire) — rattaché à **un seul village** (choisi parmi ceux de
+  l'arrondissement de son ASCQ) et à une **grappe principale** dans ce village, identifiée par un
+  **numéro de 1 à 20** (nom facultatif). Optionnellement, l'ASCQ peut lui assigner d'autres grappes
+  (même village, autre village de son arrondissement ou autre arrondissement de la commune). Une
+  même grappe peut être couverte par plusieurs RC.
 
 Chaque niveau reçoit son périmètre géographique **dès la création de son compte** par son
 supérieur direct (aucune étape d'assignation séparée à effectuer avant de pouvoir travailler), et
@@ -37,7 +39,10 @@ Les 4 premiers niveaux sont chargés une fois pour toutes par le compte **NATION
 "Géographie nationale" -> "Importer la structure administrative nationale") à partir de la liste
 officielle des 12 départements / 77 communes / 546 arrondissements / 3 769 villages
 (`assets/geo-benin-data.js`). Les **grappes** n'existent pas dans cette liste nationale : elles
-sont créées à la volée par les ASCQ, au fil de la création ou de l'assignation de leurs RC.
+sont créées à la volée par les ASCQ (numéro de 1 à 20, nom facultatif) au fil de la création ou de l'assignation de leurs RC.
+
+Chaque utilisateur peut choisir la **couleur de son application** (menu du profil > « Couleur de
+l'application ») ; le choix est enregistré dans la colonne `Couleur` de la feuille `Utilisateurs`.
 
 RCSE, PF et ASCQ peuvent chacun ajouter des arrondissements ou villages "hors liste nationale"
 dans leur propre périmètre si un site d'intervention n'y figure pas.

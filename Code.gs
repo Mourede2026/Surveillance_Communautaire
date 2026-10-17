@@ -1257,9 +1257,38 @@ function setPhoto_(actor, p) {
 // ============================================================
 // TENDANCES : nombre de notifications par semaine épidémiologique d'une année, par événement
 // ============================================================
+// Arrondissements couverts par un compte (sert à proposer les filtres géographiques).
+function arrondissementsDuPerimetre_(actor) {
+  if (actor.Role === ROLES.NATIONAL) return readSheet_(SHEETS.ARRONDISSEMENTS).map(a => a.ID);
+  if (actor.Role === ROLES.RC) return actor.ArrondissementId ? [actor.ArrondissementId] : [];
+  if (actor.Role === ROLES.ASCQ) return arrondissementsOfAscq_(actor.ID);
+  if (actor.Role === ROLES.PF) return arrondissementsOfPf_(actor.ID);
+  if (actor.Role === ROLES.RCSE) return arrondissementsOfRcse_(actor.ID);
+  if (actor.Role === ROLES.DEPARTEMENT) return arrondissementsOfDepartement_(actor.DepartementId);
+  return [];
+}
+
 function getTendances_(actor, p) {
-  const alertes = listScoped_(SHEETS.ALERTES, actor);
-  const deces = listScoped_(SHEETS.DECES, actor).filter(d => d.Statut !== 'Non confirmé');
+  const arrSet = new Set(arrondissementsDuPerimetre_(actor).map(String));
+  const arrs = readSheet_(SHEETS.ARRONDISSEMENTS).filter(a => arrSet.has(String(a.ID)));
+  const comSet = new Set(arrs.map(a => String(a.CommuneId)));
+  const coms = readSheet_(SHEETS.COMMUNES).filter(c => comSet.has(String(c.ID)));
+  const vils = readSheet_(SHEETS.VILLAGES).filter(v => arrSet.has(String(v.ArrondissementId)));
+  const deps = {}; coms.forEach(c => { if (c.DepartementId) deps[c.DepartementId] = c.DepartementNom || c.DepartementId; });
+  const options = {
+    departements: Object.keys(deps).map(id => ({ id, nom: deps[id] })),
+    communes: coms.map(c => ({ id: c.ID, nom: c.Nom, parent: c.DepartementId })),
+    arrondissements: arrs.map(a => ({ id: a.ID, nom: a.Nom, parent: a.CommuneId })),
+    villages: vils.map(v => ({ id: v.ID, nom: v.Nom, parent: v.ArrondissementId }))
+  };
+  const f = p.filtre || {};
+  const comDuDep = f.departementId ? new Set(coms.filter(c => String(c.DepartementId) === String(f.departementId)).map(c => String(c.ID))) : null;
+  const garde = r => (!f.villageId || String(r.VillageId) === String(f.villageId))
+    && (!f.arrondissementId || String(r.ArrondissementId) === String(f.arrondissementId))
+    && (!f.communeId || String(r.CommuneId) === String(f.communeId))
+    && (!comDuDep || comDuDep.has(String(r.CommuneId)));
+  const alertes = listScoped_(SHEETS.ALERTES, actor).filter(garde);
+  const deces = listScoped_(SHEETS.DECES, actor).filter(d => d.Statut !== 'Non confirmé').filter(garde);
   const anneeCourante = Number(nowStr_().slice(0, 4));
   const annees = {}; annees[anneeCourante] = true;
   alertes.concat(deces).forEach(r => { if (Number(r.Annee)) annees[Number(r.Annee)] = true; });
@@ -1280,7 +1309,7 @@ function getTendances_(actor, p) {
     return { total, parType };
   };
   return {
-    ok: true, annee, annees: Object.keys(annees).map(Number).sort((a, b) => b - a), nbSemaines: nb,
+    ok: true, options, annee, annees: Object.keys(annees).map(Number).sort((a, b) => b - a), nbSemaines: nb,
     alertes: agreger(alertes, 'TypeAlerte', r => r.TypeAlerte),
     deces: agreger(deces, 'TypeDeces', r => TYPES_DECES_LABELS[String(r.TypeDeces)] || 'Décès communautaire')
   };

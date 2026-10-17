@@ -8,7 +8,7 @@
  */
 (function () {
   const NS = 'http://www.w3.org/2000/svg';
-  const etat = { annee: null, mode: 'histo' };
+  const etat = { annee: null, mode: 'histo', dep: '', com: '', arr: '', vil: '' };
 
   function pasAxe(max) { const c = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]; const m = Math.max(max, 4); for (const p of c) if (m / p <= 5) return p; return 1000; }
 
@@ -40,17 +40,27 @@
     const el = document.getElementById(containerId); if (!el) return;
     el.innerHTML = '<div class="petit">Chargement des tendances…</div>';
     try {
-      const r = await Api.call('getTendances', etat.annee ? { annee: etat.annee } : {});
+      const filtre = { departementId: etat.dep, communeId: etat.com, arrondissementId: etat.arr, villageId: etat.vil };
+      const r = await Api.call('getTendances', Object.assign(etat.annee ? { annee: etat.annee } : {}, { filtre }));
       etat.annee = r.annee;
+      // Filtres en cascade : n'apparaissent que les niveaux qui offrent un vrai choix (plus d'une valeur)
+      const o = r.options, sel = (id, lib, liste, val) => liste.length > 1 || val
+        ? `<label>${lib} <select id="${containerId}${id}"><option value="">Tous</option>${liste.map(x => `<option value="${escHtml(x.id)}" ${x.id === val ? 'selected' : ''}>${escHtml(x.nom)}</option>`).join('')}</select></label>` : '';
+      const comsV = o.communes.filter(c => !etat.dep || c.parent === etat.dep);
+      const arrsV = o.arrondissements.filter(a => (!etat.com || a.parent === etat.com) && (!etat.dep || comsV.some(c => c.id === a.parent)));
+      const vilsV = o.villages.filter(v => (!etat.arr || v.parent === etat.arr) && arrsV.some(a => a.id === v.parent));
+      const filtresHtml = sel('Dep', 'Département', o.departements, etat.dep) + sel('Com', 'Commune', comsV, etat.com) + sel('Arr', 'Arrondissement', arrsV, etat.arr) + sel('Vil', 'Village', vilsV, etat.vil);
       const ordre = o => Object.keys(o).sort((a, b) => parseFloat(a) - parseFloat(b) || a.localeCompare(b));
       const cartes = [carte('Toutes les alertes', r.alertes.total, 'var(--teal-500)', etat.mode)]
         .concat(ordre(r.alertes.parType).map(t => carte(t, r.alertes.parType[t], 'var(--teal-700)', etat.mode)))
         .concat([carte('Tous les décès', r.deces.total, 'var(--red-600)', etat.mode)])
         .concat(ordre(r.deces.parType).map(t => carte(t, r.deces.parType[t], 'var(--red-600)', etat.mode)));
-      el.innerHTML = `<div class="tend-barre"><label>Année <select id="${containerId}An">${r.annees.map(a => `<option ${a === r.annee ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
+      el.innerHTML = `<div class="tend-barre">${filtresHtml}<label>Année <select id="${containerId}An">${r.annees.map(a => `<option ${a === r.annee ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
         <div class="sub-tabs" style="margin:0"><button type="button" data-m="histo" class="${etat.mode === 'histo' ? 'active' : ''}">▮ Histogramme</button><button type="button" data-m="courbe" class="${etat.mode === 'courbe' ? 'active' : ''}">📈 Courbe</button></div>
         <span class="petit">Semaines épidémiologiques 1 à ${r.nbSemaines} · à zéro s'il n'y a aucune notification</span></div>
         <div class="tend-grid">${cartes.join('')}</div>`;
+      const lien = (id, cle, enfants) => { const x = document.getElementById(containerId + id); if (x) x.onchange = e => { etat[cle] = e.target.value; enfants.forEach(k => { etat[k] = ''; }); renderTendances(containerId); }; };
+      lien('Dep', 'dep', ['com', 'arr', 'vil']); lien('Com', 'com', ['arr', 'vil']); lien('Arr', 'arr', ['vil']); lien('Vil', 'vil', []);
       document.getElementById(containerId + 'An').onchange = e => { etat.annee = Number(e.target.value); renderTendances(containerId); };
       el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { etat.mode = b.dataset.m; renderTendances(containerId); });
     } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement des tendances : ' + escHtml(e.message) + '</div>'; }

@@ -155,3 +155,9 @@ Onglet « 🗑️ Nettoyage des données » pour ASCQ, PF, RCSE, Département et
 - Les boutons « Mon compte » et « Déconnexion » de la barre latérale ont été retirés : tout passe par le bouton profil.
 - **Photo de profil** : profil → « Modifier mes paramètres » → « Choisir une photo ». Redimensionnée (192 px) puis enregistrée dans la colonne `Photo` de la feuille `Utilisateurs` (créée automatiquement). Redéployez `Code.gs`.
 - **Rotation** : `orientation: any` + déverrouillage au démarrage. L'application déjà installée garde l'ancien manifeste : **désinstallez-la puis réinstallez-la** depuis le navigateur (et vérifiez que la rotation automatique est activée sur le téléphone).
+
+**Filtres des graphiques** : Département → Commune → Arrondissement → Village (en cascade, limités au périmètre du compte ; un niveau n'apparaît que s'il offre plus d'un choix), plus l'année. Filtrage fait côté serveur (`getTendances`, paramètre `filtre`). Redéployez `Code.gs`.
+
+## Guide d'utilisation intégré
+
+Bouton **📖 Guide** (barre du haut, et entrée du menu profil) : un guide complet par niveau (RC, ASCQ, PF, RCSE, Département, National), de la connexion jusqu'à chaque fonction de l'espace. Sommaire, recherche, précédent / suivant, suivi des sections lues, impression. Contenu modifiable dans `assets/guide-data.js` ; chargé à la demande et disponible hors ligne une fois visité.

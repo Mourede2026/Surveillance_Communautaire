@@ -48,6 +48,16 @@
     }
   }
 
+  // ---------- guide d'utilisation (chargé à la demande) ----------
+  function chargerScript(src) { return new Promise((ok, ko) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => ko(new Error('Guide indisponible hors ligne.')); document.head.appendChild(s); }); }
+  window.ouvrirGuideProfil_ = async function (section) {
+    try {
+      if (!window.GUIDES) await chargerScript('assets/guide-data.js');
+      if (!window.ouvrirGuide) await chargerScript('assets/guide.js');
+      window.ouvrirGuide(section);
+    } catch (e) { if (window.toast) toast(e.message, true); }
+  };
+
   // ---------- menu ----------
   const ICONE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="#fff" aria-hidden="true"><circle cx="12" cy="8" r="4.2"/><path d="M3.8 21c.4-4.6 3.7-7.2 8.2-7.2s7.8 2.6 8.2 7.2z"/></svg>';
 
@@ -59,6 +69,9 @@
     const wrap = document.createElement('div'); wrap.className = 'profil-wrap';
     const photoDe = x => (x && /^data:image\//.test(x.Photo || '')) ? x.Photo : '';
     wrap.innerHTML = `<button type="button" id="profilBtn" class="profil-btn" title="Mon profil" aria-haspopup="true" aria-expanded="false">${photoDe(u) ? '<img alt="" src="' + photoDe(u) + '">' : ICONE}</button><div class="profil-menu" id="profilMenu" hidden></div>`;
+    const g = document.createElement('button'); g.type = 'button'; g.id = 'guideBtn'; g.className = 'btn-guide'; g.textContent = '📖 Guide'; g.title = 'Guide d\'utilisation';
+    g.onclick = () => ouvrirGuideProfil_();
+    zone.appendChild(g);
     zone.appendChild(wrap);
     const btn = wrap.querySelector('#profilBtn'), menu = wrap.querySelector('#profilMenu');
 
@@ -70,6 +83,7 @@
       const U = Session.getUser() || u, autres = lire(KA, []).filter(a => a.user.ID !== U.ID), th = themeActuel();
       menu.innerHTML = `<div class="profil-tete"><span class="profil-avatar">${photoDe(U) ? '<img alt="" src="' + photoDe(U) + '">' : escHtml(ini)}</span><div><strong>${escHtml((U.Prenom || '') + ' ' + (U.Nom || ''))}</strong><div class="petit">${escHtml(ROLES[U.Role] || U.Role || '')}</div><div class="petit">${escHtml(U.Telephone || '')}</div></div></div>
         <button type="button" data-p="compte">⚙️ Modifier mes paramètres</button>
+        <button type="button" data-p="guide">📖 Guide d'utilisation</button>
         <div class="profil-sec">Thème</div>
         <div class="profil-theme">${[['clair', '☀️ Clair'], ['sombre', '🌙 Sombre'], ['auto', '🖥️ Auto']].map(([k, l]) => `<button type="button" data-theme="${k}" class="${th === k ? 'on' : ''}">${l}</button>`).join('')}</div>
         <div class="profil-sec">Changer de compte</div>
@@ -86,6 +100,7 @@
       if (b.dataset.theme) { ecrire(KT, b.dataset.theme); appliquerTheme(b.dataset.theme); dessiner(); return; }
       if (b.dataset.switch) { const c = lire(KA, []).find(a => a.user.ID === b.dataset.switch); if (c) basculer(c); return; }
       if (b.dataset.p === 'compte') { ouvrir(false); if (window.openMonCompteModal) openMonCompteModal(u => { const n = document.getElementById('userName'); if (n) n.textContent = u.Prenom + ' ' + u.Nom; majAvatar(); }); }
+      if (b.dataset.p === 'guide') { ouvrir(false); ouvrirGuideProfil_(); }
       if (b.dataset.p === 'ajout') { location.href = 'index.html?ajout=1'; }
       if (b.dataset.p === 'logout') { const id = (Session.getUser() || {}).ID; oublier(id); await logoutEtRedirige(); }
     });

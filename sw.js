@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'surveillance-v9';
+const CACHE_VERSION = 'surveillance-v11';
 
 const APP_SHELL = [
   './',
@@ -32,6 +32,7 @@ const APP_SHELL = [
   './assets/suivi-groupe-lecture.js',
   './assets/suivi-groupe-ascq.js',
   './assets/activites.js',
+  './assets/nettoyage.js',
   './assets/admin.js',
   './assets/deces-confirmation.js',
   './assets/icons/icon-192.png',

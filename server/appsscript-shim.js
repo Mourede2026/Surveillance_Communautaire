@@ -65,6 +65,7 @@ function creerShim(opts) {
     getLastColumn() { return this.rows.reduce((m, r) => Math.max(m, r.length), 0); }
     appendRow(arr) { this.rows.push(arr.map(norm)); dirty = true; return this; }
     deleteRow(n) { this.rows.splice(n - 1, 1); dirty = true; return this; }
+    deleteRows(n, count) { this.rows.splice(n - 1, count); dirty = true; return this; }
     clear() { db.sheets[this.nom] = []; dirty = true; return this; }
     setFrozenRows() { return this; }
     getDataRange() {

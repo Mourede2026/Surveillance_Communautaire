@@ -168,6 +168,8 @@ function doPost(e) {
       login: () => login_(payload),
       logout: () => { deleteSession_(token); return { ok: true }; },
       getMe: () => ({ ok: true, user: user }),
+      apercuNettoyage: () => apercuNettoyage_(user),
+      nettoyerDonnees: () => nettoyerDonnees_(user, payload),
 
       createUser: () => createUser_(user, payload),
       updateUser: () => updateUser_(user, payload),
@@ -1235,6 +1237,134 @@ function submitInvestigation_(actor, p) {
   return { ok: true, investigation: obj };
 }
 
+
+
+// ============================================================
+// NETTOYAGE DES DONNÉES (compte NATIONAL uniquement)
+// ============================================================
+const CATEGORIES_NETTOYAGE_ = {
+  alertes:       { label: 'Alertes et investigations', sheets: ['ALERTES', 'INVESTIGATIONS'] },
+  deces:         { label: 'Décès notifiés', sheets: ['DECES'] },
+  rapports:      { label: 'Rapports hebdomadaires', sheets: ['RAPPORTS'] },
+  suivis:        { label: 'Suivis groupés et plannings', sheets: ['SUIVIS', 'PLANNINGS'] },
+  activites:     { label: 'Activités (liens, formations, tests)', sheets: ['ACTIVITES', 'ACTIVITES_SUIVI'] },
+  notifications: { label: 'Notifications', sheets: ['NOTIFICATIONS'] },
+  journal:       { label: 'Journal des assignations', sheets: ['JOURNAL'] },
+  calendrier:    { label: 'Calendrier épidémiologique', sheets: ['CALENDRIER'] },
+  geographie:    { label: 'Géographie (départements, communes, arrondissements, villages, grappes, périmètres)', sheets: ['DEPARTEMENTS', 'COMMUNES', 'ARRONDISSEMENTS', 'VILLAGES', 'GRAPPES', 'PERIMETRES'] },
+  comptes:       { label: 'Tous les comptes SAUF les comptes NATIONAL', special: 'comptes' }
+};
+
+function nbLignes_(sheetName) { const sh = ss_().getSheetByName(sheetName); return sh ? Math.max(sh.getLastRow() - 1, 0) : 0; }
+
+// Catégories réservées au compte national (données globales de la plateforme).
+const CATEGORIES_NATIONAL_SEUL_ = ['journal', 'calendrier', 'geographie'];
+
+// Comptes situés sous `actor` dans la hiérarchie (toute la descendance, via ResponsableId).
+function descendantsComptes_(actor) {
+  const users = readSheet_(SHEETS.USERS), res = [];
+  const vus = new Set([String(actor.ID)]), file = [String(actor.ID)];
+  for (let k = 0; k < file.length; k++) {
+    users.filter(u => String(u.ResponsableId) === file[k] && !vus.has(String(u.ID))).forEach(u => { vus.add(String(u.ID)); file.push(String(u.ID)); res.push(u); });
+  }
+  return res;
+}
+
+// Pour un superviseur non national : { feuille: Set(ID) } des lignes de SON périmètre, par catégorie.
+function lignesDuPerimetre_(actor, cat) {
+  const ids = rows => new Set(rows.map(r => String(r.ID)));
+  const desc = descendantsComptes_(actor);
+  switch (cat) {
+    case 'alertes': return { [SHEETS.ALERTES]: ids(listScoped_(SHEETS.ALERTES, actor)), [SHEETS.INVESTIGATIONS]: ids(listScoped_(SHEETS.INVESTIGATIONS, actor)) };
+    case 'deces': return { [SHEETS.DECES]: ids(listScoped_(SHEETS.DECES, actor)) };
+    case 'rapports': {
+      const moi = new Set([String(actor.ID)].concat(desc.map(u => String(u.ID))));
+      return { [SHEETS.RAPPORTS]: ids(readSheet_(SHEETS.RAPPORTS).filter(r => moi.has(String(r.CompteId)))) };
+    }
+    case 'suivis': return { [SHEETS.SUIVIS]: ids(listScoped_(SHEETS.SUIVIS, actor)), [SHEETS.PLANNINGS]: ids(listScoped_(SHEETS.PLANNINGS, actor)) };
+    case 'activites': {
+      const mes = readSheet_(SHEETS.ACTIVITES).filter(a => String(a.CreeParId) === String(actor.ID));
+      const idA = new Set(mes.map(a => String(a.ID)));
+      return { [SHEETS.ACTIVITES]: ids(mes), [SHEETS.ACTIVITES_SUIVI]: ids(readSheet_(SHEETS.ACTIVITES_SUIVI).filter(x => idA.has(String(x.ActiviteId)))) };
+    }
+    case 'notifications': return { [SHEETS.NOTIFICATIONS]: ids(readSheet_(SHEETS.NOTIFICATIONS).filter(n => String(n.DestinataireId) === String(actor.ID))) };
+    case 'comptes': return { [SHEETS.USERS]: new Set(desc.map(u => String(u.ID))) };
+  }
+  return {};
+}
+
+// Hors national : seulement les paramétrages (comptes subordonnés, activités qu'on a soi-même créées).
+// Les données collectées (alertes, décès, investigations, rapports, suivis) ne sont JAMAIS supprimables par eux.
+const LABELS_NETTOYAGE_PERIMETRE_ = {
+  activites: 'Activités que j\'ai créées (et leur suivi)',
+  comptes: 'Comptes en dessous de moi (subordonnés)'
+};
+
+function apercuNettoyage_(actor) {
+  if (!(RANG_ROLE_[actor.Role] >= 1)) return { ok: false, error: 'Réservé aux niveaux supérieurs au relais communautaire.' };
+  if (actor.Role === ROLES.NATIONAL) {
+    const cats = Object.keys(CATEGORIES_NETTOYAGE_).map(k => {
+      const c = CATEGORIES_NETTOYAGE_[k];
+      const n = c.special === 'comptes' ? readSheet_(SHEETS.USERS).filter(u => u.Role !== ROLES.NATIONAL).length : c.sheets.reduce((t, sn) => t + nbLignes_(SHEETS[sn]), 0);
+      return { id: k, label: c.label, nb: n };
+    });
+    return { ok: true, portee: 'national', categories: cats };
+  }
+  const cats = Object.keys(LABELS_NETTOYAGE_PERIMETRE_).map(k => {
+    const m = lignesDuPerimetre_(actor, k);
+    return { id: k, label: LABELS_NETTOYAGE_PERIMETRE_[k], nb: Object.keys(m).reduce((t, sn) => t + m[sn].size, 0) };
+  });
+  return { ok: true, portee: 'perimetre', categories: cats };
+}
+
+function viderFeuille_(sheetName) {
+  const sh = ss_().getSheetByName(sheetName);
+  if (!sh) return 0;
+  const n = sh.getLastRow() - 1;
+  if (n > 0) sh.deleteRows(2, n);
+  invaliderCacheFeuille_(sheetName);
+  return Math.max(n, 0);
+}
+
+function nettoyerDonnees_(actor, p) {
+  if (!(RANG_ROLE_[actor.Role] >= 1)) return { ok: false, error: 'Réservé aux niveaux supérieurs au relais communautaire.' };
+  if (String(p.confirmation || '').trim().toUpperCase() !== 'SUPPRIMER') return { ok: false, error: 'Tapez SUPPRIMER pour confirmer.' };
+  const demandees = Array.isArray(p.categories) ? p.categories : [];
+  const resultat = {};
+  if (actor.Role === ROLES.NATIONAL) {
+    const cats = demandees.filter(k => CATEGORIES_NETTOYAGE_[k]);
+    if (!cats.length) return { ok: false, error: 'Choisissez au moins une catégorie.' };
+    cats.forEach(k => {
+      const c = CATEGORIES_NETTOYAGE_[k];
+      if (c.special === 'comptes') {
+        const aSupprimer = new Set(readSheet_(SHEETS.USERS).filter(u => u.Role !== ROLES.NATIONAL).map(u => String(u.ID)));
+        deleteRowsWhereIn_(SHEETS.USERS, 'ID', aSupprimer);
+        deleteRowsWhereIn_(SHEETS.SESSIONS, 'UserId', aSupprimer);
+        resultat[k] = aSupprimer.size;
+      } else resultat[k] = c.sheets.reduce((t, sn) => t + viderFeuille_(SHEETS[sn]), 0);
+    });
+    return { ok: true, supprime: resultat };
+  }
+  const cats = demandees.filter(k => LABELS_NETTOYAGE_PERIMETRE_[k]);
+  if (!cats.length) return { ok: false, error: 'Choisissez au moins une catégorie.' };
+  // Calcul de tous les périmètres AVANT toute suppression (les comptes supprimés changeraient le calcul).
+  const plan = cats.map(k => ({ k, m: lignesDuPerimetre_(actor, k) }));
+  plan.forEach(({ k, m }) => {
+    let n = 0;
+    Object.keys(m).forEach(sn => {
+      if (!m[sn].size) return;
+      n += m[sn].size;
+      deleteRowsWhereIn_(sn, 'ID', m[sn]);
+      if (sn === SHEETS.USERS) {
+        deleteRowsWhereIn_(SHEETS.SESSIONS, 'UserId', m[sn]);
+        deleteRowsWhereIn_(SHEETS.PERIMETRES, 'UserId', m[sn]);
+        deleteRowsWhereIn_(SHEETS.NOTIFICATIONS, 'DestinataireId', m[sn]);
+      }
+    });
+    resultat[k] = n;
+  });
+  return { ok: true, supprime: resultat };
+}
 
 // ============================================================
 // ACTIVITÉS : liens de collecte de données, formations, tests... publiés par un niveau supérieur

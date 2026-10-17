@@ -144,3 +144,7 @@ déjà saisies (alertes, décès, suivis, rapports) sont conservées, avec le no
 - Bouton rond « profil » (silhouette blanche) en haut à droite de chaque espace : modifier ses paramètres (Mon compte), thème clair / sombre / auto, changer de compte (comptes déjà connectés sur l'appareil, sans mot de passe stocké, seulement le jeton de session), ajouter un compte, se déconnecter.
 - L'application installée accepte toutes les orientations (`"orientation": "any"` dans `manifest.json`) ; mise en page adaptée au paysage sur téléphone. Sur Android, il faut parfois **désinstaller puis réinstaller** l'application pour que le nouveau manifeste soit pris en compte.
 - Nouvelle action `getMe` dans `Code.gs` : redéployez une nouvelle version.
+
+## Nettoyage (tous les niveaux supérieurs au RC)
+
+Onglet « 🗑️ Nettoyage des données » pour ASCQ, PF, RCSE, Département et National. Hors national, on ne peut supprimer que les **paramétrages** : les comptes situés sous soi (toute la descendance, jamais le sien) et les activités qu'on a créées. Les **données collectées** (alertes, décès, investigations, rapports, suivis groupés) ne sont supprimables que par le National, qui peut aussi vider journal, calendrier et géographie. Contrôlé côté serveur ; confirmation en tapant SUPPRIMER. Redéployez `Code.gs`.

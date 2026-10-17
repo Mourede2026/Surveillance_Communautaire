@@ -28,6 +28,7 @@
       <a href="#" data-tab="geo">Géographie nationale</a>
       <a href="#" data-tab="calendrier">Calendrier épidémiologique</a>
       <a href="#" data-tab="utilisateurs">Tous les utilisateurs</a>
+      <a href="#" data-tab="nettoyage">🗑️ Nettoyage des données</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire national</a>
       <a href="admin.html">🗄️ Base de données (admin)</a>
     </nav>
@@ -147,6 +148,11 @@
         <div class="card"><h2>Tous les comptes de la plateforme</h2><div id="usersTable">Chargement…</div></div>
       </section>
 
+      <section id="tab-nettoyage" style="display:none">
+        <div class="card"><h2>🗑️ Nettoyage des données</h2>
+          <div id="nettoyageZone">Chargement…</div></div>
+      </section>
+
       <section id="tab-rapport" style="display:none">
         <div class="card"><button id="genRapportBtn" class="btn-secondary">Générer / actualiser le rapport de la semaine en cours</button></div>
         <div class="card"><h2>Support 4 — Rapport hebdomadaire national</h2><div id="rapportTable">Chargement…</div></div>
@@ -164,6 +170,7 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/nettoyage.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
@@ -172,13 +179,14 @@ userName.textContent = user.Prenom + ' ' + user.Nom;
 logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
 document.getElementById('monCompteBtn').onclick = () => openMonCompteModal((u) => { document.getElementById('userName').textContent = u.Prenom + ' ' + u.Nom; });
 
+
 document.querySelectorAll('.sidebar nav a[data-tab]').forEach(a => a.addEventListener('click', (e) => {
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a[data-tab]').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','activites','departements','suivigroupe','geo','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','activites','departements','suivigroupe','geo','calendrier','utilisateurs','nettoyage','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { activites: () => initActivites({ containerId:'activitesZone', user, recevoir:false, gerer:true, onChange:()=>majBadgeActivites_('navActivites') }), suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), departements: loadDepartements, geo: loadGeo, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { nettoyage: () => initNettoyage('nettoyageZone'), activites: () => initActivites({ containerId:'activitesZone', user, recevoir:false, gerer:true, onChange:()=>majBadgeActivites_('navActivites') }), suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), departements: loadDepartements, geo: loadGeo, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 

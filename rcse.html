@@ -21,6 +21,7 @@
     <div class="brand"><strong>Surveillance</strong><span>RCSE — Zone sanitaire</span></div>
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
+      <a href="#" data-tab="activites" id="navActivites">🔗 Activités</a>
       <a href="#" data-tab="pf">Comptes PF CCLS-TP</a>
       <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
       <a href="#" data-tab="geo">Géographie de ma zone</a>
@@ -33,6 +34,10 @@
   <main class="main">
     <div class="topbar"><h1>Zone sanitaire — <span id="zoneLabel">…</span></h1><span class="topbar-right"><span class="week-pill" id="weekPill">Semaine —</span><button class="btn-logout-top js-logout" type="button" title="Se déconnecter">⎋ Déconnexion</button></span></div>
     <div class="content">
+
+      <section id="tab-activites" style="display:none">
+        <div class="card"><h2>🔗 Activités</h2><div id="activitesZone"></div></div>
+      </section>
 
       <section id="tab-dashboard">
         <div class="grid grid-4">
@@ -157,6 +162,7 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/activites.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
@@ -173,9 +179,9 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','pf','suivigroupe','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','activites','pf','suivigroupe','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { pf: () => { loadPF(); renderCouverture('couvertureTable'); }, suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { activites: () => initActivites({ containerId:'activitesZone', user, recevoir:true, gerer:true, onChange:()=>majBadgeActivites_('navActivites') }), pf: () => { loadPF(); renderCouverture('couvertureTable'); }, suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 
@@ -345,6 +351,7 @@ renderImportActeurs({
   loadWeekPill();
 })();
 </script>
+<script>majBadgeActivites_('navActivites');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

@@ -15,7 +15,7 @@ async function renderNotifications(containerId) {
     let html = (nonLues ? `<div style="margin-bottom:10px"><button class="btn-secondary btn-mini" id="toutLuBtn">✔ Tout marquer comme lu (${nonLues})</button></div>` : '') + '<table><thead><tr><th>Type</th><th>Message</th><th>Date</th><th>Statut</th><th></th></tr></thead><tbody>';
     notifications.forEach(n => {
       const lu = n.Lu === true || n.Lu === 'TRUE';
-      const TYPES = { ALERTE: '🚨 Alerte', DECES: '🕯️ Décès', INVESTIGATION: '🔎 Investigation', PLANNING: '📅 Suivi groupé', DECES_DECISION: '⚰️ Décès : décision' };
+      const TYPES = { ALERTE: '🚨 Alerte', DECES: '🕯️ Décès', INVESTIGATION: '🔎 Investigation', PLANNING: '📅 Suivi groupé', DECES_DECISION: '⚰️ Décès : décision', ACTIVITE: '🔗 Activité' };
       html += `<tr><td>${TYPES[n.Type] || escHtml(n.Type)}</td><td>${escHtml(n.Message)}</td><td>${fmtDate(n.DateCreation)}</td>
         <td><span class="badge ${lu ? 'badge-done' : 'badge-new'}">${lu ? 'Lue' : 'Non lue'}</span></td>
         <td>${lu ? '' : `<button class="btn-secondary" data-mark-read="${n.ID}">Marquer comme lue</button>`}</td></tr>`;

@@ -129,3 +129,12 @@ supprimer (sauf les comptes nationaux). Si le compte a des comptes en dessous (e
 liste ces comptes et exige de taper SUPPRIMER : tout l'ensemble est alors supprimé. Les lignes sont réellement
 effacées de la feuille « Utilisateurs » (ainsi que sessions, périmètres et notifications du compte). Les données
 déjà saisies (alertes, décès, suivis, rapports) sont conservées, avec le nom de leur auteur, comme historique.
+
+## Activités (liens de collecte, formations, tests)
+
+- Les niveaux **ASCQ, PF, RCSE, Département et National** ouvrent l'onglet « 🔗 Activités » → « Demander une activité » : type, titre, lien https, consignes, date limite, et **niveaux destinataires** (uniquement en dessous du leur, dans leur propre hiérarchie).
+- Les comptes destinataires reçoivent une notification et voient l'activité dans leur onglet « Activités » (lien, consignes, commentaires), puis marquent « Ouvert » / « Fait ».
+- Le demandeur suit l'avancement compte par compte, peut modifier, **commenter** (les destinataires sont notifiés), archiver ou supprimer. Un niveau bas ne peut jamais en demander à un niveau haut ; le RC n'en crée pas.
+- Après mise à jour de `Code.gs` : « Déployer » → « Gérer les déploiements » → nouvelle version.
+
+**Échéance (obligatoire)** : toute activité a une échéance. Le lendemain de cette date, elle disparaît de l'espace des destinataires (et ne peut plus être marquée « fait »). Seul le demandeur la retrouve, marquée « Échue », avec tout son suivi ; il peut prolonger l'échéance pour la rendre de nouveau visible.

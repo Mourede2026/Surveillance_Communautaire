@@ -263,3 +263,13 @@ table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0;
 .deces-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 16px; margin-top: 10px; }
 .deces-champ { font-size: .9rem; }
 .deces-champ span { display: block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--ink-soft); }
+
+/* ---------- Activités ---------- */
+.act-card { border-left: 4px solid var(--teal-500); }
+.act-coms { background: #FFF9EC; border: 1px solid #F0E0B8; border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: .88rem; }
+.act-com { padding: 6px 0; border-bottom: 1px dashed #EAD9AE; }
+.act-com:last-child { border-bottom: none; }
+.btn-lien { display: inline-block; background: var(--teal-700); color: #fff !important; padding: 9px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: .9rem; }
+.btn-lien:hover { background: var(--teal-500); }
+.barre { background: #E8EFEC; border-radius: 999px; height: 8px; width: 140px; overflow: hidden; margin-bottom: 3px; }
+.barre span { display: block; height: 100%; background: var(--teal-500); }

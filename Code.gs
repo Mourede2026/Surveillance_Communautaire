@@ -53,7 +53,9 @@ const SHEETS = {
   SESSIONS: 'Sessions',
   JOURNAL: 'JournalAssignations',
   SUIVIS: 'SuivisGroupes',
-  PLANNINGS: 'PlanningsSuivis'
+  PLANNINGS: 'PlanningsSuivis',
+  ACTIVITES: 'Activites',
+  ACTIVITES_SUIVI: 'ActivitesSuivi'
 };
 
 const ROLES = {
@@ -128,7 +130,12 @@ const COLS = {
   // Département, National). Statut : Planifié -> Réalisé (lié au suivi enregistré) ou Annulé.
   PlanningsSuivis: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','DatePrevue','Heure',
     'VillageIds','VillageNoms','Lieu','Themes','RcConviesIds','RcConviesNoms','Objectif','Statut',
-    'SuiviId','DateCreation']
+    'SuiviId','DateCreation'],
+  // Activités (collecte de données, formation, test...) : un niveau supérieur publie un lien pour les
+  // niveaux inférieurs de SA hiérarchie. Un niveau bas ne peut jamais en demander à un niveau haut.
+  Activites: ['ID','Type','Titre','Description','Lien','DateLimite','CreeParId','CreeParNom','CreeParRole',
+    'CibleRoles','Statut','Commentaires','DateCreation','DateModification'],
+  ActivitesSuivi: ['ID','ActiviteId','UserId','UserNom','Statut','Date']
 };
 
 // ============================================================
@@ -191,6 +198,13 @@ function doPost(e) {
       confirmerDeces: () => confirmerDeces_(user, payload),
       submitSuiviGroupe: () => submitSuiviGroupe_(user, payload),
       listSuivisGroupes: () => ({ ok: true, suivis: listSuivisGroupes_(user) }),
+      createActivite: () => createActivite_(user, payload),
+      updateActivite: () => updateActivite_(user, payload),
+      commenterActivite: () => commenterActivite_(user, payload),
+      deleteActivite: () => deleteActivite_(user, payload),
+      listActivites: () => listActivites_(user),
+      getActiviteDetail: () => getActiviteDetail_(user, payload),
+      marquerActivite: () => marquerActivite_(user, payload),
       submitPlanningSuivi: () => submitPlanningSuivi_(user, payload),
       updatePlanningSuivi: () => updatePlanningSuivi_(user, payload),
       listPlanningsSuivis: () => ({ ok: true, plannings: listPlanningsSuivis_(user) }),
@@ -856,6 +870,7 @@ function appendRowsBulk_(sheetName, rows) {
   const sh = ss_().getSheetByName(sheetName);
   const startRow = sh.getLastRow() + 1;
   sh.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+  invaliderCacheFeuille_(sheetName);
 }
 
 function listGeo_() {
@@ -1217,6 +1232,154 @@ function submitInvestigation_(actor, p) {
     Message: `Investigation complétée par ${obj.ASCQNom} sur ${p.refType} ${p.refId}`, Lu: false, DateCreation: nowStr_()
   }));
   return { ok: true, investigation: obj };
+}
+
+
+// ============================================================
+// ACTIVITÉS : liens de collecte de données, formations, tests... publiés par un niveau supérieur
+// ============================================================
+// Règle : seul un niveau SUPÉRIEUR peut demander une activité à un niveau INFÉRIEUR de sa propre
+// hiérarchie (NATIONAL > DEPARTEMENT > RCSE > PF > ASCQ > RC). Le RC ne peut en créer aucune.
+const RANG_ROLE_ = { RC: 0, ASCQ: 1, PF_CNLS_TP: 2, RCSE: 3, DEPARTEMENT: 4, NATIONAL: 5 };
+const TYPES_ACTIVITE_ = ['Collecte de données', 'Formation', 'Test / Quiz', 'Information / Document', 'Autre'];
+
+function aujourdhuiIso_() { return nowStr_().slice(0, 10); }
+// Une activité n'est visible des subalternes que jusqu'à son échéance incluse.
+function activiteEcheue_(a) { const d = dateIso_(a.DateLimite); return !!d && d < aujourdhuiIso_(); }
+
+function lienValide_(l) { return /^https?:\/\/[^\s]+$/i.test(String(l || '').trim()); }
+
+// Comptes de la hiérarchie de `actor` appartenant à l'un des rôles ciblés.
+function comptesCiblesActivite_(actor, roles) {
+  return readSheet_(SHEETS.USERS).filter(u => roles.includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u));
+}
+
+function createActivite_(actor, p) {
+  if (!(RANG_ROLE_[actor.Role] >= 1)) return { ok: false, error: 'Votre niveau ne permet pas de demander une activité.' };
+  const titre = String(p.titre || '').trim();
+  if (titre.length < 3) return { ok: false, error: 'Donnez un titre à l\'activité.' };
+  const type = TYPES_ACTIVITE_.includes(p.type) ? p.type : 'Autre';
+  const lien = String(p.lien || '').trim();
+  if (lien && !lienValide_(lien)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' };
+  if (!lien && type !== 'Information / Document') return { ok: false, error: 'Ajoutez le lien du formulaire, de la formation ou du test.' };
+  const roles = (Array.isArray(p.cibleRoles) ? p.cibleRoles : []).filter(r => RANG_ROLE_[r] !== undefined && RANG_ROLE_[r] < RANG_ROLE_[actor.Role]);
+  if (!roles.length) return { ok: false, error: 'Choisissez au moins un niveau destinataire, situé en dessous du vôtre.' };
+  const cibles = comptesCiblesActivite_(actor, roles);
+  if (!cibles.length) return { ok: false, error: 'Aucun compte actif de ce(s) niveau(x) dans votre hiérarchie pour le moment.' };
+  if (!p.dateLimite) return { ok: false, error: 'Indiquez l\'échéance de l\'activité.' };
+  if (dateIso_(p.dateLimite) < aujourdhuiIso_()) return { ok: false, error: 'L\'échéance ne peut pas être dans le passé.' };
+  const rec = {
+    ID: newId_('ACT'), Type: type, Titre: titre, Description: String(p.description || '').trim(), Lien: lien,
+    DateLimite: p.dateLimite ? dateIso_(p.dateLimite) : '', CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom,
+    CreeParRole: actor.Role, CibleRoles: JSON.stringify(roles), Statut: 'Active', Commentaires: '[]',
+    DateCreation: nowStr_(), DateModification: nowStr_()
+  };
+  appendRow_(SHEETS.ACTIVITES, rec);
+  notifierCiblesActivite_(cibles, rec, `Nouvelle activité (${type}) : ${titre}` + (rec.DateLimite ? ' - à faire avant le ' + rec.DateLimite.split('-').reverse().join('/') : '') + ` - demandée par ${rec.CreeParNom}`);
+  return { ok: true, activite: rec, nbCibles: cibles.length };
+}
+
+function notifierCiblesActivite_(cibles, act, message) {
+  appendRowsBulk_(SHEETS.NOTIFICATIONS, cibles.map(u => [newId_('NOTIF'), u.ID, 'ACTIVITE', act.ID, message, false, nowStr_()]));
+}
+
+// Une activité est visible par un compte si son rôle est ciblé ET que le créateur est au-dessus de lui.
+function activiteVisiblePar_(act, user) {
+  if (act.Statut !== 'Active' || activiteEcheue_(act)) return false;
+  const roles = parseArr_(act.CibleRoles);
+  if (!roles.includes(user.Role)) return false;
+  return chainAbove_(user).some(sup => sup.ID === act.CreeParId);
+}
+
+function mesSuiviActivites_(userId) {
+  const m = {};
+  readSheet_(SHEETS.ACTIVITES_SUIVI).filter(x => x.UserId === userId).forEach(x => { m[x.ActiviteId] = x; });
+  return m;
+}
+
+function listActivites_(actor) {
+  const toutes = readSheet_(SHEETS.ACTIVITES);
+  const suivi = mesSuiviActivites_(actor.ID);
+  const chaine = chainAbove_(actor).map(u => u.ID);
+  const recues = toutes.filter(a => a.Statut === 'Active' && !activiteEcheue_(a) && parseArr_(a.CibleRoles).includes(actor.Role) && chaine.includes(a.CreeParId))
+    .map(a => Object.assign({}, a, { DateLimite: dateIso_(a.DateLimite), MonStatut: suivi[a.ID] ? suivi[a.ID].Statut : 'À faire', MaDate: suivi[a.ID] ? suivi[a.ID].Date : '' }));
+  recues.sort((a, b) => String(b.DateCreation).localeCompare(String(a.DateCreation)));
+
+  let creees = [];
+  if (RANG_ROLE_[actor.Role] >= 1) {
+    const tousSuivis = readSheet_(SHEETS.ACTIVITES_SUIVI);
+    const users = readSheet_(SHEETS.USERS);
+    creees = toutes.filter(a => a.CreeParId === actor.ID).map(a => {
+      const cibles = users.filter(u => parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u));
+      const ids = new Set(cibles.map(u => u.ID));
+      const sv = tousSuivis.filter(x => x.ActiviteId === a.ID && ids.has(x.UserId));
+      return Object.assign({}, a, { Echue: activiteEcheue_(a), DateLimite: dateIso_(a.DateLimite), NbCibles: cibles.length,
+        NbFaits: sv.filter(x => x.Statut === 'Fait').length, NbOuverts: sv.filter(x => x.Statut === 'Ouvert').length });
+    }).sort((x, y) => String(y.DateCreation).localeCompare(String(x.DateCreation)));
+  }
+  return { ok: true, recues, creees, peutCreer: RANG_ROLE_[actor.Role] >= 1 };
+}
+
+function activiteDuCreateur_(actor, id) {
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === id);
+  if (!a) return { err: 'Activité introuvable.' };
+  if (a.CreeParId !== actor.ID && actor.Role !== ROLES.NATIONAL) return { err: 'Seul le demandeur de l\'activité peut la modifier.' };
+  return { a };
+}
+
+function getActiviteDetail_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
+  const a = r.a;
+  const suivi = {};
+  readSheet_(SHEETS.ACTIVITES_SUIVI).filter(x => x.ActiviteId === a.ID).forEach(x => { suivi[x.UserId] = x; });
+  const cibles = readSheet_(SHEETS.USERS).filter(u => parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor.Role === ROLES.NATIONAL && a.CreeParId !== actor.ID ? { ID: a.CreeParId, Role: a.CreeParRole } : actor, u))
+    .map(u => ({ id: u.ID, nom: u.Prenom + ' ' + u.Nom, role: u.Role, telephone: u.Telephone, lieu: u.VillageNom || u.ArrondissementNom || u.CommuneNom || u.ZoneSanitaireNom || u.DepartementNom || '',
+      statut: suivi[u.ID] ? suivi[u.ID].Statut : 'Non ouvert', date: suivi[u.ID] ? suivi[u.ID].Date : '' }));
+  return { ok: true, activite: Object.assign({}, a, { DateLimite: dateIso_(a.DateLimite) }), cibles };
+}
+
+function updateActivite_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
+  const ch = { DateModification: nowStr_() };
+  if (p.titre !== undefined) { if (String(p.titre).trim().length < 3) return { ok: false, error: 'Titre trop court.' }; ch.Titre = String(p.titre).trim(); }
+  if (p.type !== undefined && TYPES_ACTIVITE_.includes(p.type)) ch.Type = p.type;
+  if (p.description !== undefined) ch.Description = String(p.description).trim();
+  if (p.lien !== undefined) { const l = String(p.lien).trim(); if (l && !lienValide_(l)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' }; ch.Lien = l; }
+  if (p.dateLimite !== undefined) { if (!p.dateLimite) return { ok: false, error: 'L\'échéance est obligatoire.' }; ch.DateLimite = dateIso_(p.dateLimite); }
+  if (p.statut !== undefined) { if (!['Active', 'Archivée'].includes(p.statut)) return { ok: false, error: 'Statut invalide.' }; ch.Statut = p.statut; }
+  updateRowById_(SHEETS.ACTIVITES, r.a.ID, ch);
+  return { ok: true };
+}
+
+function commenterActivite_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
+  const texte = String(p.texte || '').trim();
+  if (!texte) return { ok: false, error: 'Le commentaire est vide.' };
+  const com = parseArr_(r.a.Commentaires); com.push({ date: nowStr_(), auteur: actor.Prenom + ' ' + actor.Nom, texte });
+  updateRowById_(SHEETS.ACTIVITES, r.a.ID, { Commentaires: JSON.stringify(com), DateModification: nowStr_() });
+  if (r.a.Statut === 'Active' && !activiteEcheue_(r.a)) {
+    const createur = { ID: r.a.CreeParId, Role: r.a.CreeParRole };
+    notifierCiblesActivite_(comptesCiblesActivite_(createur, parseArr_(r.a.CibleRoles)), r.a, `Nouveau commentaire sur l'activité « ${r.a.Titre} » : ${texte.slice(0, 140)}`);
+  }
+  return { ok: true };
+}
+
+function deleteActivite_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
+  deleteRowById_(SHEETS.ACTIVITES, r.a.ID);
+  deleteRowsWhere_(SHEETS.ACTIVITES_SUIVI, 'ActiviteId', r.a.ID);
+  return { ok: true };
+}
+
+// Un compte destinataire indique qu'il a ouvert le lien ou qu'il a terminé l'activité.
+function marquerActivite_(actor, p) {
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === p.id);
+  if (!a || !activiteVisiblePar_(a, actor)) return { ok: false, error: 'Activité introuvable pour votre compte.' };
+  if (!['Ouvert', 'Fait'].includes(p.statut)) return { ok: false, error: 'Statut invalide.' };
+  const ex = readSheet_(SHEETS.ACTIVITES_SUIVI).find(x => x.ActiviteId === a.ID && x.UserId === actor.ID);
+  if (!ex) appendRow_(SHEETS.ACTIVITES_SUIVI, { ID: newId_('AS'), ActiviteId: a.ID, UserId: actor.ID, UserNom: actor.Prenom + ' ' + actor.Nom, Statut: p.statut, Date: nowStr_() });
+  else if (p.statut === 'Fait' || ex.Statut !== 'Fait' || p.force) updateRowById_(SHEETS.ACTIVITES_SUIVI, ex.ID, { Statut: p.statut, Date: nowStr_() });
+  return { ok: true };
 }
 
 // ============================================================

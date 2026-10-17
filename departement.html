@@ -21,6 +21,7 @@
     <div class="brand"><strong>Surveillance</strong><span>Département — <span id="depLabel">…</span></span></div>
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
+      <a href="#" data-tab="activites" id="navActivites">🔗 Activités</a>
       <a href="#" data-tab="rcse">Comptes RCSE</a>
       <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
       <a href="#" data-tab="geo">Géographie de mon département</a>
@@ -40,6 +41,10 @@
           <p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">Lecture seule : la planification et la saisie sont faites par les ASCQ.</p>
           <div id="suiviGroupeTable">Chargement…</div>
         </div>
+      </section>
+
+      <section id="tab-activites" style="display:none">
+        <div class="card"><h2>🔗 Activités</h2><div id="activitesZone"></div></div>
       </section>
 
       <section id="tab-dashboard">
@@ -160,6 +165,7 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/activites.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['DEPARTEMENT']);
@@ -179,9 +185,9 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','rcse','suivigroupe','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','activites','rcse','suivigroupe','geo','assign','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), rcse: () => { loadRCSE(); renderCouverture('couvertureTable'); }, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { activites: () => initActivites({ containerId:'activitesZone', user, recevoir:true, gerer:true, onChange:()=>majBadgeActivites_('navActivites') }), suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), rcse: () => { loadRCSE(); renderCouverture('couvertureTable'); }, geo: loadGeo, assign: loadAssignData, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 
@@ -360,6 +366,7 @@ renderImportActeurs({
 loadDashboard();
 loadWeekPill();
 </script>
+<script>majBadgeActivites_('navActivites');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@
     <div class="brand"><strong>Surveillance</strong><span>Compte National</span></div>
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord national</a>
+      <a href="#" data-tab="activites" id="navActivites">🔗 Activités</a>
       <a href="#" data-tab="departements">Comptes Départements</a>
       <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
       <a href="#" data-tab="geo">Géographie nationale</a>
@@ -41,6 +42,10 @@
           <p style="font-size:.8rem;color:var(--ink-soft);margin:0 0 8px">Lecture seule : la planification et la saisie sont faites par les ASCQ.</p>
           <div id="suiviGroupeTable">Chargement…</div>
         </div>
+      </section>
+
+      <section id="tab-activites" style="display:none">
+        <div class="card"><h2>🔗 Activités</h2><div id="activitesZone"></div></div>
       </section>
 
       <section id="tab-dashboard">
@@ -158,6 +163,7 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/activites.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['NATIONAL']);
@@ -169,9 +175,9 @@ document.querySelectorAll('.sidebar nav a[data-tab]').forEach(a => a.addEventLis
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a[data-tab]').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','departements','suivigroupe','geo','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','activites','departements','suivigroupe','geo','calendrier','utilisateurs','rapport'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
-  const loaders = { suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), departements: loadDepartements, geo: loadGeo, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
+  const loaders = { activites: () => initActivites({ containerId:'activitesZone', user, recevoir:false, gerer:true, onChange:()=>majBadgeActivites_('navActivites') }), suivigroupe: () => renderSuivisGroupesLecture('suiviGroupeTable'), departements: loadDepartements, geo: loadGeo, calendrier: loadCalendrier, utilisateurs: loadUsers, rapport: () => renderRapportModule('rapportTable') };
   if (loaders[a.dataset.tab]) loaders[a.dataset.tab]();
 }));
 

@@ -31,7 +31,7 @@
       <a href="#" data-tab="nettoyage">🗑️ Nettoyage des données</a>
       <a href="#" data-tab="rapport">Rapport hebdomadaire</a>
     </nav>
-    <div class="user-box"><div id="userName"></div><button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button><button class="btn-secondary btn-block js-logout" id="logoutBtn">Déconnexion</button></div>
+    <div class="user-box"><div id="userName"></div></div>
   </aside>
   <main class="main">
     <div class="topbar"><h1>Zone sanitaire — <span id="zoneLabel">…</span></h1><span class="topbar-right"><span class="week-pill" id="weekPill">Semaine —</span></span></div>
@@ -54,6 +54,10 @@
         <div class="card" style="margin-top:18px">
           <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
           <div id="dashboardDetail">Chargement…</div>
+        </div>
+              <div class="card" style="margin-top:18px">
+          <h2>📊 Tendances par semaine épidémiologique</h2>
+          <div id="tendancesZone"></div>
         </div>
       </section>
 
@@ -168,14 +172,13 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/nettoyage.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['RCSE']);
 userName.textContent = user.Prenom + ' ' + user.Nom;
-logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
-document.getElementById('monCompteBtn').onclick = () => openMonCompteModal((u) => { document.getElementById('userName').textContent = u.Prenom + ' ' + u.Nom; });
 
 // Communes qui composent la zone sanitaire de ce RCSE — assignées dès la création du compte par
 // le National, donc disponibles immédiatement (aucune étape d'assignation manuelle à attendre).
@@ -359,6 +362,7 @@ renderImportActeurs({
 })();
 </script>
 <script>majBadgeActivites_('navActivites');</script>
+<script>renderTendances('tendancesZone');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

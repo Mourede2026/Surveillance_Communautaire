@@ -32,8 +32,6 @@
     </nav>
     <div class="user-box">
       <div id="userName"></div>
-      <button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button>
-      <button class="btn-secondary btn-block js-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </aside>
   <main class="main">
@@ -57,6 +55,10 @@
         <div class="card" style="margin-top:18px">
           <h2>Que faire ?</h2>
           <p>Utilisez <strong>« Notifier une alerte »</strong> pour tout événement de santé inhabituel (maladie, morsure, décès d'animaux, etc.) et <strong>« Notifier un décès »</strong> pour tout décès survenu dans votre village. Votre ASCQ recevra automatiquement la notification pour investigation.</p>
+        </div>
+              <div class="card" style="margin-top:18px">
+          <h2>📊 Tendances par semaine épidémiologique</h2>
+          <div id="tendancesZone"></div>
         </div>
       </section>
 
@@ -96,6 +98,7 @@
 
 <script src="assets/notifications-liste.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script src="assets/forms.js"></script>
@@ -106,8 +109,6 @@
 <script>
 const user = Session.requireRole(['RC']);
 document.getElementById('userName').textContent = user.Prenom + ' ' + user.Nom;
-document.getElementById('logoutBtn').onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
-document.getElementById('monCompteBtn').onclick = () => openMonCompteModal((u) => { document.getElementById('userName').textContent = u.Prenom + ' ' + u.Nom; });
 
 let briefingLoaded = false;
 
@@ -164,6 +165,7 @@ buildDecesForm(document.getElementById('formDeces'), user);
 loadDashboard();
 </script>
 <script>majBadgeActivites_('navActivites');</script>
+<script>renderTendances('tendancesZone');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

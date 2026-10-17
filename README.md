@@ -148,3 +148,10 @@ déjà saisies (alertes, décès, suivis, rapports) sont conservées, avec le no
 ## Nettoyage (tous les niveaux supérieurs au RC)
 
 Onglet « 🗑️ Nettoyage des données » pour ASCQ, PF, RCSE, Département et National. Hors national, on ne peut supprimer que les **paramétrages** : les comptes situés sous soi (toute la descendance, jamais le sien) et les activités qu'on a créées. Les **données collectées** (alertes, décès, investigations, rapports, suivis groupés) ne sont supprimables que par le National, qui peut aussi vider journal, calendrier et géographie. Contrôlé côté serveur ; confirmation en tapant SUPPRIMER. Redéployez `Code.gs`.
+
+## Tendances, photo de profil, rotation
+
+- **Tableau de bord** de chaque espace : un graphique par événement notifié (maladies, décès) sur les semaines épidémiologiques d'une année (choix de l'année), en histogramme à barres collées ou en courbe. Sans notification, la série reste à zéro. Périmètre calculé côté serveur (action `getTendances`).
+- Les boutons « Mon compte » et « Déconnexion » de la barre latérale ont été retirés : tout passe par le bouton profil.
+- **Photo de profil** : profil → « Modifier mes paramètres » → « Choisir une photo ». Redimensionnée (192 px) puis enregistrée dans la colonne `Photo` de la feuille `Utilisateurs` (créée automatiquement). Redéployez `Code.gs`.
+- **Rotation** : `orientation: any` + déverrouillage au démarrage. L'application déjà installée garde l'ancien manifeste : **désinstallez-la puis réinstallez-la** depuis le navigateur (et vérifiez que la rotation automatique est activée sur le téléphone).

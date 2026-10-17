@@ -35,8 +35,6 @@
     </nav>
     <div class="user-box">
       <div id="userName"></div>
-      <button class="btn-secondary btn-block" id="monCompteBtn">Mon compte</button>
-      <button class="btn-secondary btn-block js-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </aside>
   <main class="main">
@@ -57,6 +55,10 @@
         <div class="card" style="margin-top:18px">
           <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
           <div id="dashboardDetail">Chargement…</div>
+        </div>
+              <div class="card" style="margin-top:18px">
+          <h2>📊 Tendances par semaine épidémiologique</h2>
+          <div id="tendancesZone"></div>
         </div>
       </section>
 
@@ -245,14 +247,13 @@
 <script src="assets/suivi-groupe-ascq.js"></script>
 <script src="assets/alerte-sonore.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/nettoyage.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
 const user = Session.requireRole(['ASCQ']);
 userName.textContent = user.Prenom + ' ' + user.Nom;
-logoutBtn.onclick = async () => { await Api.call('logout', {}).catch(()=>{}); Session.clear(); location.href = 'index.html'; };
-document.getElementById('monCompteBtn').onclick = () => openMonCompteModal((u) => { document.getElementById('userName').textContent = u.Prenom + ' ' + u.Nom; });
 
 let briefingLoaded = false;
 
@@ -507,6 +508,7 @@ loadWeekPill();
 demarrerAlerteSonoreNouvellesAlertes();
 </script>
 <script>majBadgeActivites_('navActivites');</script>
+<script>renderTendances('tendancesZone');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

@@ -321,3 +321,25 @@ table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0;
   .sidebar { position: sticky; top: 0; z-index: 50; }
   .login-card { margin: 8px auto; }
 }
+
+/* ---------- Tendances (graphiques par semaine épidémiologique) ---------- */
+.tend-barre { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.tend-barre select { width: auto; display: inline-block; }
+.tend-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (max-width: 900px) { .tend-grid { grid-template-columns: 1fr; } }
+.tend-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; background: var(--card); }
+.tend-tete { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.tend-svg { width: 100%; height: auto; display: block; }
+.tend-grille { stroke: var(--line); stroke-width: 1; }
+.tend-txt { fill: var(--ink-soft); font-size: 13px; }
+.photo-profil { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; background: var(--teal-700); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 1.6rem; overflow: hidden; }
+.photo-ligne { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.profil-btn img, .profil-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.profil-avatar { overflow: hidden; }
+
+/* ---------- Pièces jointes du suivi groupé : vignettes avec bouton Retirer ---------- */
+#suiviFichiersApercu { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.photo-vignette { position: relative; display: inline-block; }
+.photo-vignette img { height: 84px; width: auto; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.photo-retirer { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; padding: 0; border-radius: 50%; background: var(--red-600); color: #fff; font-size: 16px; line-height: 1; border: 2px solid var(--card); cursor: pointer; }
+.photo-retirer-doc { background: transparent; color: var(--red-600); border: 0; padding: 0 4px; font-size: 16px; cursor: pointer; }

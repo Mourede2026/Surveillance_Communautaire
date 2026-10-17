@@ -143,18 +143,23 @@
     return new Promise((resolve, reject) => { const r = new FileReader(); r.onload = e => resolve(e.target.result); r.onerror = () => reject(new Error('Lecture du fichier impossible.')); r.readAsDataURL(file); });
   }
   async function redimensionnerPhoto(file, maxDim) {
-    const src = await lireDataUrl(file);
+    const dessiner = (img, w0, h0) => {
+      let width = w0, height = h0;
+      if (width > maxDim || height > maxDim) { const k = Math.min(maxDim / width, maxDim / height); width = Math.round(width * k); height = Math.round(height * k); }
+      const c = document.createElement('canvas'); c.width = width; c.height = height;
+      c.getContext('2d').drawImage(img, 0, 0, width, height);
+      return c.toDataURL('image/jpeg', 0.75);
+    };
+    // 1) createImageBitmap : prend en compte l'orientation EXIF et évite de charger une énorme data URL
+    if (window.createImageBitmap) {
+      try { const bmp = await createImageBitmap(file); const out = dessiner(bmp, bmp.width, bmp.height); if (bmp.close) bmp.close(); return out; } catch (e) { /* repli ci-dessous */ }
+    }
+    // 2) repli : <img> via URL d'objet
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) { const k = Math.min(maxDim / width, maxDim / height); width = Math.round(width * k); height = Math.round(height * k); }
-        const c = document.createElement('canvas'); c.width = width; c.height = height;
-        c.getContext('2d').drawImage(img, 0, 0, width, height);
-        resolve(c.toDataURL('image/jpeg', 0.75));
-      };
-      img.onerror = () => reject(new Error('Image illisible : ' + file.name));
-      img.src = src;
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => { try { resolve(dessiner(img, img.naturalWidth, img.naturalHeight)); } catch (e) { reject(e); } URL.revokeObjectURL(url); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Format de photo non pris en charge : ' + (file.name || 'photo') + ' (utilisez JPEG ou PNG).')); };
+      img.src = url;
     });
   }
   async function lireDocument(file) {
@@ -188,8 +193,8 @@
 
   function apercuFichiers() {
     $('suiviFichiersApercu').innerHTML =
-      photos.map(src => `<img src="${src}" alt="photo">`).join('') +
-      documents.map(d => `<span class="doc-chip">📄 ${escHtml(d.name)}</span>`).join('');
+      photos.map((src, i) => `<span class="photo-vignette"><img src="${src}" alt="photo ${i + 1}"><button type="button" class="photo-retirer" data-retirer-photo="${i}" title="Retirer cette photo">×</button></span>`).join('') +
+      documents.map((d, i) => `<span class="doc-chip">📄 ${escHtml(d.name)} <button type="button" class="photo-retirer-doc" data-retirer-doc="${i}" title="Retirer">×</button></span>`).join('');
   }
 
   function majBandeauPlanning() {
@@ -213,16 +218,32 @@
       $('planDate').min = aujourdhui();
       document.querySelectorAll('[data-suivi-sub]').forEach(b => b.addEventListener('click', () => afficherSousOnglet(b.dataset.suiviSub)));
 
+      // Les photos S'AJOUTENT à la liste (on peut en reprendre plusieurs, une par une) ; le champ est
+      // remis à zéro après chaque choix pour que reprendre la même photo déclenche bien l'événement.
+      const MAX_PHOTOS = 10;
       $('suiviPhotos').addEventListener('change', async e => {
-        $('suiviFichiersApercu').innerHTML = 'Traitement des photos…';
-        try { photos = await Promise.all([...e.target.files].map(f => redimensionnerPhoto(f, 900))); }
-        catch (err) { toast(err.message, true); photos = []; }
+        const fichiers = [...e.target.files]; e.target.value = '';
+        if (!fichiers.length) return;
+        $('suiviFichiersApercu').insertAdjacentHTML('beforeend', '<span class="petit"> Traitement de la photo…</span>');
+        for (const f of fichiers) {
+          if (photos.length >= MAX_PHOTOS) { toast('Maximum ' + MAX_PHOTOS + ' photos par rapport.', true); break; }
+          try { photos.push(await redimensionnerPhoto(f, 900)); }
+          catch (err) { toast(err.message, true); }
+        }
         apercuFichiers();
       });
       $('suiviDocs').addEventListener('change', async e => {
-        try { documents = await Promise.all([...e.target.files].map(lireDocument)); }
-        catch (err) { toast(err.message, true); documents = []; e.target.value = ''; }
+        const fichiers = [...e.target.files]; e.target.value = '';
+        for (const f of fichiers) {
+          try { documents.push(await lireDocument(f)); }
+          catch (err) { toast(err.message, true); }
+        }
         apercuFichiers();
+      });
+      $('suiviFichiersApercu').addEventListener('click', e => {
+        const p = e.target.closest('[data-retirer-photo]'), d = e.target.closest('[data-retirer-doc]');
+        if (p) { photos.splice(Number(p.dataset.retirerPhoto), 1); apercuFichiers(); }
+        if (d) { documents.splice(Number(d.dataset.retirerDoc), 1); apercuFichiers(); }
       });
 
       $('formSuivi').addEventListener('submit', async e => {

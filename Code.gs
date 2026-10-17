@@ -93,7 +93,7 @@ const COLS = {
   Utilisateurs: ['ID','Nom','Prenom','Telephone','MotDePasse','Role','ResponsableId',
     'DepartementId','CommuneId','ArrondissementId','VillageId','GrappeId',
     'DepartementNom','CommuneNom','ArrondissementNom','VillageNom','GrappeNom',
-    'ZoneSanitaireNom','Actif','DateCreation','CreePar'],
+    'ZoneSanitaireNom','Actif','DateCreation','CreePar','Photo'],
   Communes: ['ID','Nom','DepartementId','DepartementNom'],
   Arrondissements: ['ID','Nom','CommuneId','CommuneNom'],
   Villages: ['ID','Nom','ArrondissementId','ArrondissementNom'],
@@ -167,7 +167,9 @@ function doPost(e) {
       ping: () => ({ ok: true }),
       login: () => login_(payload),
       logout: () => { deleteSession_(token); return { ok: true }; },
-      getMe: () => ({ ok: true, user: user }),
+      getMe: () => ({ ok: true, user: Object.assign({}, user, { MotDePasse: undefined }) }),
+      setPhoto: () => setPhoto_(user, payload),
+      getTendances: () => getTendances_(user, payload),
       apercuNettoyage: () => apercuNettoyage_(user),
       nettoyerDonnees: () => nettoyerDonnees_(user, payload),
 
@@ -397,7 +399,7 @@ function login_(payload) {
   const token = Utilities.getUuid();
   appendRow_(SHEETS.SESSIONS, { Token: token, UserId: u.ID, Expire: Date.now() + SESSION_DURATION_MS });
   delete u.MotDePasse;
-  return { ok: true, token: token, user: u };
+  return { ok: true, token: token, user: Object.assign({}, u, { MotDePasse: undefined }) };
 }
 
 function deleteSession_(token) {
@@ -770,7 +772,7 @@ function isSupervisorOf_(actor, target) {
 // Liste des utilisateurs visibles pour actor (lui + toute sa descendance hiérarchique)
 function listUsers_(actor) {
   const users = readSheet_(SHEETS.USERS);
-  users.forEach(u => delete u.MotDePasse);
+  users.forEach(u => { delete u.MotDePasse; delete u.Photo; });
   if (actor.Role === ROLES.NATIONAL) return users;
   return users.filter(u => u.ID === actor.ID || isSupervisorOf_(actor, u));
 }
@@ -1238,6 +1240,51 @@ function submitInvestigation_(actor, p) {
 }
 
 
+
+
+// ============================================================
+// PHOTO DE PROFIL (stockée dans la colonne Photo de la feuille Utilisateurs, en data URL réduite)
+// ============================================================
+function setPhoto_(actor, p) {
+  const photo = String(p.photo || '');
+  if (photo === '') { updateRowById_(SHEETS.USERS, actor.ID, { Photo: '' }); return { ok: true, photo: '' }; }
+  if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(photo)) return { ok: false, error: 'Image non valide (JPEG, PNG ou WebP).' };
+  if (photo.length > 45000) return { ok: false, error: 'Image trop lourde.' };
+  updateRowById_(SHEETS.USERS, actor.ID, { Photo: photo });
+  return { ok: true, photo: photo };
+}
+
+// ============================================================
+// TENDANCES : nombre de notifications par semaine épidémiologique d'une année, par événement
+// ============================================================
+function getTendances_(actor, p) {
+  const alertes = listScoped_(SHEETS.ALERTES, actor);
+  const deces = listScoped_(SHEETS.DECES, actor).filter(d => d.Statut !== 'Non confirmé');
+  const anneeCourante = Number(nowStr_().slice(0, 4));
+  const annees = {}; annees[anneeCourante] = true;
+  alertes.concat(deces).forEach(r => { if (Number(r.Annee)) annees[Number(r.Annee)] = true; });
+  readSheet_(SHEETS.CALENDRIER).forEach(r => { if (Number(r.Annee)) annees[Number(r.Annee)] = true; });
+  const annee = Number(p.annee) || anneeCourante;
+  let nb = 52;
+  readSheet_(SHEETS.CALENDRIER).filter(r => Number(r.Annee) === annee).forEach(r => { if (Number(r.SemaineEpi) > nb) nb = Math.min(Number(r.SemaineEpi), 53); });
+  const vide = () => { const t = []; for (let i = 0; i < nb; i++) t.push(0); return t; };
+  const agreger = (rows, cleType, libelle) => {
+    const total = vide(), parType = {};
+    rows.filter(r => Number(r.Annee) === annee).forEach(r => {
+      const w = Number(r.SemaineEpi); if (!(w >= 1 && w <= nb)) return;
+      total[w - 1]++;
+      const t = libelle(r) || 'Non précisé';
+      if (!parType[t]) parType[t] = vide();
+      parType[t][w - 1]++;
+    });
+    return { total, parType };
+  };
+  return {
+    ok: true, annee, annees: Object.keys(annees).map(Number).sort((a, b) => b - a), nbSemaines: nb,
+    alertes: agreger(alertes, 'TypeAlerte', r => r.TypeAlerte),
+    deces: agreger(deces, 'TypeDeces', r => TYPES_DECES_LABELS[String(r.TypeDeces)] || 'Décès communautaire')
+  };
+}
 
 // ============================================================
 // NETTOYAGE DES DONNÉES (compte NATIONAL uniquement)

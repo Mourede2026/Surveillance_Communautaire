@@ -57,13 +57,18 @@
     memoriserCompteCourant_();
     const u = s.user, ini = ((u.Prenom || '?')[0] + (u.Nom || '')[0]).toUpperCase();
     const wrap = document.createElement('div'); wrap.className = 'profil-wrap';
-    wrap.innerHTML = `<button type="button" id="profilBtn" class="profil-btn" title="Mon profil" aria-haspopup="true" aria-expanded="false">${ICONE}</button><div class="profil-menu" id="profilMenu" hidden></div>`;
+    const photoDe = x => (x && /^data:image\//.test(x.Photo || '')) ? x.Photo : '';
+    wrap.innerHTML = `<button type="button" id="profilBtn" class="profil-btn" title="Mon profil" aria-haspopup="true" aria-expanded="false">${photoDe(u) ? '<img alt="" src="' + photoDe(u) + '">' : ICONE}</button><div class="profil-menu" id="profilMenu" hidden></div>`;
     zone.appendChild(wrap);
     const btn = wrap.querySelector('#profilBtn'), menu = wrap.querySelector('#profilMenu');
 
+    function majAvatar() { const U = Session.getUser() || u; btn.innerHTML = photoDe(U) ? '<img alt="" src="' + photoDe(U) + '">' : ICONE; }
+    window.majAvatarProfil_ = majAvatar;
+    // rafraîchit la photo depuis le serveur (changement fait depuis un autre appareil)
+    Api.call('getMe', {}).then(r => { if (r && r.user) { Session.setSession(Session.getToken(), r.user); majAvatar(); } }).catch(() => {});
     function dessiner() {
       const U = Session.getUser() || u, autres = lire(KA, []).filter(a => a.user.ID !== U.ID), th = themeActuel();
-      menu.innerHTML = `<div class="profil-tete"><span class="profil-avatar">${escHtml(ini)}</span><div><strong>${escHtml((U.Prenom || '') + ' ' + (U.Nom || ''))}</strong><div class="petit">${escHtml(ROLES[U.Role] || U.Role || '')}</div><div class="petit">${escHtml(U.Telephone || '')}</div></div></div>
+      menu.innerHTML = `<div class="profil-tete"><span class="profil-avatar">${photoDe(U) ? '<img alt="" src="' + photoDe(U) + '">' : escHtml(ini)}</span><div><strong>${escHtml((U.Prenom || '') + ' ' + (U.Nom || ''))}</strong><div class="petit">${escHtml(ROLES[U.Role] || U.Role || '')}</div><div class="petit">${escHtml(U.Telephone || '')}</div></div></div>
         <button type="button" data-p="compte">⚙️ Modifier mes paramètres</button>
         <div class="profil-sec">Thème</div>
         <div class="profil-theme">${[['clair', '☀️ Clair'], ['sombre', '🌙 Sombre'], ['auto', '🖥️ Auto']].map(([k, l]) => `<button type="button" data-theme="${k}" class="${th === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -80,10 +85,13 @@
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.theme) { ecrire(KT, b.dataset.theme); appliquerTheme(b.dataset.theme); dessiner(); return; }
       if (b.dataset.switch) { const c = lire(KA, []).find(a => a.user.ID === b.dataset.switch); if (c) basculer(c); return; }
-      if (b.dataset.p === 'compte') { ouvrir(false); const f = document.getElementById('monCompteBtn'); if (f) f.click(); else if (window.openMonCompteModal) openMonCompteModal(); }
+      if (b.dataset.p === 'compte') { ouvrir(false); if (window.openMonCompteModal) openMonCompteModal(u => { const n = document.getElementById('userName'); if (n) n.textContent = u.Prenom + ' ' + u.Nom; majAvatar(); }); }
       if (b.dataset.p === 'ajout') { location.href = 'index.html?ajout=1'; }
       if (b.dataset.p === 'logout') { const id = (Session.getUser() || {}).ID; oublier(id); await logoutEtRedirige(); }
     });
   }
   document.addEventListener('DOMContentLoaded', construire);
+
+  // Application installée : lève tout verrouillage d'orientation (portrait/paysage dans tous les sens).
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
 })();

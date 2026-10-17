@@ -18,6 +18,14 @@ function ensureMonCompteModal_() {
   div.innerHTML = `
     <div class="modal-box">
       <h2 style="margin-top:0">Mon compte</h2>
+      <div class="photo-ligne">
+        <div id="monComptePhoto" class="photo-profil"></div>
+        <div>
+          <label class="btn-secondary" style="display:inline-block;padding:8px 14px;border-radius:8px;cursor:pointer">📷 Choisir une photo<input type="file" id="monComptePhotoInput" accept="image/*" style="display:none"></label>
+          <button type="button" class="btn-secondary" id="monComptePhotoSupp">Retirer</button>
+          <div class="petit" id="monComptePhotoMsg">La photo est enregistrée dans votre compte.</div>
+        </div>
+      </div>
       <form id="monCompteForm">
         <div class="field"><label>Nom</label><input name="Nom" required></div>
         <div class="field"><label>Prénom</label><input name="Prenom" required></div>
@@ -50,6 +58,7 @@ function openMonCompteModal(onSaved) {
   form.motDePasse.value = '';
   form.motDePasseConfirm.value = '';
   overlay.style.display = 'flex';
+  photoAfficher_();
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -71,3 +80,46 @@ function openMonCompteModal(onSaved) {
     } catch (err) { toast(err.message, true); }
   };
 }
+
+
+// ---- Photo de profil : redimensionnée côté appareil (carré 192 px, JPEG) puis enregistrée dans la
+// colonne Photo de la feuille Utilisateurs (action setPhoto).
+function photoReduire_(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const T = 192, cv = document.createElement('canvas'); cv.width = cv.height = T;
+      const s = Math.min(img.width, img.height), sx = (img.width - s) / 2, sy = (img.height - s) / 2;
+      cv.getContext('2d').drawImage(img, sx, sy, s, s, 0, 0, T, T);
+      URL.revokeObjectURL(url);
+      let q = 0.78, out = cv.toDataURL('image/jpeg', q);
+      while (out.length > 40000 && q > 0.3) { q -= 0.1; out = cv.toDataURL('image/jpeg', q); }
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image illisible.')); };
+    img.src = url;
+  });
+}
+function photoAfficher_() {
+  const u = Session.getUser() || {}, el = document.getElementById('monComptePhoto'); if (!el) return;
+  el.innerHTML = /^data:image\//.test(u.Photo || '') ? '<img alt="" src="' + u.Photo + '" style="width:100%;height:100%;object-fit:cover">' : escHtml(((u.Prenom || '?')[0] + (u.Nom || '')[0]).toUpperCase());
+  if (typeof window.majAvatarProfil_ === 'function') window.majAvatarProfil_();
+}
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'monComptePhotoInput' || !e.target.files[0]) return;
+  try {
+    const photo = await photoReduire_(e.target.files[0]);
+    await Api.call('setPhoto', { photo });
+    Session.setSession(Session.getToken(), Object.assign({}, Session.getUser(), { Photo: photo }));
+    photoAfficher_(); toast('Photo de profil enregistrée.');
+  } catch (err) { toast(err.message, true); }
+  e.target.value = '';
+});
+document.addEventListener('click', async e => {
+  if (e.target.id !== 'monComptePhotoSupp') return;
+  try {
+    await Api.call('setPhoto', { photo: '' });
+    Session.setSession(Session.getToken(), Object.assign({}, Session.getUser(), { Photo: '' }));
+    photoAfficher_(); toast('Photo retirée.');
+  } catch (err) { toast(err.message, true); }
+});

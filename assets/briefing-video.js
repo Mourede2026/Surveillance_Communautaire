@@ -126,6 +126,7 @@ function parseModuleToSlides(m) {
 
       slides.push({
         kind: 'block', icon: m.icon, title, lines,
+        blk: Array.from(block.classList).find((c) => BV_BLOCK_ORDER_.includes(c)) || '',
         narration: narrationParts.filter(Boolean).join('. ').replace(/\.\.+/g, '.').trim()
       });
     });
@@ -242,6 +243,14 @@ function bvRenderSlide_() {
 
   BV.el.caption.textContent = slide.narration || slide.title;
 
+  // Scène illustrée et animée (assets/briefing-scenes.js) : village, personnages, accessoires.
+  if (BV.el.scene && typeof bvSceneSvg === 'function') {
+    BV.el.scene.innerHTML = bvSceneSvg(m.id, slide);
+    const svg = BV.el.scene.firstElementChild;
+    if (svg && svg.pauseAnimations && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) svg.pauseAnimations();
+  }
+  if (BV.el.slide) BV.el.slide.scrollTop = 0;
+
   Array.from(BV.el.dots.children).forEach((d, i) => d.classList.toggle('active', i === BV.slideIndex));
   BV.el.prevModuleBtn.disabled = BV.moduleIndex === 0 && BV.slideIndex === 0;
   BV.el.nextModuleBtn.disabled = false;
@@ -349,6 +358,7 @@ function bvEnsureOverlay_() {
       <button class="bv-icon-btn" id="bvPlaylistToggle" title="Liste des maladies" aria-label="Liste des maladies">☰</button>
     </div>
     <div class="bv-stage" id="bvStage">
+      <div class="bv-scene" id="bvScene" aria-hidden="true"></div>
       <div class="bv-bigicon" id="bvBigIcon"></div>
       <div class="bv-slide">
         <h2 class="bv-slide-title" id="bvSlideTitle"></h2>
@@ -366,6 +376,7 @@ function bvEnsureOverlay_() {
       <button class="bv-icon-btn" id="bvNextModule" title="Maladie suivante" aria-label="Maladie suivante">⏭</button>
       <button class="bv-icon-btn" id="bvMute" title="Son" aria-label="Couper / activer le son">🔊</button>
       <label class="bv-autonext"><input type="checkbox" id="bvAutoNext" checked> Lecture auto</label>
+      <label class="bv-autonext"><input type="checkbox" id="bvAutoOpen"> Lancer à l'ouverture du Briefing</label>
     </div>
     <div class="bv-playlist-panel">
       <div class="bv-playlist-header">Toutes les maladies</div>
@@ -384,6 +395,8 @@ function bvEnsureOverlay_() {
   BV.overlay = div;
   BV.el = {
     stage: div.querySelector('#bvStage'),
+    scene: div.querySelector('#bvScene'),
+    slide: div.querySelector('.bv-slide'),
     bigIcon: div.querySelector('#bvBigIcon'),
     slideTitle: div.querySelector('#bvSlideTitle'),
     lines: div.querySelector('#bvLines'),
@@ -408,6 +421,9 @@ function bvEnsureOverlay_() {
   div.querySelector('#bvPrevModule').addEventListener('click', () => bvJumpToModule_(BV.moduleIndex - 1 < 0 ? 0 : BV.moduleIndex - 1));
   div.querySelector('#bvNextModule').addEventListener('click', () => bvJumpToModule_(BV.moduleIndex + 1));
   div.querySelector('#bvAutoNext').addEventListener('change', (e) => { BV.autoNext = e.target.checked; });
+  const autoOpenBox = div.querySelector('#bvAutoOpen');
+  try { autoOpenBox.checked = localStorage.getItem('bvAutoOpen') !== '0'; } catch (e) { autoOpenBox.checked = true; }
+  autoOpenBox.addEventListener('change', (e) => { try { localStorage.setItem('bvAutoOpen', e.target.checked ? '1' : '0'); } catch (err) { /* stockage indisponible */ } });
   div.querySelector('#bvReplay').addEventListener('click', () => bvJumpToModule_(0));
   div.querySelector('#bvCloseEnd').addEventListener('click', bvClose_);
   div.addEventListener('click', (e) => { if (e.target === div) bvClose_(); });

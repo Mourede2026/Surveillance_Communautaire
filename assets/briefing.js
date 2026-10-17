@@ -26,6 +26,7 @@ function renderBriefingModule(containerId) {
       <br><br>
       💡 <strong>Règle d'or :</strong> dès qu'un signe alerte apparaît → <strong>notifie immédiatement ton ASCQ</strong>, sans attendre.
     </div>
+    <div class="bv-series-row"><button class="bv-series-btn" id="bvSeriesBtn" type="button">🎬 Regarder la vidéo du briefing (toutes les maladies)</button></div>
     <input type="text" class="briefing-search" id="briefingSearch" placeholder="🔎 Rechercher une maladie ou un événement…">
     <div class="briefing-list" id="briefingList"></div>
   `;
@@ -45,6 +46,7 @@ function renderBriefingModule(containerId) {
         <span class="d-icon">${m.icon}</span>
         <h2>${m.title}</h2>
         <span class="d-num">${m.num}</span>
+        <button class="bv-play-trigger" type="button" data-play="${m.id}" title="Regarder la vidéo de cette maladie" aria-label="Regarder la vidéo : ${m.title}">▶</button>
         <span class="d-chevron">▾</span>
       </div>
       <div class="disease-body">${m.body}${videoBlock}</div>
@@ -58,10 +60,30 @@ function renderBriefingModule(containerId) {
     });
   });
 
+  const seriesBtn = document.getElementById('bvSeriesBtn');
+  if (seriesBtn) seriesBtn.addEventListener('click', () => { if (typeof openBriefingVideo === 'function') openBriefingVideo(); });
+  list.querySelectorAll('[data-play]').forEach(btn => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (typeof openBriefingVideo === 'function') openBriefingVideo(btn.dataset.play);
+  }));
+
   document.getElementById('briefingSearch').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
     list.querySelectorAll('.briefing-module').forEach(mod => {
       mod.hidden = q.length > 0 && !mod.dataset.title.includes(q);
     });
   });
+}
+
+
+/**
+ * Appelée à chaque ouverture de l'onglet « Briefing maladies » (rc.html, ascq.html, pf.html) :
+ * lance la vidéo (scènes animées + voix + sous-titres) depuis le début, sauf si la personne a
+ * décoché « Lancer à l'ouverture du Briefing » dans le lecteur.
+ */
+function maybeAutoOpenBriefingVideo() {
+  if (typeof openBriefingVideo !== 'function') return;
+  let off = false;
+  try { off = localStorage.getItem('bvAutoOpen') === '0'; } catch (e) { /* stockage indisponible */ }
+  if (!off) openBriefingVideo();
 }

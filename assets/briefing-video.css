@@ -210,3 +210,34 @@
   .bv-controls { gap: 6px; }
   .bv-autonext { width: 100%; justify-content: center; margin: 4px 0 0; }
 }
+
+
+/* ============================================================
+   Scènes illustrées (assets/briefing-scenes.js) : l'illustration
+   occupe le haut du lecteur, le texte de la diapositive passe en
+   panneau dessous (ou à droite sur grand écran paysage).
+   ============================================================ */
+.bv-stage { flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 0; }
+.bv-bigicon { display: none; }
+.bv-scene {
+  position: relative; flex: 1 1 46%; min-height: 150px; overflow: hidden;
+  background: linear-gradient(#6ec6ff 0, #eaf8ff 62%, #c27a45 62%);
+}
+.bv-scene-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.bv-slide {
+  flex: 0 1 auto; max-width: none; width: 100%; max-height: 54%; overflow-y: auto;
+  padding: 14px 16px 10px;
+  background: linear-gradient(180deg, var(--bv-c2,#157A72), var(--bv-c1,#0B3D3A));
+  border-top: 4px solid rgba(255,255,255,.4);
+}
+.bv-slide-title, .bv-lines { max-width: 640px; margin-left: auto; margin-right: auto; }
+.bv-slide-title { margin-bottom: 12px; }
+
+@media (min-width: 900px) and (orientation: landscape) {
+  .bv-stage { flex-direction: row; }
+  .bv-scene { flex: 1 1 58%; min-height: 0; }
+  .bv-slide { flex: 0 0 42%; max-height: none; display: flex; flex-direction: column; justify-content: center; border-top: none; border-left: 4px solid rgba(255,255,255,.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bv-slide-title, .bv-line { animation: none; opacity: 1; }
+}

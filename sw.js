@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'surveillance-v16';
+const CACHE_VERSION = 'surveillance-v17';
 
 const APP_SHELL = [
   './',
@@ -19,6 +19,7 @@ const APP_SHELL = [
   './manifest.json',
   './assets/style.css',
   './assets/briefing.css',
+  './assets/briefing-video.css',
   './assets/api.js',
   './assets/profil-menu.js',
   './assets/guide.js',
@@ -31,6 +32,10 @@ const APP_SHELL = [
   './assets/user-admin.js',
   './assets/briefing.js',
   './assets/briefing-data.js',
+  './assets/briefing-videos-data.js',
+  './assets/briefing-videos.js',
+  './assets/briefing-scenes.js',
+  './assets/briefing-video.js',
   './assets/suivi-groupe-lecture.js',
   './assets/suivi-groupe-ascq.js',
   './assets/activites.js',

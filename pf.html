@@ -15,6 +15,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Surveillance">
 <link rel="stylesheet" href="assets/briefing.css">
+<link rel="stylesheet" href="assets/briefing-video.css">
 <script src="assets/profil-menu.js"></script>
 </head>
 <body>
@@ -128,6 +129,8 @@
 <script src="assets/briefing-data.js"></script>
 <script src="assets/briefing-videos-data.js"></script>
 <script src="assets/briefing-videos.js"></script>
+<script src="assets/briefing-scenes.js"></script>
+<script src="assets/briefing-video.js"></script>
 <script src="assets/briefing.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/bulk-import.js"></script>
@@ -157,7 +160,7 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   if (a.dataset.tab === 'suivi') loadSuivi();
   if (a.dataset.tab === 'suivigroupe') renderSuivisGroupesLecture('suiviGroupeTable');
   if (a.dataset.tab === 'rapport') renderRapportModule('rapportTable');
-  if (a.dataset.tab === 'briefing' && !briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; }
+  if (a.dataset.tab === 'briefing') { if (!briefingLoaded) { renderBriefingModule('briefingContainer'); briefingLoaded = true; } maybeAutoOpenBriefingVideo(); }
 }));
 
 async function loadDashboard() {

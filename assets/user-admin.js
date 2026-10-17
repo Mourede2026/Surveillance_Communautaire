@@ -209,9 +209,19 @@ async function rendreGestionGrappesRc_(el, u, getVilSel) {
 }
 
 async function deleteUserConfirm(u, onDeleted) {
-  if (!confirm(`Supprimer définitivement le compte de ${u.Prenom} ${u.Nom} (${u.Telephone}) ? Cette action est irréversible.`)) return;
   try {
-    await Api.call('deleteUser', { id: u.ID });
+    // Aperçu : y a-t-il des comptes en dessous (ex. un ASCQ avec ses RC) ?
+    const ap = await Api.call('deleteUser', { id: u.ID, apercu: true });
+    const nom = `${u.Prenom} ${u.Nom} (${u.Telephone})`;
+    if (!ap.nbSubordonnes) {
+      if (!confirm(`Supprimer définitivement le compte de ${nom} ?\nIl sera effacé de la base de données. Cette action est irréversible.`)) return;
+      await Api.call('deleteUser', { id: u.ID });
+    } else {
+      const liste = ap.subordonnes.slice(0, 15).join('\n• ') + (ap.subordonnes.length > 15 ? '\n• … et ' + (ap.subordonnes.length - 15) + ' autre(s)' : '');
+      const rep = prompt(`ATTENTION : ${nom} a ${ap.nbSubordonnes} compte(s) en dessous de lui :\n• ${liste}\n\nTous seront supprimés définitivement avec lui (irréversible).\nPour confirmer, tapez SUPPRIMER :`);
+      if ((rep || '').trim().toUpperCase() !== 'SUPPRIMER') { toast('Suppression annulée.'); return; }
+      await Api.call('deleteUser', { id: u.ID, cascade: true });
+    }
     toast('Compte supprimé.');
     if (onDeleted) onDeleted();
   } catch (err) { toast(err.message, true); }
@@ -224,11 +234,13 @@ function userRowActionsHtml(u, currentUserId, currentUserRole) {
   // coïncident à la création, mais on vérifie les deux pour rester robuste), et pour NATIONAL
   // qui gère tout.
   const peutGerer = currentUserRole === 'NATIONAL' || u.CreePar === currentUserId || u.ResponsableId === currentUserId;
+  // Supprimer : tout compte supérieur, à n'importe quel niveau de la hiérarchie (le serveur vérifie).
+  const peutSupprimer = u.ID !== currentUserId && u.Role !== 'NATIONAL';
   let html = `<button class="${actif ? 'btn-danger' : 'btn-secondary'}" data-toggle="${u.ID}|${actif ? 0 : 1}">${actif ? 'Désactiver' : 'Réactiver'}</button>`;
   if (peutGerer) {
     html += ` <button class="btn-secondary" data-edit="${u.ID}" style="margin-left:6px">Modifier</button>`;
-    html += ` <button class="btn-danger" data-delete="${u.ID}" style="margin-left:6px">Supprimer</button>`;
   }
+  if (peutSupprimer) html += ` <button class="btn-danger" data-delete="${u.ID}" style="margin-left:6px">Supprimer</button>`;
   return html;
 }
 

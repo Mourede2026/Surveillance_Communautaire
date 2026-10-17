@@ -121,3 +121,11 @@ Un décès notifié par un RC arrive à l'ASCQ avec le statut « En attente ». 
 le **confirme** ou **ne le confirme pas** (motif obligatoire) ; la décision est définitive. Seuls les décès
 **confirmés** sont comptés dans le rapport hebdomadaire (synthèse et détail). Le RC et la hiérarchie sont notifiés
 de la décision. Les décès enregistrés avant cette mise à jour restent « En attente » jusqu'à leur confirmation.
+
+## Suppression de comptes
+
+Tout compte supérieur peut supprimer un compte de sa descendance (à n'importe quel niveau) ; le National peut tout
+supprimer (sauf les comptes nationaux). Si le compte a des comptes en dessous (ex. un ASCQ et ses RC), l'interface
+liste ces comptes et exige de taper SUPPRIMER : tout l'ensemble est alors supprimé. Les lignes sont réellement
+effacées de la feuille « Utilisateurs » (ainsi que sessions, périmètres et notifications du compte). Les données
+déjà saisies (alertes, décès, suivis, rapports) sont conservées, avec le nom de leur auteur, comme historique.

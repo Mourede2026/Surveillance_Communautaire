@@ -661,18 +661,41 @@ function deleteUser_(actor, p) {
   const target = users.find(u => u.ID === p.id);
   if (!target) return { ok: false, error: 'Utilisateur introuvable.' };
   if (target.ID === actor.ID) return { ok: false, error: 'Vous ne pouvez pas supprimer votre propre compte.' };
-  if (!canManageUser_(actor, target)) {
-    return { ok: false, error: 'Non autorisé à supprimer ce compte : seul son créateur peut le faire.' };
+  if (target.Role === ROLES.NATIONAL) return { ok: false, error: 'Un compte national ne peut pas être supprimé.' };
+  // Tout compte SUPÉRIEUR (direct ou non) peut supprimer un compte de sa descendance ; le national peut tout supprimer.
+  if (!isSupervisorOf_(actor, target)) return { ok: false, error: 'Non autorisé : ce compte ne fait pas partie de votre hiérarchie.' };
+
+  // Comptes en dessous de la cible (toute la descendance)
+  const aSupprimer = [target];
+  for (let k = 0; k < aSupprimer.length; k++) {
+    users.filter(u => u.ResponsableId === aSupprimer[k].ID && !aSupprimer.includes(u)).forEach(u => aSupprimer.push(u));
   }
-  const aDesSubordonnes = users.some(u => u.ResponsableId === target.ID);
-  if (aDesSubordonnes) {
-    return { ok: false, error: 'Ce compte a créé d\'autres comptes en dessous de lui : supprimez-les (ou contactez-les pour réattribution) avant de pouvoir le supprimer.' };
+  const subordonnes = aSupprimer.slice(1);
+  // Aperçu (sans rien supprimer) : sert à demander une confirmation éclairée côté interface.
+  if (p.apercu) return { ok: true, nbSubordonnes: subordonnes.length, subordonnes: subordonnes.map(u => `${u.Prenom} ${u.Nom} (${u.Role})`) };
+  if (subordonnes.length && !p.cascade) {
+    return { ok: false, error: `Ce compte a ${subordonnes.length} compte(s) en dessous de lui : confirmez la suppression de l'ensemble pour continuer.` };
   }
-  const removed = deleteRowById_(SHEETS.USERS, target.ID);
-  if (!removed) return { ok: false, error: 'Suppression impossible (compte introuvable dans le Sheet).' };
-  deleteRowsWhere_(SHEETS.SESSIONS, 'UserId', target.ID);
-  deleteRowsWhere_(SHEETS.PERIMETRES, 'UserId', target.ID);
-  return { ok: true };
+
+  const ids = new Set(aSupprimer.map(u => u.ID));
+  // Une seule passe par feuille (rapide, même pour beaucoup de comptes) — les lignes sont réellement
+  // supprimées du classeur, pas seulement masquées.
+  deleteRowsWhereIn_(SHEETS.USERS, 'ID', ids);
+  deleteRowsWhereIn_(SHEETS.SESSIONS, 'UserId', ids);
+  deleteRowsWhereIn_(SHEETS.PERIMETRES, 'UserId', ids);
+  deleteRowsWhereIn_(SHEETS.NOTIFICATIONS, 'DestinataireId', ids);
+  return { ok: true, supprimes: aSupprimer.length };
+}
+// Supprime toutes les lignes d'une feuille dont la colonne `field` est dans l'ensemble `valeurs`.
+function deleteRowsWhereIn_(sheetName, field, valeurs) {
+  const sh = ss_().getSheetByName(sheetName);
+  const values = sh.getDataRange().getValues();
+  const col = values[0].indexOf(field);
+  if (col < 0) return;
+  for (let r = values.length - 1; r >= 1; r--) {
+    if (valeurs.has(String(values[r][col]))) sh.deleteRow(r + 1);
+  }
+  invaliderCacheFeuille_(sheetName);
 }
 
 // Supprime la première ligne dont idField correspond à id. Retourne true si une ligne a été supprimée.

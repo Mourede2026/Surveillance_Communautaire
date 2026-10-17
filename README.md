@@ -138,3 +138,9 @@ déjà saisies (alertes, décès, suivis, rapports) sont conservées, avec le no
 - Après mise à jour de `Code.gs` : « Déployer » → « Gérer les déploiements » → nouvelle version.
 
 **Échéance (obligatoire)** : toute activité a une échéance. Le lendemain de cette date, elle disparaît de l'espace des destinataires (et ne peut plus être marquée « fait »). Seul le demandeur la retrouve, marquée « Échue », avec tout son suivi ; il peut prolonger l'échéance pour la rendre de nouveau visible.
+
+## Profil, thème, orientation
+
+- Bouton rond « profil » (silhouette blanche) en haut à droite de chaque espace : modifier ses paramètres (Mon compte), thème clair / sombre / auto, changer de compte (comptes déjà connectés sur l'appareil, sans mot de passe stocké, seulement le jeton de session), ajouter un compte, se déconnecter.
+- L'application installée accepte toutes les orientations (`"orientation": "any"` dans `manifest.json`) ; mise en page adaptée au paysage sur téléphone. Sur Android, il faut parfois **désinstaller puis réinstaller** l'application pour que le nouveau manifeste soit pris en compte.
+- Nouvelle action `getMe` dans `Code.gs` : redéployez une nouvelle version.

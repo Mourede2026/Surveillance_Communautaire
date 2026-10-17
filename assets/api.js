@@ -36,6 +36,7 @@ const Session = {
   // Enregistre le token et l'utilisateur reçus après une connexion réussie.
   setSession(token, user) {
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ token, user }));
+    if (typeof window.memoriserCompteCourant_ === 'function') window.memoriserCompteCourant_();
   },
 
   // Renvoie { token, user } ou null si personne n'est connecté.

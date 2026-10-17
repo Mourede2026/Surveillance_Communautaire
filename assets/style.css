@@ -273,3 +273,51 @@ table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0;
 .btn-lien:hover { background: var(--teal-500); }
 .barre { background: #E8EFEC; border-radius: 999px; height: 8px; width: 140px; overflow: hidden; margin-bottom: 3px; }
 .barre span { display: block; height: 100%; background: var(--teal-500); }
+
+/* ---------- Menu profil (barre du haut) ---------- */
+.btn-logout-top { display: none !important; } /* remplacé par le menu profil */
+.profil-wrap { position: relative; }
+.profil-btn { width: 40px; height: 40px; padding: 0; border-radius: 50%; background: var(--teal-700); border: 2px solid var(--teal-500); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.profil-btn:hover { background: var(--teal-500); }
+.profil-menu { position: absolute; right: 0; top: 48px; z-index: 1000; width: 280px; max-width: calc(100vw - 24px); max-height: calc(100vh - 80px); overflow-y: auto; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.22); padding: 8px; }
+.profil-menu[hidden] { display: none; }
+.profil-tete { display: flex; gap: 10px; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.profil-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--teal-700); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.profil-menu > button { display: block; width: 100%; text-align: left; background: transparent; color: var(--ink); border: 0; padding: 10px 10px; border-radius: 8px; font-size: .9rem; cursor: pointer; }
+.profil-menu > button:hover { background: var(--bg); }
+.profil-menu .profil-sortie { color: var(--red-600); font-weight: 600; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; margin-top: 6px; }
+.profil-sec { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: 10px 10px 4px; font-weight: 700; }
+.profil-theme { display: flex; gap: 6px; padding: 0 6px 4px; }
+.profil-theme button { flex: 1; padding: 7px 4px; font-size: .78rem; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.profil-theme button.on { background: var(--teal-700); color: #fff; border-color: var(--teal-700); }
+
+/* ---------- Thème sombre ---------- */
+:root[data-theme="dark"] {
+  --bg: #0F1917; --card: #172623; --ink: #E7F0ED; --ink-soft: #9FB5AF; --line: #2A3F3B; --teal-700: #1B8C84; --teal-500: #26A89E;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea { background: #0F1917; color: var(--ink); border-color: var(--line); }
+:root[data-theme="dark"] .topbar, :root[data-theme="dark"] .card, :root[data-theme="dark"] .modal-box { background: var(--card); color: var(--ink); }
+:root[data-theme="dark"] .btn-secondary { background: #22362F; color: var(--ink); }
+:root[data-theme="dark"] .rap-selecteurs, :root[data-theme="dark"] .sub-tabs button:not(.active), :root[data-theme="dark"] .barre { background: #1E312D; color: var(--ink); }
+:root[data-theme="dark"] h1, :root[data-theme="dark"] h2, :root[data-theme="dark"] h3, :root[data-theme="dark"] .sous-titre, :root[data-theme="dark"] legend { color: var(--ink); }
+:root[data-theme="dark"] .badge-late { background: #5A2A22; color: #FFD3CB; }
+:root[data-theme="dark"] .badge-cancel { background: #3A4642; color: #DDE; }
+:root[data-theme="dark"] .week-pill, :root[data-theme="dark"] .profil-btn { background: var(--teal-700); }
+:root[data-theme="dark"] #briefingContainer { color-scheme: light; background: #F6F8F7; color: #17231F; border-radius: 12px; padding: 12px; }
+
+/* ---------- Orientation : paysage sur téléphone (écran peu haut) ---------- */
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 721px) {
+  .sidebar { width: 190px; padding: 8px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  .sidebar .brand { padding: 0 14px 8px; }
+  .sidebar nav a { padding: 8px 14px; font-size: .85rem; }
+  .sidebar .user-box { padding: 8px 14px; }
+  .topbar { padding: 8px 16px; }
+  .content { padding: 14px 16px 40px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .profil-menu { max-height: calc(100vh - 64px); }
+}
+@media (orientation: landscape) and (max-width: 720px) {
+  .sidebar { position: sticky; top: 0; z-index: 50; }
+  .login-card { margin: 8px auto; }
+}

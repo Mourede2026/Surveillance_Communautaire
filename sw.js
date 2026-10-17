@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'surveillance-v8';
+const CACHE_VERSION = 'surveillance-v9';
 
 const APP_SHELL = [
   './',
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './assets/style.css',
   './assets/briefing.css',
   './assets/api.js',
+  './assets/profil-menu.js',
   './assets/geo-utils.js',
   './assets/geo-benin-data.js',
   './assets/rapport.js',

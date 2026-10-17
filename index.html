@@ -14,6 +14,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Surveillance">
+<script src="assets/profil-menu.js"></script>
 </head>
 <body>
 <div class="login-wrap">
@@ -35,6 +36,7 @@
 </div>
 <script src="assets/api.js"></script>
 <script>
+try { const pf = sessionStorage.getItem('scb_prefill'); if (pf) { document.getElementById('telephone').value = pf; sessionStorage.removeItem('scb_prefill'); } } catch (e) {}
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const telephone = document.getElementById('telephone').value.trim();

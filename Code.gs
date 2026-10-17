@@ -167,6 +167,7 @@ function doPost(e) {
       ping: () => ({ ok: true }),
       login: () => login_(payload),
       logout: () => { deleteSession_(token); return { ok: true }; },
+      getMe: () => ({ ok: true, user: user }),
 
       createUser: () => createUser_(user, payload),
       updateUser: () => updateUser_(user, payload),

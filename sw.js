@@ -36,6 +36,7 @@ const APP_SHELL = [
   './assets/briefing-videos.js',
   './assets/briefing-scenes.js',
   './assets/briefing-video.js',
+  './assets/briefing-video-export.js',
   './assets/suivi-groupe-lecture.js',
   './assets/suivi-groupe-ascq.js',
   './assets/activites.js',

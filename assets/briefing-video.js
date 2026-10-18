@@ -229,7 +229,11 @@ function bvFillVoiceList_() {
 const BV = {
   overlay: null, el: {}, moduleIndex: 0, slideIndex: 0,
   playing: false, muted: false, autoNext: true,
-  timerId: null, rafId: null, slideStartTs: 0, slideDurationMs: 0
+  timerId: null, rafId: null, slideStartTs: 0, slideDurationMs: 0,
+  token: 0,          // identifie la lecture en cours : les événements d'une lecture annulée sont ignorés
+  frozenMs: 0,       // temps écoulé dans la diapositive quand la lecture est en pause
+  durs: [],          // durées estimées (ms) des diapositives du module courant
+  seeking: false, speechBroken: false
 };
 
 function bvCurrentModuleSlides_() { return bvGetAllSlides_()[BV.moduleIndex]; }
@@ -241,56 +245,158 @@ function bvClearTimers_() {
 }
 function bvStopSpeaking_() { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }
 
-function bvProgressLoop_() {
-  const elapsed = performance.now() - BV.slideStartTs;
-  const pct = Math.min(1, BV.slideDurationMs ? elapsed / BV.slideDurationMs : 1);
-  if (BV.el.progressFill) BV.el.progressFill.style.width = (pct * 100) + '%';
-  if (pct < 1 && BV.playing) BV.rafId = requestAnimationFrame(bvProgressLoop_);
+// Durée estimée d'une diapositive, et découpage de sa narration en phrases (on peut ainsi
+// reprendre la lecture à une phrase donnée quand la personne avance ou recule dans la vidéo).
+function bvSlideDurMs_(slide) { return Math.round(bvEstimateDurationMs_(slide.narration || slide.title) * 1.1); }
+function bvChunksOf_(slide) {
+  if (slide._chunks) return slide._chunks;
+  const raw = (String(slide.narration || slide.title || '').match(/[^.!?]+[.!?]*/g) || []).map((x) => x.trim()).filter(Boolean);
+  const chunks = [];
+  raw.forEach((t) => {
+    if (chunks.length && chunks[chunks.length - 1].length < 45) chunks[chunks.length - 1] += ' ' + t;
+    else chunks.push(t);
+  });
+  if (!chunks.length) chunks.push(String(slide.title || ''));
+  const total = chunks.reduce((n, c) => n + c.length, 0) || 1;
+  let acc = 0;
+  slide._cum = chunks.map((c) => { const f = acc / total; acc += c.length; return f; }); // part de la durée écoulée au début de chaque phrase
+  slide._chunks = chunks;
+  return chunks;
 }
 
-function bvPlayCurrentSlide_() {
+function bvFmt_(ms) {
+  const t = Math.max(0, Math.round(ms / 1000));
+  return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+}
+function bvElapsedMs_() { return BV.playing ? performance.now() - BV.slideStartTs : BV.frozenMs; }
+function bvBeforeMs_() { return BV.durs.slice(0, BV.slideIndex).reduce((n, d) => n + d, 0); }
+function bvTotalMs_() { return BV.durs.reduce((n, d) => n + d, 0) || 1; }
+
+// Met à jour la barre de position (tout le module) et les temps affichés.
+function bvUpdateTimeline_() {
+  if (!BV.el.seek) return;
+  const dur = BV.durs[BV.slideIndex] || 1;
+  const pos = bvBeforeMs_() + Math.max(0, Math.min(bvElapsedMs_(), dur));
+  if (!BV.seeking) BV.el.seek.value = String(Math.round(pos / bvTotalMs_() * 1000));
+  BV.el.timeCur.textContent = bvFmt_(pos);
+  BV.el.timeTot.textContent = bvFmt_(bvTotalMs_());
+}
+function bvProgressLoop_() {
+  bvUpdateTimeline_();
+  if (BV.playing) BV.rafId = requestAnimationFrame(bvProgressLoop_);
+}
+
+// Lit la phrase i de la diapositive, puis enchaîne. Un événement venant d'une lecture annulée
+// (jeton différent, ou erreur « canceled/interrupted ») est ignoré : c'est ce qui faisait défiler
+// toutes les diapositives d'un coup lors d'un changement de diapositive.
+function bvSpeakChunk_(token, slide, i, dur) {
+  if (token !== BV.token || !BV.playing) return;
+  const chunks = bvChunksOf_(slide);
+  if (i >= chunks.length) { bvGoNext_(true); return; }
+  BV.slideStartTs = performance.now() - slide._cum[i] * dur; // recale la progression sur la voix
+  const u = new SpeechSynthesisUtterance(bvPrepareSpeech(chunks[i]));
+  u.lang = 'fr-FR';
+  const voice = bvPickFrenchVoice_();
+  if (voice) { u.voice = voice; u.lang = voice.lang || 'fr-FR'; }
+  u.rate = 0.94;
+  u.pitch = bvVoicePitch_(voice);
+  u.onend = () => bvSpeakChunk_(token, slide, i + 1, dur);
+  u.onerror = (ev) => {
+    if (token !== BV.token) return;
+    if (ev && (ev.error === 'canceled' || ev.error === 'interrupted')) return;
+    // Vraie panne de la synthèse vocale : on termine cette diapositive au minuteur, sans voix.
+    BV.speechBroken = true;
+    bvStopSpeaking_();
+    const reste = Math.max(800, dur - (performance.now() - BV.slideStartTs));
+    if (BV.timerId) clearTimeout(BV.timerId);
+    BV.timerId = setTimeout(() => { if (BV.playing && token === BV.token) bvGoNext_(true); }, reste);
+  };
+  window.speechSynthesis.speak(u);
+}
+
+// Lance (ou relance) la diapositive courante, éventuellement à `startRatio` (0 à 1) de sa durée.
+function bvPlayCurrentSlide_(startRatio) {
   const slide = bvCurrentSlide_();
   bvStopSpeaking_();
   bvClearTimers_();
-  BV.slideStartTs = performance.now();
-
-  if (!BV.muted && 'speechSynthesis' in window && slide.narration) {
-    const estMs = bvEstimateDurationMs_(slide.narration) * 1.15;
-    BV.slideDurationMs = estMs;
-    const u = new SpeechSynthesisUtterance(bvPrepareSpeech(slide.narration));
-    u.lang = 'fr-FR';
-    const voice = bvPickFrenchVoice_();
-    if (voice) { u.voice = voice; u.lang = voice.lang || 'fr-FR'; }
-    u.rate = 0.94;
-    u.pitch = bvVoicePitch_(voice);
-    u.onend = () => { if (BV.playing) bvGoNext_(true); };
-    u.onerror = () => { if (BV.playing) bvGoNext_(true); };
-    window.speechSynthesis.speak(u);
-    bvProgressLoop_();
-    // Filet de sécurité si l'événement "fin de lecture" ne se déclenche jamais (bug navigateur).
-    BV.timerId = setTimeout(() => { if (BV.playing) bvGoNext_(true); }, estMs + 8000);
-  } else {
-    const estMs = bvEstimateDurationMs_(slide.narration || slide.title);
-    BV.slideDurationMs = estMs;
-    bvProgressLoop_();
-    BV.timerId = setTimeout(() => { if (BV.playing) bvGoNext_(true); }, estMs);
+  const token = ++BV.token;
+  const dur = BV.durs[BV.slideIndex] || bvSlideDurMs_(slide);
+  BV.slideDurationMs = dur;
+  const ratio = Math.max(0, Math.min(0.98, startRatio || 0));
+  const useSpeech = !BV.muted && !BV.speechBroken && 'speechSynthesis' in window && !!slide.narration;
+  let startChunk = 0;
+  if (useSpeech) {
+    bvChunksOf_(slide);
+    slide._cum.forEach((f, i) => { if (f <= ratio) startChunk = i; });
   }
+  const offset = useSpeech ? slide._cum[startChunk] * dur : ratio * dur;
+  BV.slideStartTs = performance.now() - offset;
+  bvProgressLoop_();
+  if (useSpeech) {
+    bvSpeakChunk_(token, slide, startChunk, dur);
+    // Filet de sécurité si la voix ne se termine jamais (bug de certains navigateurs).
+    BV.timerId = setTimeout(() => { if (BV.playing && token === BV.token) bvGoNext_(true); }, dur - offset + 8000);
+  } else {
+    BV.timerId = setTimeout(() => { if (BV.playing && token === BV.token) bvGoNext_(true); }, Math.max(400, dur - offset));
+  }
+}
+// Reprend à l'endroit exact où on en est (après un changement de voix ou de son).
+function bvRestartHere_() {
+  const dur = BV.durs[BV.slideIndex] || 1;
+  bvPlayCurrentSlide_(bvElapsedMs_() / dur);
 }
 
 function bvPlay_() {
+  const dur = BV.durs[BV.slideIndex] || 1;
+  const ratio = BV.frozenMs / dur;
   BV.playing = true;
   if (BV.el.playPause) BV.el.playPause.textContent = '⏸';
   if (BV.el.endscreen) BV.el.endscreen.hidden = true;
-  bvPlayCurrentSlide_();
+  bvPlayCurrentSlide_(ratio);
 }
 function bvPause_() {
+  if (BV.playing) BV.frozenMs = performance.now() - BV.slideStartTs;
   BV.playing = false;
+  BV.token++; // invalide les événements encore en attente
   if (BV.el.playPause) BV.el.playPause.textContent = '▶';
   bvClearTimers_();
   bvStopSpeaking_();
+  bvUpdateTimeline_();
+}
+
+// Se place à `ms` depuis le début du module (change de diapositive si besoin) ; reste en pause
+// si la lecture était en pause.
+function bvSeekToMs_(ms) {
+  const total = bvTotalMs_();
+  ms = Math.max(0, Math.min(total - 1, ms));
+  let idx = 0, acc = 0;
+  while (idx < BV.durs.length - 1 && acc + BV.durs[idx] <= ms) { acc += BV.durs[idx]; idx++; }
+  const ratio = (ms - acc) / (BV.durs[idx] || 1);
+  const changed = idx !== BV.slideIndex;
+  BV.slideIndex = idx;
+  if (changed) bvRenderSlide_();
+  if (BV.el.endscreen) BV.el.endscreen.hidden = true;
+  if (BV.playing) bvPlayCurrentSlide_(ratio);
+  else { BV.frozenMs = ratio * (BV.durs[idx] || 1); bvUpdateTimeline_(); }
+}
+// Avance (+) ou recule (−) de `deltaMs` ; au-delà de la fin du module, passe à la maladie suivante.
+function bvSeekBy_(deltaMs) {
+  const pos = bvBeforeMs_() + bvElapsedMs_() + deltaMs;
+  if (pos >= bvTotalMs_()) {
+    if (BV.moduleIndex < BRIEFING_MODULES.length - 1) { bvJumpToModule_(BV.moduleIndex + 1); return; }
+    bvSeekToMs_(bvTotalMs_() - 1); return;
+  }
+  bvSeekToMs_(pos);
+}
+function bvGoToSlide_(i) {
+  BV.slideIndex = Math.max(0, Math.min(BV.durs.length - 1, i));
+  bvRenderSlide_();
+  if (BV.playing) bvPlayCurrentSlide_(0); else bvUpdateTimeline_();
 }
 
 function bvRenderSlide_() {
+  BV.frozenMs = 0;
+  if (BV.el.endscreen) BV.el.endscreen.hidden = true;
   const slides = bvCurrentModuleSlides_();
   const slide = slides[BV.slideIndex];
   const m = BRIEFING_MODULES[BV.moduleIndex];
@@ -321,11 +427,15 @@ function bvRenderSlide_() {
   BV.el.nextModuleBtn.disabled = false;
 
   bvUpdatePlaylistActive_();
+  bvUpdateTimeline_();
 }
 
+// Points de chapitre cliquables (un par diapositive) + durées estimées du module courant.
 function bvRebuildDots_() {
   const slides = bvCurrentModuleSlides_();
-  BV.el.dots.innerHTML = slides.map(() => '<span class="bv-dot"></span>').join('');
+  BV.durs = slides.map(bvSlideDurMs_);
+  BV.el.dots.innerHTML = slides.map((sl, i) => `<button type="button" class="bv-dot" data-slide="${i}" title="${bvEscapeHtml_(sl.title)}" aria-label="Aller à : ${bvEscapeHtml_(sl.title)}"></button>`).join('');
+  BV.el.dots.querySelectorAll('[data-slide]').forEach((d) => d.addEventListener('click', () => bvGoToSlide_(Number(d.dataset.slide))));
 }
 
 function bvGoNext_(auto) {
@@ -334,7 +444,7 @@ function bvGoNext_(auto) {
   if (BV.slideIndex < slides.length - 1) {
     BV.slideIndex++;
     bvRenderSlide_();
-    if (BV.playing) bvPlayCurrentSlide_();
+    if (BV.playing) bvPlayCurrentSlide_(0);
     return;
   }
   const isLastModule = BV.moduleIndex >= BRIEFING_MODULES.length - 1;
@@ -342,7 +452,7 @@ function bvGoNext_(auto) {
   if (isLastModule) { bvPause_(); bvShowEndOfSeries_(); return; }
   BV.moduleIndex++; BV.slideIndex = 0;
   bvRebuildDots_(); bvRenderSlide_();
-  if (BV.playing) bvPlayCurrentSlide_();
+  if (BV.playing) bvPlayCurrentSlide_(0);
 }
 
 function bvGoPrev_() {
@@ -355,7 +465,7 @@ function bvGoPrev_() {
     bvRebuildDots_();
   }
   bvRenderSlide_();
-  if (BV.playing) bvPlayCurrentSlide_();
+  if (BV.playing) bvPlayCurrentSlide_(0);
 }
 
 function bvJumpToModule_(idx) {
@@ -364,13 +474,14 @@ function bvJumpToModule_(idx) {
   BV.slideIndex = 0;
   bvRebuildDots_(); bvRenderSlide_();
   bvTogglePlaylist_(false);
-  if (BV.playing) bvPlayCurrentSlide_(); else bvPlay_();
+  BV.playing = false; // repart du début de la maladie choisie
+  bvPlay_();
 }
 
 function bvToggleMute_() {
   BV.muted = !BV.muted;
   BV.el.muteBtn.textContent = BV.muted ? '🔇' : '🔊';
-  if (BV.playing) bvPlayCurrentSlide_();
+  if (BV.playing) bvRestartHere_();
 }
 
 function bvShowEndOfSeries_() {
@@ -379,18 +490,29 @@ function bvShowEndOfSeries_() {
 
 function bvBuildPlaylist_() {
   BV.el.playlist.innerHTML = BRIEFING_MODULES.map((m, i) => `
-    <button class="bv-playlist-item" data-idx="${i}">
-      <span class="bv-pl-icon">${m.icon}</span>
-      <span class="bv-pl-title">${bvEscapeHtml_(m.title)}</span>
-      <span class="bv-pl-num">${bvEscapeHtml_(m.num)}</span>
-    </button>`).join('');
+    <div class="bv-playlist-row">
+      <button class="bv-playlist-item" data-idx="${i}">
+        <span class="bv-pl-icon">${m.icon}</span>
+        <span class="bv-pl-title">${bvEscapeHtml_(m.title)}</span>
+        <span class="bv-pl-num">${bvEscapeHtml_(m.num)}</span>
+      </button>
+      <button class="bv-pl-dl" data-dl="${i}" title="Télécharger / envoyer cette vidéo" aria-label="Télécharger ou envoyer la vidéo : ${bvEscapeHtml_(m.title)}">⬇</button>
+    </div>`).join('');
   BV.el.playlist.querySelectorAll('[data-idx]').forEach((btn) => {
     btn.addEventListener('click', () => bvJumpToModule_(Number(btn.dataset.idx)));
   });
+  BV.el.playlist.querySelectorAll('[data-dl]').forEach((btn) => {
+    btn.addEventListener('click', () => bvExportModule_(Number(btn.dataset.dl)));
+  });
+}
+// Création du fichier vidéo d'une maladie (assets/briefing-video-export.js).
+function bvExportModule_(idx) {
+  if (typeof bvStartExport_ === 'function') bvStartExport_(idx);
+  else if (typeof toast === 'function') toast('Export vidéo indisponible.', true);
 }
 function bvUpdatePlaylistActive_() {
   if (!BV.el.playlist) return;
-  Array.from(BV.el.playlist.children).forEach((btn, i) => btn.classList.toggle('active', i === BV.moduleIndex));
+  BV.el.playlist.querySelectorAll('.bv-playlist-item').forEach((btn, i) => btn.classList.toggle('active', i === BV.moduleIndex));
 }
 function bvTogglePlaylist_(force) {
   const show = typeof force === 'boolean' ? force : !BV.overlay.classList.contains('bv-playlist-open');
@@ -405,9 +527,12 @@ function bvClose_() {
 
 function bvOnKeydown_(e) {
   if (!BV.overlay || !BV.overlay.classList.contains('open')) return;
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.key !== 'Escape') return;
   if (e.key === 'Escape') bvClose_();
-  else if (e.key === 'ArrowRight') bvGoNext_(false);
-  else if (e.key === 'ArrowLeft') bvGoPrev_();
+  else if (e.key === 'ArrowRight') bvSeekBy_(10000);
+  else if (e.key === 'ArrowLeft') bvSeekBy_(-10000);
+  else if (e.key === 'ArrowDown') bvGoNext_(false);
+  else if (e.key === 'ArrowUp') bvGoPrev_();
   else if (e.key === ' ') { e.preventDefault(); BV.playing ? bvPause_() : bvPlay_(); }
 }
 
@@ -420,7 +545,13 @@ function bvEnsureOverlay_() {
     <div class="bv-topbar">
       <button class="bv-icon-btn" id="bvClose" title="Fermer" aria-label="Fermer">✕</button>
       <div class="bv-module-label" id="bvModuleLabel"></div>
+      <button class="bv-icon-btn" id="bvMute" title="Son" aria-label="Couper / activer le son">🔊</button>
+      <button class="bv-icon-btn" id="bvSettingsToggle" title="Réglages (voix, lecture auto)" aria-label="Réglages">⚙</button>
       <button class="bv-icon-btn" id="bvPlaylistToggle" title="Liste des maladies" aria-label="Liste des maladies">☰</button>
+    </div>
+    <div class="bv-settings" id="bvSettings" hidden>
+      <label class="bv-autonext"><input type="checkbox" id="bvAutoNext" checked> Lecture auto (passer à la maladie suivante)</label>
+      <label class="bv-autonext bv-voice-label">Voix <select id="bvVoice" class="bv-voice-select"></select></label>
     </div>
     <div class="bv-stage" id="bvStage">
       <div class="bv-scene" id="bvScene" aria-hidden="true"></div>
@@ -429,30 +560,39 @@ function bvEnsureOverlay_() {
         <h2 class="bv-slide-title" id="bvSlideTitle"></h2>
         <ul class="bv-lines" id="bvLines"></ul>
       </div>
+      <div class="bv-endscreen" id="bvEndscreen" hidden>
+        <div class="bv-endscreen-title">✅ Série terminée !</div>
+        <div class="bv-endscreen-actions">
+          <button class="bv-icon-btn bv-endscreen-btn" id="bvReplay">🔁 Revoir depuis le début</button>
+          <button class="bv-icon-btn bv-endscreen-btn" id="bvStayEnd">◀ Revenir en arrière</button>
+          <button class="bv-icon-btn bv-endscreen-btn" id="bvCloseEnd">Fermer</button>
+        </div>
+      </div>
     </div>
     <div class="bv-caption" id="bvCaption"></div>
-    <div class="bv-dots" id="bvDots"></div>
-    <div class="bv-progress"><div class="bv-progress-fill" id="bvProgressFill"></div></div>
+    <div class="bv-timeline">
+      <span class="bv-time" id="bvTimeCur">0:00</span>
+      <input type="range" id="bvSeek" class="bv-seek" min="0" max="1000" value="0" step="1" aria-label="Position dans la vidéo">
+      <span class="bv-time" id="bvTimeTot">0:00</span>
+    </div>
+    <div class="bv-dots-row">
+      <button class="bv-mini" id="bvPrev" title="Diapositive précédente" aria-label="Diapositive précédente">‹</button>
+      <div class="bv-dots" id="bvDots"></div>
+      <button class="bv-mini" id="bvNext" title="Diapositive suivante" aria-label="Diapositive suivante">›</button>
+    </div>
     <div class="bv-controls">
       <button class="bv-icon-btn" id="bvPrevModule" title="Maladie précédente" aria-label="Maladie précédente">⏮</button>
-      <button class="bv-icon-btn" id="bvPrev" title="Précédent" aria-label="Diapositive précédente">◀</button>
+      <button class="bv-icon-btn bv-skip" id="bvBack10" title="Reculer de 10 secondes" aria-label="Reculer de 10 secondes">↺ 10 s</button>
       <button class="bv-play-btn" id="bvPlayPause" title="Lecture / Pause" aria-label="Lecture / Pause">⏸</button>
-      <button class="bv-icon-btn" id="bvNext" title="Suivant" aria-label="Diapositive suivante">▶</button>
+      <button class="bv-icon-btn bv-skip" id="bvFwd10" title="Avancer de 10 secondes" aria-label="Avancer de 10 secondes">10 s ↻</button>
       <button class="bv-icon-btn" id="bvNextModule" title="Maladie suivante" aria-label="Maladie suivante">⏭</button>
-      <button class="bv-icon-btn" id="bvMute" title="Son" aria-label="Couper / activer le son">🔊</button>
-      <label class="bv-autonext"><input type="checkbox" id="bvAutoNext" checked> Lecture auto</label>
-      <label class="bv-autonext bv-voice-label">Voix <select id="bvVoice" class="bv-voice-select"></select></label>
+    </div>
+    <div class="bv-export-row">
+      <button class="bv-pill" id="bvExport" title="Créer un fichier vidéo à enregistrer ou à envoyer">🎬 Télécharger / envoyer cette vidéo</button>
     </div>
     <div class="bv-playlist-panel">
       <div class="bv-playlist-header">Toutes les maladies</div>
       <div class="bv-playlist" id="bvPlaylist"></div>
-    </div>
-    <div class="bv-endscreen" id="bvEndscreen" hidden>
-      <div class="bv-endscreen-title">✅ Série terminée !</div>
-      <div class="bv-endscreen-actions">
-        <button class="bv-icon-btn bv-endscreen-btn" id="bvReplay">🔁 Revoir depuis le début</button>
-        <button class="bv-icon-btn bv-endscreen-btn" id="bvCloseEnd">Fermer</button>
-      </div>
     </div>
   `;
   document.body.appendChild(div);
@@ -468,7 +608,10 @@ function bvEnsureOverlay_() {
     lines: div.querySelector('#bvLines'),
     caption: div.querySelector('#bvCaption'),
     dots: div.querySelector('#bvDots'),
-    progressFill: div.querySelector('#bvProgressFill'),
+    seek: div.querySelector('#bvSeek'),
+    timeCur: div.querySelector('#bvTimeCur'),
+    timeTot: div.querySelector('#bvTimeTot'),
+    settings: div.querySelector('#bvSettings'),
     moduleLabel: div.querySelector('#bvModuleLabel'),
     playPause: div.querySelector('#bvPlayPause'),
     muteBtn: div.querySelector('#bvMute'),
@@ -485,16 +628,38 @@ function bvEnsureOverlay_() {
   div.querySelector('#bvPlayPause').addEventListener('click', () => (BV.playing ? bvPause_() : bvPlay_()));
   div.querySelector('#bvMute').addEventListener('click', bvToggleMute_);
   div.querySelector('#bvPrevModule').addEventListener('click', () => bvJumpToModule_(BV.moduleIndex - 1 < 0 ? 0 : BV.moduleIndex - 1));
+  div.querySelector('#bvExport').addEventListener('click', () => bvExportModule_(BV.moduleIndex));
+  div.querySelector('#bvBack10').addEventListener('click', () => bvSeekBy_(-10000));
+  div.querySelector('#bvFwd10').addEventListener('click', () => bvSeekBy_(10000));
+  div.querySelector('#bvSettingsToggle').addEventListener('click', () => { BV.el.settings.hidden = !BV.el.settings.hidden; });
+  // Barre de position : on peut la faire glisser (ou la toucher) pour aller n'importe où dans la maladie.
+  BV.el.seek.addEventListener('input', () => {
+    BV.seeking = true;
+    BV.el.timeCur.textContent = bvFmt_(Number(BV.el.seek.value) / 1000 * bvTotalMs_());
+  });
+  BV.el.seek.addEventListener('change', () => {
+    const ms = Number(BV.el.seek.value) / 1000 * bvTotalMs_();
+    BV.seeking = false;
+    bvSeekToMs_(ms);
+  });
+  // Balayage gauche/droite sur l'image : diapositive suivante / précédente.
+  let tx = 0, ty = 0;
+  BV.el.stage.addEventListener('touchstart', (e) => { const t = e.changedTouches[0]; tx = t.clientX; ty = t.clientY; }, { passive: true });
+  BV.el.stage.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0], dx = t.clientX - tx, dy = t.clientY - ty;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { if (dx < 0) bvGoNext_(false); else bvGoPrev_(); }
+  }, { passive: true });
   div.querySelector('#bvNextModule').addEventListener('click', () => bvJumpToModule_(BV.moduleIndex + 1));
   div.querySelector('#bvAutoNext').addEventListener('change', (e) => { BV.autoNext = e.target.checked; });
   bvFillVoiceList_();
   if ('speechSynthesis' in window) window.speechSynthesis.addEventListener('voiceschanged', bvFillVoiceList_);
   BV.el.voiceSel.addEventListener('change', (e) => {
     try { localStorage.setItem('bvVoice', e.target.value); } catch (err) { /* stockage indisponible */ }
-    if (BV.playing) bvPlayCurrentSlide_();
+    if (BV.playing) bvRestartHere_();
   });
   div.querySelector('#bvReplay').addEventListener('click', () => bvJumpToModule_(0));
   div.querySelector('#bvCloseEnd').addEventListener('click', bvClose_);
+  div.querySelector('#bvStayEnd').addEventListener('click', () => { BV.el.endscreen.hidden = true; bvSeekToMs_(0); });
   div.addEventListener('click', (e) => { if (e.target === div) bvClose_(); });
 
   document.addEventListener('keydown', bvOnKeydown_);

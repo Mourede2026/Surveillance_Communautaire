@@ -70,8 +70,7 @@
 
   const briefing = () => ({
     id: 'briefing', titre: 'Briefing maladies',
-    html: `<p>Menu ${menu('📋 Briefing maladies')} : fiches pédagogiques sur les maladies à surveiller (définition de cas, signes, conduite à tenir) et vidéos. C'est votre aide-mémoire : consultez-le avant de notifier une alerte pour bien choisir le type d'événement.</p>
-      ${l(['Dans le lecteur vidéo, glissez la <strong>barre de position</strong> ou utilisez <strong>↺ 10 s / 10 s ↻</strong> pour reculer ou avancer ; les petits points permettent de sauter à une diapositive.', 'Bouton <strong>🎬 Télécharger / envoyer cette vidéo</strong> (ou <strong>⬇</strong> dans la liste des maladies) : crée un fichier vidéo à enregistrer sur le téléphone ou à envoyer (WhatsApp…). La création se fait en temps réel : gardez l\'écran ouvert. La vidéo exportée a les images et les sous-titres, <strong>sans la voix</strong>.'])}`
+    html: `<p>Menu ${menu('📋 Briefing maladies')} : fiches pédagogiques sur les maladies à surveiller (définition de cas, signes, conduite à tenir) et vidéos. C'est votre aide-mémoire : consultez-le avant de notifier une alerte pour bien choisir le type d'événement.</p>`
   });
 
   const rapport = (portee) => ({

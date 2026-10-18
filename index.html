@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Connexion — Surveillance à Base Communautaire</title>
+<title>Connexion — SIVEC</title>
 <link rel="stylesheet" href="assets/style.css">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0B3D3A">
@@ -13,14 +13,15 @@
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Surveillance">
+<meta name="apple-mobile-web-app-title" content="SIVEC">
 <script src="assets/profil-menu.js"></script>
 </head>
 <body>
 <div class="login-wrap">
   <div class="login-card">
-    <h1>Surveillance à Base Communautaire</h1>
-    <p class="sub">Ministère de la Santé — République du Bénin</p>
+    <img class="login-logo" src="assets/sivec-mark.svg" alt="SIVEC" width="88" height="88">
+    <h1>SIVEC</h1>
+    <p class="sub">Système d’Information et de Veille Épidémiologique Communautaire<span class="sub-min">Ministère de la Santé — République du Bénin</span></p>
     <form id="loginForm">
       <div class="field">
         <label>Numéro de téléphone</label>
@@ -32,9 +33,26 @@
       </div>
       <button type="submit" class="btn-block">Se connecter</button>
     </form>
+    <button type="button" id="btnPresentation" class="btn-presentation">▶ Découvrir SIVEC en 30 secondes</button>
   </div>
 </div>
 <script src="assets/api.js"></script>
+<script src="assets/sivec-intro.js"></script>
+<script>
+// Animation d'ouverture : film de 30 s au tout premier lancement, puis logo animé (≈ 5 s) une fois par session.
+(function () {
+  var reduit = false, vu = false, dejaVu = false;
+  try { reduit = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+  try { vu = !!localStorage.getItem('sivec_film_vu'); dejaVu = !!sessionStorage.getItem('sivec_splash'); } catch (e) {}
+  function marquerVu(mode) { if (mode === 'film') { try { localStorage.setItem('sivec_film_vu', '1'); } catch (e) {} } }
+  var bouton = document.getElementById('btnPresentation');
+  if (bouton) bouton.onclick = function () { SivecIntro.ouvrir({ mode: 'film', onFin: marquerVu }); };
+  if (!dejaVu && !reduit && window.SivecIntro) {
+    try { sessionStorage.setItem('sivec_splash', '1'); } catch (e) {}
+    SivecIntro.ouvrir({ mode: vu ? 'logo' : 'film', onFin: marquerVu });
+  }
+})();
+</script>
 <script>
 try { const pf = sessionStorage.getItem('scb_prefill'); if (pf) { document.getElementById('telephone').value = pf; sessionStorage.removeItem('scb_prefill'); } } catch (e) {}
 document.getElementById('loginForm').addEventListener('submit', async (e) => {

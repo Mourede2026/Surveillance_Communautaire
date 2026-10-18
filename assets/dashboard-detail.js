@@ -21,6 +21,7 @@ async function renderDashboardDetail(containerId) {
         <button data-niv="arrondissement">Arrondissements</button>
         <button data-niv="commune">Communes</button>
       </div>
+      <div style="margin:8px 0"><button type="button" class="btn-secondary btn-mini" id="${containerId}Xl" title="Télécharger les trois tableaux au format Excel">⬇ Exporter en Excel</button></div>
       <div id="${containerId}Table"></div>
     `;
     const tableEl = document.getElementById(containerId + 'Table');
@@ -33,6 +34,23 @@ async function renderDashboardDetail(containerId) {
       paint(b.dataset.niv);
     }));
     paint('village');
+    document.getElementById(containerId + 'Xl').onclick = () => {
+      try {
+        const u = (window.Session && Session.getUser && Session.getUser()) || {};
+        const t = (nom, ctx, rows) => ({ nom, entete: 1, filtre: true, largeurs: [30].concat(ctx.map(() => 26), [11, 18, 11]),
+          lignes: [[nom.replace(/s$/, '')].concat(ctx, ['Alertes', 'Non investiguées', 'Décès'])].concat((rows || []).map(r => [r.nom].concat(ctx.map(c => r[c.toLowerCase()] || ''), [r.nbAlertes, r.nbNonInvestiguees, r.nbDeces]))) });
+        const feuilles = [
+          { nom: 'Informations', sansBordure: true, largeurs: [30, 60], lignes: [
+            [{ v: 'SIVEC — Détail géographique des cas', s: 't' }], [],
+            [{ v: 'Contenu', s: 'b' }, 'Lieux ayant eu au moins un cas (alerte ou décès), de votre périmètre'],
+            [{ v: 'Exporté le', s: 'b' }, new Date().toLocaleString('fr-FR')],
+            [{ v: 'Exporté par', s: 'b' }, ((u.Prenom || '') + ' ' + (u.Nom || '')).trim() + (u.Role ? ' (' + u.Role + ')' : '')]] },
+          t('Villages', ['Arrondissement', 'Commune'], parVillage), t('Arrondissements', ['Commune'], parArrondissement), t('Communes', [], parCommune)
+        ];
+        ExportExcel.telecharger('SIVEC_detail_geographique_' + new Date().toISOString().slice(0, 10) + '.xlsx', feuilles);
+        toast('Fichier Excel prêt.');
+      } catch (err) { toast('Export Excel impossible : ' + err.message, true); }
+    };
   } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement du détail.</div>'; }
 }
 

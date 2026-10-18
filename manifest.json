@@ -1,7 +1,7 @@
 {
-  "name": "Surveillance Communautaire — Bénin",
-  "short_name": "Surveillance",
-  "description": "Plateforme de surveillance à base communautaire des épidémies au Bénin (RC, ASCQ, PF CCLS-TP, RCSE, National).",
+  "name": "SIVEC — Système d’Information et de Veille Épidémiologique Communautaire",
+  "short_name": "SIVEC",
+  "description": "SIVEC : surveillance à base communautaire des épidémies au Bénin (RC, ASCQ, PF CCLS-TP, RCSE, Département, National).",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

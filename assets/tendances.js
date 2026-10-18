@@ -10,6 +10,62 @@
   const NS = 'http://www.w3.org/2000/svg';
   const etat = { annee: null, mode: 'histo', dep: '', com: '', arr: '', vil: '' };
 
+  // ---------- Export Excel (données filtrées + graphiques en images) ----------
+  function libelleFiltre(liste, id) { const x = (liste || []).find(y => y.id === id); return x ? x.nom : 'Tous'; }
+  const ordreTypes = o => Object.keys(o).sort((a, b) => parseFloat(a) - parseFloat(b) || a.localeCompare(b));
+
+  /** Feuilles « Filtres » et « Synthèse » (fonction pure : testable hors navigateur). */
+  function feuillesTendances(r, e, utilisateur, maintenant) {
+    const o = r.options || {}, n = r.nbSemaines || (r.alertes.total || []).length;
+    const sem = []; for (let i = 1; i <= n; i++) sem.push('S' + i);
+    const filtres = [
+      [{ v: 'SIVEC — Tendances par semaine épidémiologique', s: 't' }], [],
+      [{ v: 'Année', s: 'b' }, r.annee],
+      [{ v: 'Département', s: 'b' }, libelleFiltre(o.departements, e.dep)],
+      [{ v: 'Commune', s: 'b' }, libelleFiltre(o.communes, e.com)],
+      [{ v: 'Arrondissement', s: 'b' }, libelleFiltre(o.arrondissements, e.arr)],
+      [{ v: 'Village', s: 'b' }, libelleFiltre(o.villages, e.vil)],
+      [{ v: 'Période', s: 'b' }, 'Semaines épidémiologiques 1 à ' + n],
+      [{ v: 'Affichage des graphiques', s: 'b' }, e.mode === 'histo' ? 'Histogramme' : 'Courbe'],
+      [], [{ v: 'Exporté le', s: 'b' }, maintenant],
+      [{ v: 'Exporté par', s: 'b' }, utilisateur]
+    ];
+    const lignes = [['Catégorie', 'Événement', 'Total'].concat(sem)];
+    const somme = v => v.reduce((a, b) => a + b, 0);
+    const ajoute = (cat, nom, v) => lignes.push([cat, nom, somme(v)].concat(v));
+    ajoute('Alertes', 'Toutes les alertes', r.alertes.total);
+    ordreTypes(r.alertes.parType).forEach(k => ajoute('Alertes', k, r.alertes.parType[k]));
+    ajoute('Décès', 'Tous les décès', r.deces.total);
+    ordreTypes(r.deces.parType).forEach(k => ajoute('Décès', k, r.deces.parType[k]));
+    return [
+      { nom: 'Filtres', sansBordure: true, largeurs: [30, 46], lignes: filtres },
+      { nom: 'Synthèse', entete: 1, filtre: true, largeurs: [12, 38, 9].concat(sem.map(() => 6)), lignes }
+    ];
+  }
+
+  async function exporterExcel(el, r, e) {
+    try {
+      const u = (window.Session && Session.getUser && Session.getUser()) || {};
+      const feuilles = feuillesTendances(r, e, ((u.Prenom || '') + ' ' + (u.Nom || '')).trim() + (u.Role ? ' (' + u.Role + ')' : ''), new Date().toLocaleString('fr-FR'));
+      // Graphiques : une image par carte, en grille de 2 colonnes
+      const cartes = Array.from(el.querySelectorAll('.tend-card')), images = [], lignes = [[{ v: 'Graphiques (année ' + r.annee + ')', s: 't' }]];
+      const L = 560, H = 210, PAS = 13;
+      for (let i = 0; i < cartes.length; i++) {
+        const svg = cartes[i].querySelector('svg'), titre = (cartes[i].querySelector('strong') || {}).textContent || '';
+        const p = Math.floor(i / 2), col = (i % 2) * 10, lig = 1 + p * PAS;
+        while (lignes.length <= lig) lignes.push([]);
+        while (lignes[lig].length <= col) lignes[lig].push(null);
+        lignes[lig][col] = { v: titre, s: 'b' };
+        try { images.push({ png: await ExportExcel.svgVersPng(svg), col: col, ligne: lig + 1, larg: L, haut: H }); } catch (err) { /* le tableau reste exporté */ }
+      }
+      feuilles.push({ nom: 'Graphiques', lignes, images });
+      const jour = new Date().toISOString().slice(0, 10);
+      ExportExcel.telecharger('SIVEC_tendances_' + r.annee + '_' + jour + '.xlsx', feuilles);
+      toast('Fichier Excel prêt.');
+    } catch (err) { toast('Export Excel impossible : ' + err.message, true); }
+  }
+  window.__tendancesExport = { feuillesTendances };
+
   function pasAxe(max) { const c = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]; const m = Math.max(max, 4); for (const p of c) if (m / p <= 5) return p; return 1000; }
 
   function svgGraphe(valeurs, couleur, mode, titre) {
@@ -57,11 +113,13 @@
         .concat(ordre(r.deces.parType).map(t => carte(t, r.deces.parType[t], 'var(--red-600)', etat.mode)));
       el.innerHTML = `<div class="tend-barre">${filtresHtml}<label>Année <select id="${containerId}An">${r.annees.map(a => `<option ${a === r.annee ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
         <div class="sub-tabs" style="margin:0"><button type="button" data-m="histo" class="${etat.mode === 'histo' ? 'active' : ''}">▮ Histogramme</button><button type="button" data-m="courbe" class="${etat.mode === 'courbe' ? 'active' : ''}">📈 Courbe</button></div>
+        <button type="button" class="btn-secondary btn-mini" id="${containerId}Xl" title="Télécharger les données et graphiques filtrés au format Excel">⬇ Exporter en Excel</button>
         <span class="petit">Semaines épidémiologiques 1 à ${r.nbSemaines} · à zéro s'il n'y a aucune notification</span></div>
         <div class="tend-grid">${cartes.join('')}</div>`;
       const lien = (id, cle, enfants) => { const x = document.getElementById(containerId + id); if (x) x.onchange = e => { etat[cle] = e.target.value; enfants.forEach(k => { etat[k] = ''; }); renderTendances(containerId); }; };
       lien('Dep', 'dep', ['com', 'arr', 'vil']); lien('Com', 'com', ['arr', 'vil']); lien('Arr', 'arr', ['vil']); lien('Vil', 'vil', []);
       document.getElementById(containerId + 'An').onchange = e => { etat.annee = Number(e.target.value); renderTendances(containerId); };
+      document.getElementById(containerId + 'Xl').onclick = () => exporterExcel(el, r, Object.assign({}, etat));
       el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { etat.mode = b.dataset.m; renderTendances(containerId); });
     } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement des tendances : ' + escHtml(e.message) + '</div>'; }
   };

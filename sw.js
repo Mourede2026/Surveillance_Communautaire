@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'surveillance-v21';
+const CACHE_VERSION = 'sivec-v24';
 
 const APP_SHELL = [
   './',
@@ -36,14 +36,16 @@ const APP_SHELL = [
   './assets/briefing-videos.js',
   './assets/briefing-scenes.js',
   './assets/briefing-video.js',
-  './assets/briefing-video-export.js',
   './assets/suivi-groupe-lecture.js',
   './assets/suivi-groupe-ascq.js',
   './assets/activites.js',
+  './assets/export-excel.js',
   './assets/tendances.js',
   './assets/nettoyage.js',
   './assets/admin.js',
   './assets/deces-confirmation.js',
+  './assets/sivec-mark.svg',
+  './assets/sivec-intro.js',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/apple-touch-icon.png',

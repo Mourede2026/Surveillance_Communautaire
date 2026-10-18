@@ -388,3 +388,19 @@ body.guide-ouvert { overflow: hidden; }
   .guide-contenu { padding: 14px 14px 26px; }
 }
 @media (max-width: 720px) { .btn-guide { padding: 6px 9px; font-size: 0; } .btn-guide::first-letter { font-size: 1rem; } }
+
+
+/* === Identité SIVEC : logo === */
+.sidebar .brand { display: flex; align-items: center; gap: 10px; }
+.sidebar .brand .brand-logo { width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px; box-shadow: 0 0 0 2px rgba(255,255,255,.3); }
+.sidebar .brand .brand-txt strong { letter-spacing: .08em; font-size: 1.15rem; }
+.topbar-logo { display: none; width: 30px; height: 30px; margin-right: 8px; flex-shrink: 0; border-radius: 7px; }
+@media (max-width: 720px) { .topbar-logo { display: block; } }
+.login-logo { display: block; width: 88px; height: 88px; margin: 0 auto 10px; border-radius: 20px; box-shadow: 0 6px 18px rgba(11,61,58,.28); }
+.login-card h1 { text-align: center; letter-spacing: .14em; font-size: 1.6rem; }
+.login-card p.sub { text-align: center; line-height: 1.45; }
+@media print { .topbar-logo { display: none; } }
+.login-card p.sub .sub-min { display: block; margin-top: 5px; font-size: .74rem; white-space: nowrap; }
+@media (max-width: 720px) { .sidebar .brand { display: none; } }
+.btn-presentation { display: block; width: 100%; margin-top: 14px; background: none; border: 1.5px solid var(--teal-700); color: var(--teal-700); border-radius: 8px; padding: 10px 14px; font-weight: 700; font-size: .9rem; cursor: pointer; }
+.btn-presentation:hover { background: var(--tint-2); }

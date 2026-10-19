@@ -170,10 +170,9 @@ Bouton **📖 Guide** (barre du haut, et entrée du menu profil) : un guide comp
 
 ## Identité visuelle SIVEC
 
-- Logo : `assets/sivec-mark.svg` (vectoriel). Affiché dans la barre latérale (ordinateur), la barre du haut (téléphone) et la page de connexion de tous les espaces.
-- Icônes de l'application installée et favicon : `assets/icons/` (anciennes icônes conservées dans `assets/icons/ancien/`).
-- Logo horizontal pour documents : `assets/icons/sivec-logo-horizontal.png` (fond transparent).
-- Après mise à jour, le cache de l'application passe en version `sivec-v22` : les téléphones se mettent à jour à la prochaine ouverture ; sur Android, désinstaller puis réinstaller l'application si l'ancienne icône persiste.
+- Le logo de l'application reste l'illustration d'origine (`assets/icons/logo_master.png` ; version légère pour l'animation : `assets/sivec-logo.png`), associée au nom **SIVEC**.
+- Il s'affiche dans la barre latérale (ordinateur), la barre du haut (téléphone) et la page de connexion de tous les espaces ; les icônes de l'application installée et le favicon (`assets/icons/`) sont ceux d'origine.
+- Après mise à jour, le cache de l'application passe en version `sivec-v25` : les téléphones se mettent à jour à la prochaine ouverture.
 
 ## Export Excel du tableau de bord
 
@@ -181,8 +180,11 @@ Bouton **📖 Guide** (barre du haut, et entrée du menu profil) : un guide comp
 - **Détail géographique** (ASCQ, PF, RCSE, Département) : bouton « ⬇ Exporter en Excel » : feuilles *Villages*, *Arrondissements* et *Communes*.
 - Le fichier .xlsx est produit dans le navigateur par `assets/export-excel.js` (aucune librairie, fonctionne hors ligne).
 
-## Animation d'ouverture
+## Animation d'ouverture (spot de 30 s avec son)
 
-- `assets/sivec-intro.js` : film de présentation de 30 s (village, alerte du RC, remontée de la chaîne, riposte, logo) et logo animé (≈ 5 s), dessinés en canvas (aucun fichier vidéo).
-- Page de connexion : film complet au tout premier lancement (bouton « Passer »), puis logo animé une fois par session ; bouton « ▶ Découvrir SIVEC en 30 secondes » pour revoir le film. Désactivé si l'appareil demande de réduire les animations.
-- Pour rejouer le film comme au premier lancement : effacer la clé `sivec_film_vu` du stockage local du navigateur.
+- **Histoire** : un matin dans un village, des enfants ont de la fièvre et des boutons ; la communauté prévient le relais communautaire ; le RC enregistre l'alerte sur son application ; l'ASCQ et toute la chaîne sont informés ; l'ASCQ investigue et la riposte s'organise ; le logo de l'application apparaît en fin de spot.
+- `assets/sivec-intro.js` dessine le spot en canvas (aucun fichier vidéo) ; le son est dans `assets/sivec-spot.m4a` (30 s) et `assets/sivec-sting.m4a` (révélation du logo seule, ≈ 4,6 s). Musique et bruitages sont synthétisés (aucun échantillon sous licence).
+- Page de connexion : spot complet au tout premier lancement (bouton « Passer »), puis seulement la révélation du logo une fois par session ; bouton « ▶ Découvrir SIVEC en 30 secondes » pour revoir le spot.
+- **Son** : les navigateurs interdisent de démarrer un son sans geste de l'utilisateur. Au lancement automatique, un bouton « 🔇 Activer le son » (en haut à gauche) apparaît : un appui lance le son en le recalant sur l'image. Quand on clique sur « ▶ Découvrir SIVEC en 30 secondes », le son démarre tout de suite.
+- L'animation est désactivée si l'appareil demande de réduire les animations.
+- Pour rejouer le spot comme au premier lancement : effacer la clé `sivec_film_vu` du stockage local du navigateur.

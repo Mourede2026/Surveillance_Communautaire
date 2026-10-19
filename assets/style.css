@@ -392,11 +392,11 @@ body.guide-ouvert { overflow: hidden; }
 
 /* === Identité SIVEC : logo === */
 .sidebar .brand { display: flex; align-items: center; gap: 10px; }
-.sidebar .brand .brand-logo { width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px; box-shadow: 0 0 0 2px rgba(255,255,255,.3); }
+.sidebar .brand .brand-logo { width: 48px; height: 48px; flex-shrink: 0; filter: drop-shadow(0 1px 3px rgba(0,0,0,.45)); }
 .sidebar .brand .brand-txt strong { letter-spacing: .08em; font-size: 1.15rem; }
-.topbar-logo { display: none; width: 30px; height: 30px; margin-right: 8px; flex-shrink: 0; border-radius: 7px; }
+.topbar-logo { display: none; width: 36px; height: 36px; margin-right: 8px; flex-shrink: 0; }
 @media (max-width: 720px) { .topbar-logo { display: block; } }
-.login-logo { display: block; width: 88px; height: 88px; margin: 0 auto 10px; border-radius: 20px; box-shadow: 0 6px 18px rgba(11,61,58,.28); }
+.login-logo { display: block; width: 128px; height: 128px; margin: 0 auto 8px; filter: drop-shadow(0 6px 12px rgba(0,0,0,.28)); }
 .login-card h1 { text-align: center; letter-spacing: .14em; font-size: 1.6rem; }
 .login-card p.sub { text-align: center; line-height: 1.45; }
 @media print { .topbar-logo { display: none; } }

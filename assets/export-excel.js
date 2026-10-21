@@ -11,6 +11,7 @@
  *   entete: 1,                          // nb de lignes d'en-tête (style tableau, figées en haut)
  *   filtre: true,                       // filtre automatique Excel sur la ligne d'en-tête
  *   largeurs: [30, 12, ...],            // largeur des colonnes (en caractères)
+ *   hauteurs: { 9: 42 },                // hauteur (points) de lignes précises, index base 0
  *   sansBordure: true,                  // pour les feuilles d'information (libellé / valeur)
  *   images: [{ png: Uint8Array, col: 0, ligne: 3, larg: 560, haut: 210 }]   // col/ligne : base 0 ; px
  * }
@@ -103,7 +104,8 @@
     x += '<sheetData>';
     lignes.forEach((l, i) => {
       const defaut = i < nbEnt ? STYLES.h : (f.sansBordure ? 0 : null);
-      x += '<row r="' + (i + 1) + '"' + (i < nbEnt ? ' ht="30" customHeight="1"' : '') + '>';
+      var ht = (f.hauteurs && f.hauteurs[i]) || (i < nbEnt ? 30 : 0);
+      x += '<row r="' + (i + 1) + '"' + (ht ? ' ht="' + ht + '" customHeight="1"' : '') + '>';
       l.forEach((c, j) => {
         let sd = defaut;
         if (sd === null) sd = (typeof c === 'number' || (c && typeof c.v === 'number')) ? STYLES.n : STYLES.c;

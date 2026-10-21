@@ -96,7 +96,7 @@ const COLS = {
   Utilisateurs: ['ID','Nom','Prenom','Telephone','MotDePasse','Role','ResponsableId',
     'DepartementId','CommuneId','ArrondissementId','VillageId','GrappeId',
     'DepartementNom','CommuneNom','ArrondissementNom','VillageNom','GrappeNom',
-    'ZoneSanitaireNom','Actif','DateCreation','CreePar','Photo','Couleur'],
+    'ZoneSanitaireNom','Actif','DateCreation','CreePar','Photo','Couleur','Signature'],
   Communes: ['ID','Nom','DepartementId','DepartementNom'],
   Arrondissements: ['ID','Nom','CommuneId','CommuneNom'],
   Villages: ['ID','Nom','ArrondissementId','ArrondissementNom'],
@@ -128,7 +128,8 @@ const COLS = {
   JournalAssignations: ['ID','Type','CibleId','AssigneA','AssignePar','Date'],
   SuivisGroupes: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','Date','Themes',
     'RcPresentsIds','RcPresentsNoms','NbPresents','PhotosUrls','Commentaires','DateCreation',
-    'VillageIds','VillageNoms','DocumentsUrls','PlanningId','Lieu','RcConviesNoms','RcAbsentsNoms'],
+    'VillageIds','VillageNoms','DocumentsUrls','PlanningId','Lieu','RcConviesNoms','RcAbsentsNoms',
+    'AutresPresentsIds','AutresPresentsNoms'],
   // Planning des suivis groupés (créé par l'ASCQ, visible par toute sa hiérarchie : PF, RCSE,
   // Département, National). Statut : Planifié -> Réalisé (lié au suivi enregistré) ou Annulé.
   PlanningsSuivis: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','DatePrevue','Heure',
@@ -172,6 +173,7 @@ function doPost(e) {
       logout: () => { deleteSession_(token); return { ok: true }; },
       getMe: () => ({ ok: true, user: Object.assign({}, user, { MotDePasse: undefined }) }),
       setPhoto: () => setPhoto_(user, payload),
+      setSignature: () => setSignature_(user, payload),
       getTendances: () => getTendances_(user, payload),
       apercuNettoyage: () => apercuNettoyage_(user),
       nettoyerDonnees: () => nettoyerDonnees_(user, payload),
@@ -206,6 +208,9 @@ function doPost(e) {
       confirmerDeces: () => confirmerDeces_(user, payload),
       submitSuiviGroupe: () => submitSuiviGroupe_(user, payload),
       listSuivisGroupes: () => ({ ok: true, suivis: listSuivisGroupes_(user) }),
+      getListePresence: () => getListePresence_(user, payload),
+      listSuperviseurs: () => listSuperviseurs_(user),
+      listAlertesValidees: () => listAlertesValidees_(user),
       createActivite: () => createActivite_(user, payload),
       updateActivite: () => updateActivite_(user, payload),
       commenterActivite: () => commenterActivite_(user, payload),
@@ -871,7 +876,7 @@ function isSupervisorOf_(actor, target) {
 // Liste des utilisateurs visibles pour actor (lui + toute sa descendance hiérarchique)
 function listUsers_(actor) {
   const users = readSheet_(SHEETS.USERS);
-  users.forEach(u => { delete u.MotDePasse; delete u.Photo; });
+  users.forEach(u => { delete u.MotDePasse; delete u.Photo; delete u.Signature; });
   if (actor.Role === ROLES.NATIONAL) return users;
   return users.filter(u => u.ID === actor.ID || isSupervisorOf_(actor, u));
 }
@@ -1399,9 +1404,10 @@ function confirmerDeces_(actor, p) {
   marquerNotificationsLuesPourRef_(actor.ID, d.ID);
   const village = avecNomVillage_([d])[0].VillageNom;
   const msg = `Décès de ${d.Nom || 'personne non nommée'} (village ${village}) ${confirme ? 'confirmé' : 'non confirmé'} par ${nomAscq}` + (commentaire ? ' - ' + commentaire : '');
-  chainAbove_(actor).forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
-    ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_()
-  }));
+  const resumeDeces = confirme ? resumeAlerteValidee_('DECES', null, Object.assign({}, d, { ConfirmeParNom: nomAscq, DateConfirmation: nowStr_(), CommentaireConfirmation: commentaire }), contexteGeo_()) : null;
+  chainAbove_(actor).forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, resumeDeces
+    ? { ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'ALERTE_VALIDEE', RefId: d.ID, Message: messageAlerteValidee_(resumeDeces), Lu: false, DateCreation: nowStr_() }
+    : { ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_() }));
   if (d.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, {
     ID: newId_('NOTIF'), DestinataireId: d.NotificateurId, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_()
   });
@@ -1412,29 +1418,150 @@ function confirmerDeces_(actor, p) {
 // FORMULAIRE 3 (ASCQ) — investigation d'une alerte/décès
 // ============================================================
 
+// Champs de la fiche d'investigation : le formulaire envoie des noms en minuscules (maladie,
+// evenementAvere, description...) alors que les colonnes de la feuille sont capitalisées. Sans cette
+// correspondance, ces champs n'étaient pas enregistrés (colonnes vides).
+const INVESTIGATION_FIELD_MAP = {
+  refType: 'RefType', refId: 'RefId', departement: 'Departement', zoneSanitaire: 'ZoneSanitaire', communeId: 'CommuneId',
+  arrondissementId: 'ArrondissementId', villageId: 'VillageId', relais: 'Relais', telRelais: 'TelRelais', telASCQ: 'TelASCQ',
+  gpsLon: 'GPSLon', gpsLat: 'GPSLat', evenementAvere: 'EvenementAvere', source: 'Source', maladie: 'Maladie',
+  description: 'Description', circonstances: 'Circonstances', dateSurvenue: 'DateSurvenue', dateNotification: 'DateNotification',
+  dateInvestigation: 'DateInvestigation', actions: 'Actions'
+};
+
 function submitInvestigation_(actor, p) {
   if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul un ASCQ peut soumettre une fiche d\'investigation.' };
-  const obj = Object.assign({}, p, {
-    ID: newId_('INV'), ASCQId: actor.ID, ASCQNom: actor.Prenom + ' ' + actor.Nom,
+  const refType = p.refType === 'DECES' ? 'DECES' : 'ALERTE';
+  const targetSheet = refType === 'DECES' ? SHEETS.DECES : SHEETS.ALERTES;
+  const ref = listScoped_(targetSheet, actor).find(x => x.ID === p.refId) || null;
+  const obj = Object.assign(mapFields_(p, INVESTIGATION_FIELD_MAP), {
+    ID: newId_('INV'), RefType: refType, RefId: p.refId, ASCQId: actor.ID, ASCQNom: actor.Prenom + ' ' + actor.Nom, TelASCQ: actor.Telephone || '',
     DateSaisie: nowStr_(),
     CasParCategorie: JSON.stringify(p.casParCategorie || {}),
     DecesParCategorie: JSON.stringify(p.decesParCategorie || {})
   });
+  // La fiche porte la géographie de l'alerte (pour qu'elle soit retrouvable par les niveaux supérieurs).
+  if (ref) ['Departement', 'ZoneSanitaire', 'CommuneId', 'ArrondissementId', 'VillageId'].forEach(k => { if (!obj[k] && ref[k]) obj[k] = ref[k]; });
   appendRow_(SHEETS.INVESTIGATIONS, obj);
-  const targetSheet = p.refType === 'DECES' ? SHEETS.DECES : SHEETS.ALERTES;
   updateRowById_(targetSheet, p.refId, { Statut: 'Investigué', InvestigationId: obj.ID });
   // L'alerte est traitée : la notification correspondante n'est plus « non lue » pour l'ASCQ.
   marquerNotificationsLuesPourRef_(actor.ID, p.refId);
-  const chain = chainAbove_(actor); // [PF, RCSE, NATIONAL]
-  chain.forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
-    ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'INVESTIGATION', RefId: obj.ID,
-    Message: `Investigation complétée par ${obj.ASCQNom} sur ${p.refType} ${p.refId}`, Lu: false, DateCreation: nowStr_()
-  }));
+  const chain = chainAbove_(actor); // [PF, RCSE, DEPARTEMENT, NATIONAL]
+  const valide = String(obj.EvenementAvere || 'Oui') !== 'Non';
+  if (valide && ref) {
+    // Événement validé par l'ASCQ : « alerte infection » détaillée pour tous les niveaux supérieurs.
+    const resume = resumeAlerteValidee_(refType === 'DECES' ? 'DECES' : 'ALERTE', obj, ref, contexteGeo_());
+    chain.forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
+      ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'ALERTE_VALIDEE', RefId: obj.ID,
+      Message: messageAlerteValidee_(resume), Lu: false, DateCreation: nowStr_()
+    }));
+  } else {
+    chain.forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
+      ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'INVESTIGATION', RefId: obj.ID,
+      Message: `Investigation complétée par ${obj.ASCQNom} sur ${refType} ${p.refId}` + (valide ? '' : ' — événement non avéré'), Lu: false, DateCreation: nowStr_()
+    }));
+  }
   return { ok: true, investigation: obj };
 }
 
+// ============================================================
+// ALERTE INFECTION VALIDÉE PAR L'ASCQ — synthèse pour les niveaux supérieurs
+// ============================================================
+// Quand l'ASCQ investigue et valide un événement (ou confirme un décès), tous les niveaux au-dessus
+// reçoivent une notification de synthèse : affection / événement, arrondissement, village, commune,
+// nombre de cas touchés et décédés, animaux touchés et morts (si l'événement concerne des animaux),
+// résumé et personne qui a fait la notification. Le tableau de bord les liste (listAlertesValidees).
 
+function sommeCategories_(v) {
+  try { const o = typeof v === 'string' ? JSON.parse(v || '{}') : (v || {}); return Object.keys(o).reduce((t, k) => t + (Number(o[k]) || 0), 0); }
+  catch (e) { return 0; }
+}
+function nombre_(v) { const n = Number(v); return isFinite(n) && n > 0 ? n : 0; }
+function coupe_(txt, n) { txt = String(txt || '').replace(/\s+/g, ' ').trim(); return txt.length > n ? txt.slice(0, n - 1) + '…' : txt; }
 
+function contexteGeo_() {
+  const m = { communes: {}, arrs: {}, vils: {} };
+  readSheet_(SHEETS.COMMUNES).forEach(c => { m.communes[c.ID] = c; });
+  readSheet_(SHEETS.ARRONDISSEMENTS).forEach(a => { m.arrs[a.ID] = a; });
+  readSheet_(SHEETS.VILLAGES).forEach(v => { m.vils[v.ID] = v; });
+  return m;
+}
+
+const LIBELLES_DECES = {
+  type: { 1: 'Décès maternel', 2: 'Décès de bébé (0-28 jours)', 3: 'Décès d\'enfant de 1 mois à 1 an', 4: 'Décès d\'enfant de 1 à 5 ans', 5: 'Décès de personne de plus de 5 ans' },
+  lieu: { 1: 'Domicile', 2: 'Accoucheuse', 3: 'Lieu de culte', 4: 'Au cours du transport', 5: 'À l\'étranger', 6: 'Autre' },
+  circ: { 1: 'Grossesse / avortement / accouchement / suites de couches', 2: 'Maladie', 3: 'Accident de route', 4: 'Accident domestique', 5: 'Mort subite', 6: 'Violence', 7: 'Autre' }
+};
+function libelleDeces_(table, v) { const k = String(v == null ? '' : v).trim(); return LIBELLES_DECES[table][k] || (k && isNaN(Number(k)) ? k : ''); }
+
+function resumeAlerteValidee_(kind, inv, ref, geo) {
+  const arr = geo.arrs[ref.ArrondissementId] || null, vil = geo.vils[ref.VillageId] || null;
+  const com = geo.communes[ref.CommuneId] || (arr ? geo.communes[arr.CommuneId] : null) || null;
+  const base = {
+    kind: kind, id: (kind === 'DECES' && !inv) ? ref.ID : (inv ? inv.ID : ref.ID), refId: ref.ID,
+    commune: com ? com.Nom : (arr ? arr.CommuneNom : ''), arrondissement: arr ? arr.Nom : '', village: vil ? vil.Nom : (ref.VillageNom || ''),
+    notificateur: ref.NotificateurNom || '', notificateurId: ref.NotificateurId || '', dateNotification: dateIso_(ref.DateNotification) || dateIso_(ref.DateSaisie)
+  };
+  if (kind === 'DECES') {
+    const decInv = inv ? sommeCategories_(inv.DecesParCategorie) : 0, casInv = inv ? sommeCategories_(inv.CasParCategorie) : 0;
+    return Object.assign(base, {
+      affection: inv && inv.Maladie ? inv.Maladie : ('Décès communautaire' + (libelleDeces_('type', ref.TypeDeces) ? ' — ' + libelleDeces_('type', ref.TypeDeces) : '')),
+      casTouches: Math.max(casInv, decInv, 1), casDeces: Math.max(decInv, 1), animauxTouches: 0, animauxMorts: 0,
+      ascq: inv ? inv.ASCQNom : (ref.ConfirmeParNom || ''), dateValidation: dateIso_(inv ? (inv.DateInvestigation || inv.DateSaisie) : (ref.DateConfirmation || ref.DateSaisie)),
+      resume: coupe_([inv && inv.Description, libelleDeces_('circ', ref.Circonstances) ? 'Circonstances : ' + libelleDeces_('circ', ref.Circonstances) : '',
+        libelleDeces_('lieu', ref.LieuDeces) ? 'Lieu : ' + libelleDeces_('lieu', ref.LieuDeces) : '', ref.CauseProbable ? 'Cause probable : ' + ref.CauseProbable : '',
+        ref.CommentaireConfirmation ? 'Commentaire de l\'ASCQ : ' + ref.CommentaireConfirmation : '',
+        inv && inv.Actions ? 'Actions : ' + inv.Actions : ''].filter(Boolean).join(' — '), 400)
+    });
+  }
+  const casInv = inv ? sommeCategories_(inv.CasParCategorie) : 0, decInv = inv ? sommeCategories_(inv.DecesParCategorie) : 0, renseigne = casInv > 0 || decInv > 0;
+  const animT = nombre_(ref.AnimauxMalades), animM = nombre_(ref.AnimauxMorts);
+  return Object.assign(base, {
+    affection: (inv && inv.Maladie) || ref.AutrePreciser || ref.TypeAlerte || 'Événement de santé',
+    casTouches: renseigne ? casInv : nombre_(ref.PersonnesTouchees), casDeces: renseigne ? decInv : nombre_(ref.PersonnesMortes),
+    animauxTouches: animT, animauxMorts: animM,
+    ascq: inv ? inv.ASCQNom : '', dateValidation: dateIso_(inv ? (inv.DateInvestigation || inv.DateSaisie) : ''),
+    resume: coupe_([inv && inv.Description, inv && inv.Actions ? 'Actions : ' + inv.Actions : ''].filter(Boolean).join(' — '), 400)
+  });
+}
+
+function messageAlerteValidee_(r) {
+  const parts = ['ALERTE INFECTION VALIDÉE — ' + r.affection,
+    'Commune : ' + (r.commune || '—'), 'Arrondissement : ' + (r.arrondissement || '—'), 'Village : ' + (r.village || '—'),
+    'Cas touchés : ' + r.casTouches, 'Décès : ' + r.casDeces];
+  if (r.animauxTouches || r.animauxMorts) parts.push('Animaux touchés : ' + r.animauxTouches, 'Animaux morts : ' + r.animauxMorts);
+  parts.push('Notifiée par : ' + (r.notificateur || '—'), 'Validée par : ' + (r.ascq || '—'));
+  return parts.join(' | ');
+}
+
+// Alertes validées visibles par l'utilisateur (son périmètre), la plus récente d'abord. Part des
+// alertes et décès du périmètre (qui portent la géographie) puis rejoint la fiche d'investigation.
+function listAlertesValidees_(actor) {
+  if (actor.Role === ROLES.RC) return { ok: false, error: 'Réservé aux niveaux supérieurs au relais communautaire.' };
+  const geo = contexteGeo_(), invs = {}, users = {};
+  readSheet_(SHEETS.INVESTIGATIONS).forEach(i => { invs[i.ID] = i; });
+  readSheet_(SHEETS.USERS).forEach(u => { users[u.ID] = u; });
+  const out = [];
+  listScoped_(SHEETS.ALERTES, actor).forEach(a => {
+    if (a.Statut !== 'Investigué' || !a.InvestigationId) return;
+    const inv = invs[a.InvestigationId]; if (!inv) return;
+    if (String(inv.EvenementAvere || '') === 'Non') return; // événement non avéré : pas d'alerte infection
+    out.push(resumeAlerteValidee_('ALERTE', inv, a, geo));
+  });
+  listScoped_(SHEETS.DECES, actor).forEach(d => {
+    const inv = d.InvestigationId ? invs[d.InvestigationId] : null;
+    if (!(d.Statut === 'Confirmé' || (inv && d.Statut === 'Investigué' && String(inv.EvenementAvere || '') !== 'Non'))) return;
+    out.push(resumeAlerteValidee_('DECES', inv, d, geo));
+  });
+  out.forEach(r => {
+    const u = users[r.notificateurId];
+    r.notificateurTel = u ? String(u.Telephone || '') : '';
+    r.date = r.dateValidation || r.dateNotification || '';
+    delete r.notificateurId;
+  });
+  out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return { ok: true, alertes: out.slice(0, 500) };
+}
 
 // ============================================================
 // PHOTO DE PROFIL (stockée dans la colonne Photo de la feuille Utilisateurs, en data URL réduite)
@@ -1446,6 +1573,70 @@ function setPhoto_(actor, p) {
   if (photo.length > 45000) return { ok: false, error: 'Image trop lourde.' };
   updateRowById_(SHEETS.USERS, actor.ID, { Photo: photo });
   return { ok: true, photo: photo };
+}
+
+// ============================================================
+// SIGNATURE (dessinée par l'utilisateur dans « Mon compte »), colonne Signature de Utilisateurs.
+// Elle sert sur les rapports hebdomadaires et les listes de présence. PNG réduit uniquement.
+// ============================================================
+function setSignature_(actor, p) {
+  const sig = String(p.signature || '');
+  if (sig === '') { updateRowById_(SHEETS.USERS, actor.ID, { Signature: '' }); return { ok: true, signature: '' }; }
+  if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(sig)) return { ok: false, error: 'Signature non valide (PNG attendu).' };
+  if (sig.length > 45000) return { ok: false, error: 'Signature trop lourde : redessinez-la plus simplement.' };
+  updateRowById_(SHEETS.USERS, actor.ID, { Signature: sig });
+  return { ok: true, signature: sig };
+}
+function sigDe_(u) { return u && /^data:image\/png;base64,/.test(String(u.Signature || '')) ? u.Signature : ''; }
+
+// Superviseurs de l'ASCQ (PF, RCSE, Département…) : pour cocher les « autres participants » d'un suivi groupé.
+function listSuperviseurs_(actor) {
+  if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Réservé aux ASCQ.' };
+  return { ok: true, superviseurs: chainAbove_(actor).filter(u => u.Role !== ROLES.NATIONAL).map(u => ({ ID: u.ID, Nom: u.Nom, Prenom: u.Prenom, Role: u.Role, Telephone: String(u.Telephone || '') })) };
+}
+
+const QUALIFICATION_ROLE = {
+  RC: 'Relais communautaire (RC)', ASCQ: 'Agent de santé communautaire qualifié (ASCQ)',
+  PF_CNLS_TP: 'Point focal CNLS-TP', RCSE: 'Responsable de la coordination de zone sanitaire (RCSE)',
+  DEPARTEMENT: 'Coordination départementale (DDS)', NATIONAL: 'Niveau national'
+};
+
+// Liste de présence d'un suivi groupé : en-tête (département, zone sanitaire, commune, arrondissement,
+// date) et un participant par ligne (ASCQ, RC présents, autres participants) avec qualification,
+// provenance, contact et signature (celle enregistrée dans le compte de chacun, s'il en a une).
+function getListePresence_(actor, p) {
+  const s = readSheet_(SHEETS.SUIVIS).find(x => x.ID === p.suiviId);
+  if (!s) return { ok: false, error: 'Suivi groupé introuvable.' };
+  if (ascqIdsVisibles_(actor).indexOf(s.AscqId) === -1) return { ok: false, error: 'Ce suivi ne fait pas partie de votre périmètre.' };
+  const users = readSheet_(SHEETS.USERS), parId = {};
+  users.forEach(u => { parId[u.ID] = u; });
+  const ascq = parId[s.AscqId];
+  const chain = ascq ? chainAbove_(ascq) : [];
+  const dep = chain.find(u => u.Role === ROLES.DEPARTEMENT);
+  const header = {
+    departement: (ascq && ascq.DepartementNom) || (dep && dep.DepartementNom) || '',
+    zoneSanitaire: ascq ? zoneSanitaireDe_(ascq) : '',
+    commune: (ascq && ascq.CommuneNom) || '',
+    arrondissement: s.ArrondissementNom || (ascq && ascq.ArrondissementNom) || '',
+    date: dateIso_(s.Date), lieu: s.Lieu || '', ascq: s.AscqNom || ''
+  };
+  const provenance = u => {
+    if (u.Role === ROLES.RC) return u.VillageNom || '';
+    if (u.Role === ROLES.ASCQ) return header.arrondissement || u.ArrondissementNom || '';
+    if (u.Role === ROLES.PF) return u.CommuneNom || '';
+    if (u.Role === ROLES.RCSE) return zoneSanitaireDe_(u);
+    return u.DepartementNom || '';
+  };
+  const ligne = u => ({
+    nom: ((u.Nom || '') + ' ' + (u.Prenom || '')).replace(/\s+/g, ' ').trim(), qualification: QUALIFICATION_ROLE[u.Role] || u.Role,
+    provenance: provenance(u), telephone: String(u.Telephone || ''), signature: sigDe_(u)
+  });
+  const participants = [];
+  if (ascq) participants.push(ligne(ascq));
+  parseArr_(s.RcPresentsIds).forEach(id => { if (parId[id]) participants.push(ligne(parId[id])); });
+  parseArr_(s.AutresPresentsIds).forEach(id => { if (parId[id]) participants.push(ligne(parId[id])); });
+  participants.forEach((x, i) => { x.ordre = i + 1; });
+  return { ok: true, header: header, participants: participants };
 }
 
 // ============================================================
@@ -1870,6 +2061,11 @@ function submitSuiviGroupe_(actor, p) {
   const rcValides = mesRc.filter(u => p.rcPresentsIds.includes(u.ID));
   if (!rcValides.length) return { ok: false, error: 'Aucun des RC cochés ne dépend de votre compte.' };
 
+  // Autres participants : uniquement des superviseurs de cet ASCQ (PF, RCSE, Département…).
+  const supIds = chainAbove_(actor).map(u => u.ID);
+  const autresPresents = (Array.isArray(p.autresPresentsIds) ? p.autresPresentsIds : []).filter((id, k, a) => supIds.indexOf(id) !== -1 && a.indexOf(id) === k)
+    .map(id => readSheet_(SHEETS.USERS).find(u => u.ID === id)).filter(Boolean);
+
   // Un rapport est une PREUVE : la séance ne peut pas être datée dans le futur.
   if (dateIso_(p.date) > dateIso_(new Date())) return { ok: false, error: 'La date du suivi ne peut pas être dans le futur : enregistrez le compte rendu une fois la séance tenue.' };
 
@@ -1927,7 +2123,9 @@ function submitSuiviGroupe_(actor, p) {
     RcAbsentsNoms: planning ? JSON.stringify(
       parseArr_(planning.RcConviesIds).filter(id => !rcValides.some(u => u.ID === id))
         .map(id => { const u = mesRc.find(x => x.ID === id); return u ? u.Prenom + ' ' + u.Nom : id; })) : '',
-    Commentaires: p.commentaires || '', DateCreation: nowStr_()
+    Commentaires: p.commentaires || '', DateCreation: nowStr_(),
+    AutresPresentsIds: JSON.stringify(autresPresents.map(u => u.ID)),
+    AutresPresentsNoms: JSON.stringify(autresPresents.map(u => u.Prenom + ' ' + u.Nom))
   };
   appendRow_(SHEETS.SUIVIS, rec);
   if (planning) updateRowById_(SHEETS.PLANNINGS, planning.ID, { Statut: 'Réalisé', SuiviId: rec.ID });
@@ -2646,7 +2844,9 @@ function computeSignataires_(niveau, compteId, arrondissementId) {
   const perimetres = readSheet_(SHEETS.PERIMETRES);
   const out = {
     ascq: '', pf: '', rcse: '', departementResp: '', ascqTel: '', pfTel: '', rcseTel: '', departementTel: '',
-    departement: '', zoneSanitaire: '', commune: '', arrondissement: ''
+    departement: '', zoneSanitaire: '', commune: '', arrondissement: '',
+    // signatures enregistrées dans « Mon compte » (vide si la personne n'en a pas)
+    ascqSigs: [], pfSig: '', rcseSig: '', departementSig: ''
   };
 
   function nomComplet_(u) { return u ? (u.Prenom + ' ' + u.Nom) : ''; }
@@ -2656,6 +2856,7 @@ function computeSignataires_(niveau, compteId, arrondissementId) {
     const ascqs = users.filter(u => ascqIds.includes(u.ID) && u.Role === ROLES.ASCQ);
     out.ascq = ascqs.map(nomComplet_).join(', ');
     out.ascqTel = ascqs.map(u => u.Telephone).filter(Boolean).join(', ');
+    out.ascqSigs = ascqs.map(u => ({ nom: nomComplet_(u), signature: sigDe_(u) }));
     if (ascqs[0]) {
       out.departement = ascqs[0].DepartementNom || '';
       out.zoneSanitaire = zoneSanitaireDe_(ascqs[0]);
@@ -2666,32 +2867,32 @@ function computeSignataires_(niveau, compteId, arrondissementId) {
       const pf = chain.find(u => u.Role === ROLES.PF);
       const rcse = chain.find(u => u.Role === ROLES.RCSE);
       const dep = chain.find(u => u.Role === ROLES.DEPARTEMENT);
-      out.pf = nomComplet_(pf); out.pfTel = pf ? pf.Telephone : '';
-      out.rcse = nomComplet_(rcse); out.rcseTel = rcse ? rcse.Telephone : '';
-      out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : '';
+      out.pf = nomComplet_(pf); out.pfTel = pf ? pf.Telephone : ''; out.pfSig = sigDe_(pf);
+      out.rcse = nomComplet_(rcse); out.rcseTel = rcse ? rcse.Telephone : ''; out.rcseSig = sigDe_(rcse);
+      out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : ''; out.departementSig = sigDe_(dep);
     }
   } else if (niveau === 'PF') {
     const pf = users.find(u => u.ID === compteId);
-    out.pf = nomComplet_(pf); out.pfTel = pf ? pf.Telephone : '';
+    out.pf = nomComplet_(pf); out.pfTel = pf ? pf.Telephone : ''; out.pfSig = sigDe_(pf);
     if (pf) {
       out.departement = pf.DepartementNom || ''; out.zoneSanitaire = zoneSanitaireDe_(pf); out.commune = pf.CommuneNom || '';
       const chain = chainAbove_(pf);
       const rcse = chain.find(u => u.Role === ROLES.RCSE);
       const dep = chain.find(u => u.Role === ROLES.DEPARTEMENT);
-      out.rcse = nomComplet_(rcse); out.rcseTel = rcse ? rcse.Telephone : '';
-      out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : '';
+      out.rcse = nomComplet_(rcse); out.rcseTel = rcse ? rcse.Telephone : ''; out.rcseSig = sigDe_(rcse);
+      out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : ''; out.departementSig = sigDe_(dep);
     }
   } else if (niveau === 'RCSE') {
     const rcse = users.find(u => u.ID === compteId);
-    out.rcse = nomComplet_(rcse); out.rcseTel = rcse ? rcse.Telephone : '';
+    out.rcse = nomComplet_(rcse); out.rcseTel = rcse ? rcse.Telephone : ''; out.rcseSig = sigDe_(rcse);
     if (rcse) {
       out.departement = rcse.DepartementNom || ''; out.zoneSanitaire = zoneSanitaireDe_(rcse);
       const dep = chainAbove_(rcse).find(u => u.Role === ROLES.DEPARTEMENT);
-      out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : '';
+      out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : ''; out.departementSig = sigDe_(dep);
     }
   } else if (niveau === 'DEPARTEMENT') {
     const dep = users.find(u => u.ID === compteId);
-    out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : '';
+    out.departementResp = nomComplet_(dep); out.departementTel = dep ? dep.Telephone : ''; out.departementSig = sigDe_(dep);
     if (dep) out.departement = dep.DepartementNom || '';
   }
   return out;

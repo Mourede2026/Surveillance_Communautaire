@@ -53,6 +53,11 @@
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">En attente d'investigation</div></div>
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
+  <div class="card" style="margin-top:18px">
+    <h2>✅ Alertes infection validées par l'ASCQ</h2>
+    <p class="petit">Chaque événement investigué et validé par un ASCQ (et chaque décès confirmé) apparaît ici avec son résumé : affection, localisation, cas touchés et décédés, animaux concernés, et la personne qui a fait la notification.</p>
+    <div id="alertesValidees"></div>
+  </div>
         <div class="card" style="margin-top:18px">
           <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
           <div id="dashboardDetail">Chargement…</div>
@@ -189,6 +194,11 @@
                 <legend>Liste de présence — filtrer par village</legend>
                 <div id="suiviRcPicker"></div>
               </fieldset>
+              <fieldset id="suiviAutresBloc" style="display:none">
+                <legend>Autres participants (superviseurs présents à la séance)</legend>
+                <div class="checks" id="suiviAutres"></div>
+                <div class="petit">Cochez les superviseurs (PF, RCSE, Département…) qui ont participé : ils figureront aussi dans la liste de présence, avec leur signature.</div>
+              </fieldset>
               <fieldset>
                 <legend>Thèmes abordés (définitions de cas)</legend>
                 <div class="checks" id="suiviThemes"></div>
@@ -250,11 +260,13 @@
 <script src="assets/dashboard-detail.js"></script>
 <script src="assets/notifications-liste.js"></script>
 <script src="assets/deces-confirmation.js"></script>
+<script src="assets/liste-presence.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/suivi-groupe-ascq.js"></script>
 <script src="assets/alerte-sonore.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/export-excel.js"></script>
+<script src="assets/alertes-validees.js"></script>
 <script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/nettoyage.js"></script>
@@ -521,7 +533,7 @@ loadWeekPill();
 demarrerAlerteSonoreNouvellesAlertes();
 </script>
 <script>majBadgeActivites_('navActivites');</script>
-<script>renderTendances('tendancesZone');</script>
+<script>renderTendances('tendancesZone'); renderAlertesValidees('alertesValidees');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

@@ -177,8 +177,8 @@ table.canevas-table td.ce-actions { min-height: 60px; }
 table.canevas-table td.ce-actions p { margin: 0 0 6px; font-size: .87rem; white-space: pre-wrap; }
 table.canevas-table td.ce-actions p.ce-vide { color: var(--ink-soft); margin: 0; }
 
-.canevas-signature { margin-top: 26px; max-width: 320px; }
-.canevas-signature .ce-sig-label { font-size: .75rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 30px; }
+.canevas-signature { margin-top: 26px; }
+.canevas-signature .ce-sig-label { font-size: .75rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
 .canevas-signature .ce-sig-ligne { border-top: 1px solid var(--ink); padding-top: 4px; font-size: .88rem; font-weight: 600; }
 
 /* ---------- Impression / export PDF du rapport hebdomadaire ---------- */
@@ -404,3 +404,67 @@ body.guide-ouvert { overflow: hidden; }
 @media (max-width: 720px) { .sidebar .brand { display: none; } }
 .btn-presentation { display: block; width: 100%; margin-top: 14px; background: none; border: 1.5px solid var(--teal-700); color: var(--teal-700); border-radius: 8px; padding: 10px 14px; font-weight: 700; font-size: .9rem; cursor: pointer; }
 .btn-presentation:hover { background: var(--tint-2); }
+
+/* === Signature dans le rapport hebdomadaire === */
+.ce-sig-groupe { display: flex; flex-wrap: wrap; gap: 22px; }
+.ce-sig-bloc { min-width: 230px; max-width: 320px; flex: 1; }
+.ce-sig-zone { height: 78px; display: flex; align-items: flex-end; padding-bottom: 2px; }
+.ce-sig-img { max-height: 74px; max-width: 100%; display: block; }
+
+/* === Signature (Mon compte) === */
+.sig-bloc { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 12px 0; background: var(--tint-1, #f8faf9); }
+.sig-titre { font-weight: 700; margin-bottom: 2px; }
+.sig-pad { display: block; width: 100%; max-width: 480px; height: auto; margin: 8px 0; border: 1.5px dashed #94a3b8; border-radius: 10px; touch-action: none; cursor: crosshair;
+  background: #fff linear-gradient(to bottom, transparent calc(100% - 38px), #cbd5e1 calc(100% - 38px), #cbd5e1 calc(100% - 37px), transparent calc(100% - 37px)); }
+.sig-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* === Alertes infection validées (tableaux de bord) === */
+.av-barre { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.av-barre input[type=search] { flex: 1; min-width: 180px; }
+.av-compte { margin-bottom: 8px; }
+.av-carte { border: 1px solid var(--line); border-left: 6px solid #DC2626; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; background: #fff; }
+.av-carte.av-animal { border-left-color: #B7791F; background: #FFFBF0; }
+.av-carte.av-deces { border-left-color: #4B5563; background: #F7F7F8; }
+.av-tete { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .78rem; }
+.av-badge { font-weight: 700; color: #991B1B; background: #FEE2E2; border-radius: 999px; padding: 2px 10px; }
+.av-animal .av-badge { color: #7C4A03; background: #FDECC8; } .av-deces .av-badge { color: #374151; background: #E5E7EB; }
+.av-date { color: var(--ink-soft); }
+.av-affection { margin: 6px 0 4px; font-size: 1.05rem; }
+.av-lieu { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .86rem; }
+.av-lieu span { margin-right: 14px; }
+.av-lieu b { font-weight: 600; color: var(--ink-soft); margin-right: 3px; }
+.av-chiffres { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.av-chiffre { min-width: 104px; border-radius: 8px; padding: 6px 12px; text-align: center; background: #FEF2F2; }
+.av-chiffre strong { display: block; font-size: 1.35rem; line-height: 1.1; }
+.av-chiffre span { font-size: .72rem; color: var(--ink-soft); }
+.av-deces .av-chiffre.av-deces, .av-chiffre.av-deces { background: #F3F4F6; }
+.av-chiffre.av-animal { background: #FFF3D6; } .av-chiffre.av-animal-mort { background: #FBE3B5; }
+.av-resume { font-size: .86rem; margin: 6px 0; }
+.av-pied { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; font-size: .78rem; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 6px; }
+
+/* === Liste de présence des suivis groupés === */
+.lp-box { max-width: 900px; width: 96vw; max-height: 92vh; overflow: auto; }
+.lp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.lp-doc { background: #fff; color: #111; font-size: .86rem; }
+.lp-haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.lp-rep { font-size: .72rem; font-weight: 700; line-height: 1.35; }
+.lp-marque { display: flex; align-items: center; gap: 6px; font-size: 1.1rem; letter-spacing: .1em; }
+.lp-logo { width: 42px; height: 42px; }
+.lp-titre { text-align: center; margin: 10px 0 0; letter-spacing: .08em; }
+.lp-sous { text-align: center; margin-bottom: 10px; font-size: .86rem; }
+table.lp-meta { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+table.lp-meta td { border: 1px solid #333; padding: 5px 8px; }
+table.lp-table { width: 100%; border-collapse: collapse; }
+table.lp-table th, table.lp-table td { border: 1px solid #333; padding: 6px 7px; vertical-align: middle; text-align: left; }
+table.lp-table th { background: #E6EFEE; font-size: .78rem; text-transform: none; letter-spacing: 0; color: #111; }
+table.lp-table td.lp-c { text-align: center; }
+table.lp-table td.lp-sigcell { min-width: 130px; height: 60px; text-align: center; }
+.lp-sig { max-height: 54px; max-width: 124px; }
+.lp-pied { margin-top: 8px; font-size: .7rem; color: #555; }
+.lp-inline { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; }
+@media print {
+  #lpPrintArea, #lpPrintArea * { visibility: visible; }
+  #lpPrintArea { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+  table.lp-table tr, table.lp-meta { break-inside: avoid; page-break-inside: avoid; }
+  table.lp-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

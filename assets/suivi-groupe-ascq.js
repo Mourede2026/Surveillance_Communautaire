@@ -213,6 +213,14 @@
       remplirThemes('planThemes', 'planThemes');
       pickerSuivi = creerSelecteur('suiviRcPicker');
       pickerPlan = creerSelecteur('planRcPicker', { autoCocher: true });
+      // Autres participants : les superviseurs de l'ASCQ (PF, RCSE, Département…)
+      Api.call('listSuperviseurs', {}).then(r => {
+        const sups = r.superviseurs || [], bloc = $('suiviAutresBloc'), zone = $('suiviAutres');
+        if (!bloc || !sups.length) return;
+        const lib = { PF_CNLS_TP: 'PF CNLS-TP', RCSE: 'RCSE', DEPARTEMENT: 'DDS' };
+        zone.innerHTML = sups.map(u => `<label class="check"><input type="checkbox" name="autres" value="${escHtml(u.ID)}"> ${escHtml(u.Prenom + ' ' + u.Nom)} <span class="petit">(${escHtml(lib[u.Role] || u.Role)})</span></label>`).join('');
+        bloc.style.display = '';
+      }).catch(() => { /* facultatif : le suivi reste enregistrable sans */ });
       $('suiviDate').value = aujourdhui(); $('suiviDate').max = aujourdhui();
       $('planDate').value = aujourdhui();
       $('planDate').min = aujourdhui();
@@ -257,7 +265,7 @@
         const btn = $('formSuivi').querySelector('button[type=submit]'); btn.disabled = true;
         try {
           await Api.call('submitSuiviGroupe', {
-            date: fd.get('date'), lieu: fd.get('lieu') || '', themes, rcPresentsIds, villageIds: pickerSuivi.villageIds(),
+            date: fd.get('date'), lieu: fd.get('lieu') || '', themes, rcPresentsIds, autresPresentsIds: fd.getAll('autres'), villageIds: pickerSuivi.villageIds(),
             photos, fichiers: documents, commentaires: fd.get('commentaires') || '',
             planningId: planningLie ? planningLie.ID : undefined
           });

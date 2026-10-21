@@ -93,7 +93,7 @@ function ligneTableHtml_(l, i, avecAscq) {
   const nbPieces = l.suivi ? jsonArr_(l.suivi.PhotosUrls).length + jsonArr_(l.suivi.DocumentsUrls).length : 0;
   return `<tr><td>${quand}</td>${avecAscq ? `<td>${escHtml(l.ascq)}</td>` : ''}<td>${escHtml(l.villages.join(', '))}</td>
     <td>${escHtml(themesLabels_(l.themes).join(', '))}</td><td>${rc}</td><td>${statutHistoriqueBadge_(l)}</td>
-    <td>${nbPieces ? '📎 ' + nbPieces : '—'}</td><td><button class="btn-secondary btn-mini" data-fiche="${i}">Voir la fiche</button></td></tr>`;
+    <td>${nbPieces ? '📎 ' + nbPieces : '—'}</td><td><button class="btn-secondary btn-mini" data-fiche="${i}">Voir la fiche</button>${l.statut === 'Réalisé' && l.suivi ? ` <button class="btn-secondary btn-mini" data-presence="${l.suivi.ID}">👥 Présence</button>` : ''}</td></tr>`;
 }
 
 // Fiche détaillée (et imprimable / PDF) d'une séance : preuves, présence, commentaires.
@@ -104,9 +104,10 @@ function ouvrirFicheSuivi_(l) {
   const ligne = (k, v) => v ? `<tr><th style="width:34%;text-transform:none">${k}</th><td>${v}</td></tr>` : '';
   let presence = '';
   if (l.statut === 'Réalisé') {
-    const rows = l.presents.map(n => [n, 'Présent']).concat(absents.map(n => [n, 'Absent']));
-    presence = `<h4 class="sous-titre" style="margin-top:16px">Liste de présence</h4><table><thead><tr><th>N°</th><th>Relais communautaire</th><th>Présence</th><th>Signature</th></tr></thead><tbody>` +
-      rows.map((r, i) => `<tr><td>${i + 1}</td><td>${escHtml(r[0])}</td><td>${r[1]}</td><td style="min-width:90px"></td></tr>`).join('') + '</tbody></table>';
+    // Liste de présence signée : ASCQ, RC présents et autres participants, avec qualification, provenance,
+    // contact et signature (chargée depuis le serveur, voir assets/liste-presence.js).
+    presence = (sv ? `<div id="ficheListePresence" class="lp-inline"><p class="petit">Chargement de la liste de présence…</p></div>` : '') +
+      (absents.length ? `<p class="petit"><b>Absents :</b> ${escHtml(absents.join(', '))}</p>` : '');
   } else if (l.convoques.length) {
     presence = `<h4 class="sous-titre" style="margin-top:16px">RC convoqués</h4><p>${escHtml(l.convoques.join(', '))}</p>`;
   }
@@ -127,8 +128,14 @@ function ouvrirFicheSuivi_(l) {
       ${ligne('Thèmes abordés', escHtml(themesLabels_(l.themes).join(', ')))}${ligne('Objectif', escHtml(l.objectif))}
       ${ligne('Commentaires', escHtml(sv ? sv.Commentaires : ''))}${l.motif && l.statut === 'Non réalisé' ? ligne('Motif', escHtml(l.motif)) : ''}
     </tbody></table>${presence}${preuves}</div>
-    <div class="no-print" style="display:flex;gap:8px;margin-top:14px"><button class="btn-block" id="ficheImprimer">🖨️ Imprimer / PDF</button><button class="btn-secondary btn-block" id="ficheFermer">Fermer</button></div></div>`;
+    <div class="no-print" style="display:flex;gap:8px;margin-top:14px"><button class="btn-block" id="ficheImprimer">🖨️ Imprimer / PDF</button>${sv && l.statut === 'Réalisé' ? '<button class="btn-secondary btn-block" id="ficheListe">👥 Liste de présence (Excel)</button>' : ''}<button class="btn-secondary btn-block" id="ficheFermer">Fermer</button></div></div>`;
   document.body.appendChild(ov);
+  if (sv && l.statut === 'Réalisé' && window.__listePresence) {
+    const zoneLp = ov.querySelector('#ficheListePresence');
+    Api.call('getListePresence', { suiviId: sv.ID }).then(d => { if (zoneLp) zoneLp.innerHTML = window.__listePresence.documentHtml(d, true); })
+      .catch(err => { if (zoneLp) zoneLp.innerHTML = `<p class="petit" style="color:#b00020">${escHtml(err.message)}</p>`; });
+    const bl = ov.querySelector('#ficheListe'); if (bl) bl.onclick = () => ouvrirListePresence(sv.ID);
+  }
   ov.querySelector('#ficheFermer').onclick = () => ov.remove();
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
   ov.querySelector('#ficheImprimer').onclick = () => window.print();
@@ -155,7 +162,10 @@ function montrerHistorique_(el, plannings, suivis, avecAscq) {
       '<th>Village(s)</th><th>Thèmes</th><th>RC</th><th>Statut</th><th>Preuves</th><th></th></tr></thead><tbody>' + visibles.map((l, i) => ligneTableHtml_(l, i, avecAscq)).join('') + '</tbody></table></div>';
   }
   el.querySelectorAll('[data-f]').forEach(i => i.addEventListener(i.tagName === 'INPUT' && i.type === 'search' ? 'input' : 'change', dessiner));
-  zone.addEventListener('click', e => { const b = e.target.closest('[data-fiche]'); if (b) ouvrirFicheSuivi_(visibles[Number(b.dataset.fiche)]); });
+  zone.addEventListener('click', e => {
+    const b = e.target.closest('[data-fiche]'); if (b) ouvrirFicheSuivi_(visibles[Number(b.dataset.fiche)]);
+    const p = e.target.closest('[data-presence]'); if (p && window.ouvrirListePresence) ouvrirListePresence(p.dataset.presence);
+  });
   dessiner();
 }
 

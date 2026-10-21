@@ -57,6 +57,11 @@
           <div class="stat-card"><div class="n" id="statNonInv">–</div><div class="l">Non investiguées</div></div>
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
+  <div class="card" style="margin-top:18px">
+    <h2>✅ Alertes infection validées par l'ASCQ</h2>
+    <p class="petit">Chaque événement investigué et validé par un ASCQ (et chaque décès confirmé) apparaît ici avec son résumé : affection, localisation, cas touchés et décédés, animaux concernés, et la personne qui a fait la notification.</p>
+    <div id="alertesValidees"></div>
+  </div>
               <div class="card" style="margin-top:18px">
           <h2>📊 Tendances par semaine épidémiologique</h2>
           <div id="tendancesZone"></div>
@@ -172,9 +177,11 @@
 <script src="assets/bulk-import.js"></script>
 <script src="assets/user-admin.js"></script>
 <script src="assets/briefing-data.js"></script>
+<script src="assets/liste-presence.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/export-excel.js"></script>
+<script src="assets/alertes-validees.js"></script>
 <script src="assets/tendances.js"></script>
 <script src="assets/nettoyage.js"></script>
 <script src="assets/activites.js"></script>
@@ -365,7 +372,7 @@ document.getElementById('anneeCalInput').value = new Date().getFullYear();
 loadDashboard();
 loadWeekPill();
 </script>
-<script>renderTendances('tendancesZone');</script>
+<script>renderTendances('tendancesZone'); renderAlertesValidees('alertesValidees');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

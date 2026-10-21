@@ -51,6 +51,11 @@
             <button class="btn-secondary" id="btnPurgerNotif" style="margin-top:10px;font-size:.78rem;padding:6px 10px">Tout marquer comme lu</button>
           </div>
         </div>
+  <div class="card" style="margin-top:18px">
+    <h2>✅ Alertes infection validées par l'ASCQ</h2>
+    <p class="petit">Chaque événement investigué et validé par un ASCQ (et chaque décès confirmé) apparaît ici avec son résumé : affection, localisation, cas touchés et décédés, animaux concernés, et la personne qui a fait la notification.</p>
+    <div id="alertesValidees"></div>
+  </div>
         <div class="card" style="margin-top:18px">
           <h2>Détail par site (villages / arrondissements / communes avec des cas)</h2>
           <div id="dashboardDetail">Chargement…</div>
@@ -170,9 +175,11 @@
 <script src="assets/dashboard-detail.js"></script>
 <script src="assets/couverture.js"></script>
 <script src="assets/briefing-data.js"></script>
+<script src="assets/liste-presence.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/export-excel.js"></script>
+<script src="assets/alertes-validees.js"></script>
 <script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/nettoyage.js"></script>
@@ -363,7 +370,7 @@ renderImportActeurs({
 })();
 </script>
 <script>majBadgeActivites_('navActivites');</script>
-<script>renderTendances('tendancesZone');</script>
+<script>renderTendances('tendancesZone'); renderAlertesValidees('alertesValidees');</script>
 <script src="assets/pwa-register.js"></script>
 </body>
 </html>

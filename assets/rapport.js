@@ -302,6 +302,13 @@ async function paintRapport_(containerId) {
 // décès communautaires", "Actions menées", "Nom et signature du rapporteur". Les chiffres
 // viennent directement de la ligne RapportsHebdo (r) — donc toujours présents, à 0 s'il n'y a
 // rien eu cette semaine (voir ensureRapportsPassesGeneres_ côté backend).
+// Rapporteur(s) du rapport avec la signature enregistrée dans leur compte (« Mon compte »).
+// Un arrondissement peut compter plusieurs ASCQ : chacun a alors sa signature et son nom en dessous.
+function personnesSignataires_(r, sig, rapporteur) {
+  if (r.Niveau === 'ASCQ') return (sig.ascqSigs && sig.ascqSigs.length) ? sig.ascqSigs : [{ nom: rapporteur, signature: '' }];
+  return [{ nom: rapporteur, signature: { PF: sig.pfSig, RCSE: sig.rcseSig, DEPARTEMENT: sig.departementSig }[r.Niveau] || '' }];
+}
+
 function canevasHebdoHtml_(r, detail, sig, semaineCal) {
   const periode = semaineCal ? `du ${fmtDate(semaineCal.DateDebut)} au ${fmtDate(semaineCal.DateFin)}` : '';
   const actions = [...new Set((detail || []).map(d => d.actions).filter(Boolean))];
@@ -351,7 +358,7 @@ function canevasHebdoHtml_(r, detail, sig, semaineCal) {
 
     <div class="canevas-signature">
       <div class="ce-sig-label">Nom et signature du rapporteur</div>
-      <div class="ce-sig-ligne">${rapporteur || '—'}</div>
+      <div class="ce-sig-groupe">${personnesSignataires_(r, sig, rapporteur).map(p => `<div class="ce-sig-bloc"><div class="ce-sig-zone">${p.signature ? `<img class="ce-sig-img" alt="Signature" src="${p.signature}">` : ''}</div><div class="ce-sig-ligne">${escHtml(p.nom) || '—'}</div></div>`).join('')}</div>
     </div>`;
 }
 

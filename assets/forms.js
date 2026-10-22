@@ -168,8 +168,8 @@ async function buildAlerteForm(form, user) {
       titre: 'Relais Communautaire', centreSante: fd.get('centreSante')
     };
     try {
-      await Api.call('submitAlerte', payload);
-      toast('Alerte notifiée avec succès. Votre ASCQ a été informé.');
+      const r = await Api.call('submitAlerte', payload);
+      toast(r && r.queued ? 'Pas de réseau : alerte enregistrée sur ce téléphone. Elle sera envoyée à votre ASCQ dès le retour de la connexion.' : 'Alerte notifiée avec succès. Votre ASCQ a été informé.');
       form.reset();
     } catch (err) { toast(err.message, true); }
   });
@@ -230,8 +230,8 @@ async function buildDecesForm(form, user) {
       lieuDeces: fd.get('lieuDeces'), circonstances: fd.get('circonstances'), titre: 'Relais Communautaire'
     };
     try {
-      await Api.call('submitDeces', payload);
-      toast('Décès notifié avec succès. Votre ASCQ a été informé.');
+      const r = await Api.call('submitDeces', payload);
+      toast(r && r.queued ? 'Pas de réseau : décès enregistré sur ce téléphone. Il sera envoyé à votre ASCQ dès le retour de la connexion.' : 'Décès notifié avec succès. Votre ASCQ a été informé.');
       form.reset();
     } catch (err) { toast(err.message, true); }
   });

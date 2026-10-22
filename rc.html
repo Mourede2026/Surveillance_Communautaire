@@ -78,6 +78,11 @@
       </section>
 
       <section id="tab-historique" style="display:none">
+        <div class="card" id="hlCarte">
+          <h2>📤 Envois en attente</h2>
+          <p class="petit">Sans réseau, vos alertes et décès sont gardés sur ce téléphone puis envoyés automatiquement dès que la connexion revient.</p>
+          <div id="hlFile"></div>
+        </div>
         <div class="tabs">
           <button class="active" data-hist="alertes">Alertes</button>
           <button data-hist="deces">Décès</button>
@@ -99,6 +104,7 @@
 
 <script src="assets/notifications-liste.js"></script>
 <script src="assets/api.js"></script>
+<script src="assets/hors-ligne.js"></script>
 <script src="assets/export-excel.js"></script>
 <script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
@@ -171,5 +177,6 @@ loadDashboard();
 <script>majBadgeActivites_('navActivites');</script>
 <script>renderTendances('tendancesZone');</script>
 <script src="assets/pwa-register.js"></script>
+<script>HorsLigne.rendreFile('hlFile');</script>
 </body>
 </html>

@@ -103,7 +103,9 @@ const Api = {
         body: JSON.stringify({ action, payload: payload || {}, token })
       });
     } catch (networkErr) {
-      throw new Error('Connexion au serveur impossible. Vérifiez votre connexion internet.');
+      const e = new Error('Connexion au serveur impossible. Vérifiez votre connexion internet.');
+      e.reseau = true; // reconnu par assets/hors-ligne.js (mise en file d'attente / lecture du cache)
+      throw e;
     }
     let data;
     try {

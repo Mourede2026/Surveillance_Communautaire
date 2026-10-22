@@ -468,3 +468,18 @@ table.lp-table td.lp-sigcell { min-width: 130px; height: 60px; text-align: cente
   table.lp-table tr, table.lp-meta { break-inside: avoid; page-break-inside: avoid; }
   table.lp-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* === Mode hors connexion === */
+#hlBandeau { position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 9500; max-width: min(94vw, 640px); padding: 9px 16px; border-radius: 12px; font-size: .84rem; line-height: 1.35; box-shadow: 0 6px 18px rgba(0,0,0,.28); text-align: center; }
+#hlBandeau.hl-hors { background: #3B2F0B; color: #FFE9A8; border: 1px solid #E8A33D; }
+#hlBandeau.hl-att { background: #0B3D3A; color: #fff; border: 1px solid #5BB5AA; }
+#hlBandeau.hl-err { background: #5A1212; color: #fff; border: 1px solid #F87171; }
+#hlBandeau a { color: #FFD27A; font-weight: 700; }
+#hlBandeau button { margin-left: 8px; border: 0; border-radius: 8px; padding: 5px 12px; font-weight: 700; background: #E8A33D; color: #1B1B1B; cursor: pointer; }
+.hl-liste { list-style: none; margin: 0 0 10px; padding: 0; }
+.hl-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid var(--line); border-left: 5px solid #E8A33D; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; background: #fff; }
+.hl-item.hl-erreur { border-left-color: #DC2626; background: #FFF5F5; }
+.hl-actions { display: flex; gap: 6px; flex-shrink: 0; }
+@media print { #hlBandeau { display: none; } }
+.reprise { margin: 4px 0 14px; padding: 12px; border: 1.5px solid var(--teal-700); border-radius: 10px; background: var(--tint-2); text-align: center; }
+.reprise-nom { margin-bottom: 8px; } .reprise-ou { margin-top: 8px; }

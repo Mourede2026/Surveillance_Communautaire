@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'sivec-v27';
+const CACHE_VERSION = 'sivec-v28';
 
 const APP_SHELL = [
   './',
@@ -21,6 +21,7 @@ const APP_SHELL = [
   './assets/briefing.css',
   './assets/briefing-video.css',
   './assets/api.js',
+  './assets/hors-ligne.js',
   './assets/profil-menu.js',
   './assets/guide.js',
   './assets/guide-data.js',

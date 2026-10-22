@@ -107,13 +107,13 @@ const COLS = {
     'DateNaissance','Age','GPSLon','GPSLat','TypeAlerte','AutrePreciser','DateDebutMaladie',
     'DateNotification','Signes','PersonnesTouchees','PersonnesMortes','AnimauxMalades',
     'AnimauxMorts','EnCours','NotificateurId','NotificateurNom','Titre','CentreSante',
-    'DateSaisie','Statut','InvestigationId'],
+    'DateSaisie','Statut','InvestigationId','ClientId','HorsLigne','SynchroniseLe'],
   Deces: ['ID','Annee','SemaineEpi','Mois','NPI','NDeces','Departement','ZoneSanitaire',
     'CommuneId','ArrondissementId','VillageId','NGrappe','Adresse','Nom','NomParent',
     'TelephoneParent','DateNaissance','AgeAnnees','AgeMois','AgeJours','Sexe','GPSLon','GPSLat',
     'TypeDeces','DateDeces','DateNotification','LieuDeces','Circonstances','CauseProbable',
     'NotificateurId','NotificateurNom','Titre','CentreSante','DateSaisie','Statut','InvestigationId',
-    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation'],
+    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation','ClientId','HorsLigne','SynchroniseLe'],
   Investigations: ['ID','RefType','RefId','ASCQId','Departement','ZoneSanitaire','CommuneId',
     'ArrondissementId','VillageId','Relais','TelRelais','ASCQNom','TelASCQ','GPSLon','GPSLat',
     'EvenementAvere','Source','Maladie','Description','Circonstances','DateSurvenue',
@@ -202,8 +202,8 @@ function doPost(e) {
       listGrappesRc: () => ({ ok: true, perimetres: listGrappesDesRc_(user) }),
       importActeursBulk: () => importActeursBulk_(user, payload),
 
-      submitAlerte: () => submitAlerte_(user, payload),
-      submitDeces: () => submitDeces_(user, payload),
+      submitAlerte: () => avecVerrou_(() => submitAlerte_(user, payload)),
+      submitDeces: () => avecVerrou_(() => submitDeces_(user, payload)),
       submitInvestigation: () => submitInvestigation_(user, payload),
       confirmerDeces: () => confirmerDeces_(user, payload),
       submitSuiviGroupe: () => submitSuiviGroupe_(user, payload),
@@ -1317,26 +1317,58 @@ function mapFields_(p, fieldMap) {
   return obj;
 }
 
+// Verrou : deux envois identiques qui arriveraient en même temps (ex. deux onglets qui synchronisent) sont
+// traités l'un après l'autre, et le second est reconnu comme doublon grâce au clientId.
+function avecVerrou_(fn) {
+  const verrou = LockService.getScriptLock();
+  verrou.waitLock(20000);
+  try { return fn(); } finally { verrou.releaseLock(); }
+}
+
+// ---- Notifications saisies HORS CONNEXION par le RC (assets/hors-ligne.js) ----
+// Le téléphone garde la notification puis l'envoie au retour du réseau, avec un identifiant unique (clientId)
+// et l'heure réelle de la saisie. Si le même envoi arrive deux fois (réponse perdue puis renvoi), le serveur
+// reconnaît le clientId et renvoie la ligne déjà créée : jamais de doublon, jamais de seconde notification.
+function dateSaisieClient_(p) {
+  if (!p || !p.saisieHorsLigneLe) return '';
+  const d = new Date(p.saisieHorsLigneLe), t = d.getTime(), maintenant = Date.now();
+  if (isNaN(t) || t > maintenant + 5 * 60000 || t < maintenant - 90 * 86400000) return ''; // heure incohérente : on garde celle du serveur
+  return Utilities.formatDate(d, 'Africa/Porto-Novo', 'yyyy-MM-dd HH:mm:ss');
+}
+function dejaRecu_(feuille, actor, p) {
+  const id = String((p && p.clientId) || '');
+  return id ? (readSheet_(feuille).find(r => r.ClientId === id && r.NotificateurId === actor.ID) || null) : null;
+}
+function tracesHorsLigne_(p) {
+  const saisie = dateSaisieClient_(p);
+  return { DateSaisie: saisie || nowStr_(), ClientId: String((p && p.clientId) || ''), HorsLigne: saisie ? 'Oui' : '', SynchroniseLe: saisie ? nowStr_() : '', _saisie: saisie };
+}
+function mentionHorsLigne_(t) { return t._saisie ? ' (saisie hors connexion le ' + t._saisie.slice(8, 10) + '/' + t._saisie.slice(5, 7) + ' à ' + t._saisie.slice(11, 16) + ')' : ''; }
+
 function submitAlerte_(actor, p) {
   if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut soumettre ce formulaire.' };
+  const deja = dejaRecu_(SHEETS.ALERTES, actor, p); if (deja) return { ok: true, alerte: deja, doublon: true };
+  const trace = tracesHorsLigne_(p);
   const obj = Object.assign(mapFields_(p, ALERTE_FIELD_MAP), {
     ID: newId_('ALT'), NotificateurId: actor.ID, NotificateurNom: actor.Prenom + ' ' + actor.Nom,
-    DateSaisie: nowStr_(), Statut: 'Nouveau', InvestigationId: '',
+    DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe, Statut: 'Nouveau', InvestigationId: '',
     Signes: Array.isArray(p.signes) ? p.signes.join('|') : (p.signes || '')
   });
   appendRow_(SHEETS.ALERTES, obj);
-  cascadeNotify_(actor, 'ALERTE', obj.ID, `Nouvelle alerte (${p.typeAlerte || ''}) notifiée par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}`);
+  cascadeNotify_(actor, 'ALERTE', obj.ID, `Nouvelle alerte (${p.typeAlerte || ''}) notifiée par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}${mentionHorsLigne_(trace)}`);
   return { ok: true, alerte: obj };
 }
 
 function submitDeces_(actor, p) {
   if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut soumettre ce formulaire.' };
+  const deja = dejaRecu_(SHEETS.DECES, actor, p); if (deja) return { ok: true, deces: deja, doublon: true };
+  const trace = tracesHorsLigne_(p);
   const obj = Object.assign(mapFields_(p, DECES_FIELD_MAP), {
     ID: newId_('DC'), NotificateurId: actor.ID, NotificateurNom: actor.Prenom + ' ' + actor.Nom,
-    DateSaisie: nowStr_(), Statut: 'Nouveau', InvestigationId: ''
+    DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe, Statut: 'Nouveau', InvestigationId: ''
   });
   appendRow_(SHEETS.DECES, obj);
-  cascadeNotify_(actor, 'DECES', obj.ID, `Nouveau décès communautaire notifié par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}`);
+  cascadeNotify_(actor, 'DECES', obj.ID, `Nouveau décès communautaire notifié par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}${mentionHorsLigne_(trace)}`);
   return { ok: true, deces: obj };
 }
 

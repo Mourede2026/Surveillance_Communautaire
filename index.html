@@ -22,6 +22,7 @@
     <img class="login-logo" src="assets/icons/icon-512.png" alt="SIVEC" width="128" height="128">
     <h1>SIVEC</h1>
     <p class="sub">Système d’Information et de Veille Épidémiologique Communautaire<span class="sub-min">Ministère de la Santé — République du Bénin</span></p>
+    <div id="repriseSession" class="reprise" style="display:none"></div>
     <form id="loginForm">
       <div class="field">
         <label>Numéro de téléphone</label>
@@ -54,6 +55,22 @@
 })();
 </script>
 <script>
+// Session déjà ouverte sur cet appareil : on peut reprendre sans mot de passe, et SANS connexion internet
+// (mode hors connexion : consultation des données déjà chargées, et notification pour le relais communautaire).
+(function () {
+  try {
+    const u = Session.getUser(), t = Session.getToken();
+    const dest = { RC: 'rc.html', ASCQ: 'ascq.html', PF_CNLS_TP: 'pf.html', RCSE: 'rcse.html', DEPARTEMENT: 'departement.html', NATIONAL: 'national.html' }[u && u.Role];
+    if (!u || !t || !dest) return;
+    const zone = document.getElementById('repriseSession');
+    zone.style.display = '';
+    zone.innerHTML = '<div class="reprise-nom">Session ouverte : <b>' + escHtml((u.Prenom || '') + ' ' + (u.Nom || '')) + '</b></div>' +
+      '<button type="button" class="btn-block" id="btnReprise">Continuer' + (navigator.onLine === false ? ' (hors connexion)' : '') + '</button>' +
+      '<div class="petit reprise-ou">ou connectez-vous avec un autre compte :</div>';
+    document.getElementById('btnReprise').onclick = () => { window.location.href = dest; };
+    if (navigator.onLine === false) window.location.replace(dest); // pas de réseau : impossible de se connecter, on reprend directement
+  } catch (e) { /* page de connexion normale */ }
+})();
 try { const pf = sessionStorage.getItem('scb_prefill'); if (pf) { document.getElementById('telephone').value = pf; sessionStorage.removeItem('scb_prefill'); } } catch (e) {}
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();

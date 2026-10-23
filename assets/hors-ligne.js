@@ -16,7 +16,7 @@
  */
 (function (global) {
   'use strict';
-  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès' };
+  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation' };
   var ACTIONS_PUBLIQUES = { login: 1, logout: 1, ping: 1 };
   var CACHE_MAX = 400;
   var DB_NOM = 'sivec-hors-ligne';
@@ -180,6 +180,9 @@
   function libelleEnvoi(it) {
     var p = it.payload || {};
     if (it.action === 'submitDeces') return '🕯️ Décès — ' + (p.nom || 'sans nom') + (p.villageNom ? ' · ' + p.villageNom : '');
+    if (it.action === 'submitSensibilisation') return '📣 Sensibilisation — ' + (p.theme || 'sans thème') + ' · ' + ((p.participants || []).length) + ' personne(s)';
+    if (it.action === 'tacheEnregistrerCas') return '🗂️ Cas recensé — ' + (p.date || 'aujourd\'hui');
+    if (it.action === 'tacheSaisirSuivi') return '📝 Suivi de cas — ' + (p.jour || 'aujourd\'hui');
     return '🚨 Alerte — ' + (p.typeAlerte || 'événement') + (p.villageNom ? ' · ' + p.villageNom : '');
   }
   function esc(v) { return global.escHtml ? global.escHtml(v) : String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }

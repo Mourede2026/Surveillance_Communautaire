@@ -502,3 +502,24 @@ table.lp-table td.lp-sigcell { min-width: 130px; height: 60px; text-align: cente
 .nrc-box { max-width: 760px; width: 96vw; max-height: 92vh; overflow: auto; }
 .nrc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .nrc-alerte { background: #FFF3F0; border: 1px solid #F4B6A8; border-radius: 8px; padding: 8px 10px; }
+
+/* ---- Tâches (recensement et suivi) et sensibilisations ---- */
+.q-bloc { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: var(--tint-3); }
+.q-row { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--card); }
+.q-ligne1 { display: grid; grid-template-columns: 1fr 170px; gap: 8px; }
+.q-ligne2 { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 8px; flex-wrap: wrap; }
+.q-req { display: inline-flex; gap: 6px; align-items: center; font-weight: 400; font-size: .85rem; }
+.q-req input { width: auto; }
+.q-btns { display: inline-flex; gap: 4px; }
+.q-opts { width: 100%; margin-top: 6px; }
+.q-checks { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.req { color: #B3261E; }
+.tache-box h3 { margin-bottom: 4px; }
+.tache-cas { margin-bottom: 10px; padding: 14px; }
+.tache-dossier table th { font-weight: 600; color: var(--ink-soft); font-size: .82rem; }
+.sens-table input, .sens-table select { width: 100%; }
+.sens-n { text-align: center; color: var(--ink-soft); }
+.sens-mini { width: 64px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+@media (max-width: 640px) { .q-ligne1 { grid-template-columns: 1fr; } }
+:root[data-theme="dark"] .q-bloc { background: #172622; }
+:root[data-theme="dark"] .q-row { background: var(--card); }

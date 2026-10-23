@@ -25,6 +25,7 @@
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="activites" id="navActivites">🔗 Activités</a>
+      <a href="#" data-tab="sensibilisations">📣 Sensibilisations</a>
       <a href="#" data-tab="ascq">Mes ASCQ</a>
       <a href="#" data-tab="suivi">Suivi alertes / décès</a>
       <a href="#" data-tab="suivigroupe">👥 Suivi groupé RC</a>
@@ -37,6 +38,10 @@
   <main class="main">
     <div class="topbar"><img class="topbar-logo" src="assets/icons/icon-192.png" alt="SIVEC" width="30" height="30"><h1>Espace Point Focal CCLS-TP (Commune)</h1><span class="topbar-right"><span class="week-pill" id="weekPill">Semaine —</span></span></div>
     <div class="content">
+
+      <section id="tab-sensibilisations" style="display:none">
+        <div class="card"><h2>📣 Sensibilisations communautaires des relais communautaires</h2><div id="sensibilisationsZone"></div></div>
+      </section>
 
       <section id="tab-activites" style="display:none">
         <div class="card"><h2>🔗 Activités</h2><div id="activitesZone"></div></div>
@@ -155,6 +160,8 @@
 <script src="assets/export-excel.js"></script>
 <script src="assets/alertes-validees.js"></script>
 <script src="assets/tendances.js"></script>
+<script src="assets/taches.js"></script>
+<script src="assets/sensibilisations.js"></script>
 <script src="assets/activites.js"></script>
 <script src="assets/nettoyage.js"></script>
 <script src="assets/mon-compte.js"></script>
@@ -168,9 +175,10 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','activites','nettoyage','ascq','suivi','suivigroupe','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','activites','sensibilisations','nettoyage','ascq','suivi','suivigroupe','rapport','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
   if (a.dataset.tab === 'nettoyage') initNettoyage('nettoyageZone');
+  if (a.dataset.tab === 'sensibilisations') initSensibilisations({ containerId:'sensibilisationsZone', user, saisie:false });
   if (a.dataset.tab === 'activites') initActivites({ containerId:'activitesZone', user, recevoir:true, gerer:true, onChange:()=>majBadgeActivites_('navActivites') });
   if (a.dataset.tab === 'ascq') { loadASCQ(); renderCouverture('couvertureTable'); }
   if (a.dataset.tab === 'suivi') loadSuivi();

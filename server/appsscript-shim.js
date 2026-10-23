@@ -121,9 +121,11 @@ function creerShim(opts) {
     createTextOutput: txt => ({ _txt: txt, setMimeType() { return this; }, getContent() { return this._txt; } })
   };
   const Logger = { log: (...a) => console.log('[Code.gs]', ...a) };
+  // Node exécute chaque requête de façon synchrone (un seul thread) : le verrou de script est un simple no-op.
+  const LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
 
   return {
-    globals: { SpreadsheetApp, Utilities, DriveApp, ContentService, Logger, console },
+    globals: { SpreadsheetApp, Utilities, DriveApp, ContentService, Logger, LockService, console },
     sauvegarder, remplacerBase, dbFile, uploadsDir,
     getDb: () => db, markDirty: () => { dirty = true; }, isDirty: () => dirty
   };

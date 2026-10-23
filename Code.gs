@@ -59,7 +59,10 @@ const SHEETS = {
   SUIVIS: 'SuivisGroupes',
   PLANNINGS: 'PlanningsSuivis',
   ACTIVITES: 'Activites',
-  ACTIVITES_SUIVI: 'ActivitesSuivi'
+  ACTIVITES_SUIVI: 'ActivitesSuivi',
+  TACHES_CAS: 'TachesCas',
+  TACHES_SUIVIS: 'TachesSuivis',
+  SENSIBILISATIONS: 'Sensibilisations'
 };
 
 const ROLES = {
@@ -140,8 +143,16 @@ const COLS = {
   // Activités (collecte de données, formation, test...) : un niveau supérieur publie un lien pour les
   // niveaux inférieurs de SA hiérarchie. Un niveau bas ne peut jamais en demander à un niveau haut.
   Activites: ['ID','Type','Titre','Description','Lien','DateLimite','CreeParId','CreeParNom','CreeParRole',
-    'CibleRoles','Statut','Commentaires','DateCreation','DateModification'],
-  ActivitesSuivi: ['ID','ActiviteId','UserId','UserNom','Statut','Date']
+    'CibleRoles','Statut','Commentaires','DateCreation','DateModification','Questionnaire'],
+  ActivitesSuivi: ['ID','ActiviteId','UserId','UserNom','Statut','Date'],
+  // Tâches « recensement et suivi » (activité de type tâche) : chaque cas recensé par un RC est suivi
+  // pendant N jours avec un questionnaire de suivi défini par le niveau supérieur, directement dans la plateforme.
+  TachesCas: ['ID','ActiviteId','RcId','RcNom','ArrondissementId','VillageId','VillageNom','Reponses',
+    'DateEnregistrement','DateFinSuivi','Statut','Issue','DateCloture','DateCreation','ClientId','HorsLigne'],
+  TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId'],
+  // Preuves de sensibilisation communautaire envoyées par les RC (photo + liste nominative sexe/âge).
+  Sensibilisations: ['ID','RcId','RcNom','ArrondissementId','VillageId','VillageNom','GrappeNom','Date','Theme','Lieu',
+    'Participants','NbParticipants','NbHommes','NbFemmes','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe']
 };
 
 // ============================================================
@@ -222,6 +233,11 @@ function doPost(e) {
       listActivites: () => listActivites_(user),
       getActiviteDetail: () => getActiviteDetail_(user, payload),
       marquerActivite: () => marquerActivite_(user, payload),
+      tacheEnregistrerCas: () => avecVerrou_(() => tacheEnregistrerCas_(user, payload)),
+      tacheSaisirSuivi: () => avecVerrou_(() => tacheSaisirSuivi_(user, payload)),
+      listTacheCas: () => listTacheCas_(user, payload),
+      submitSensibilisation: () => avecVerrou_(() => submitSensibilisation_(user, payload)),
+      listSensibilisations: () => listSensibilisations_(user, payload),
       submitPlanningSuivi: () => submitPlanningSuivi_(user, payload),
       updatePlanningSuivi: () => updatePlanningSuivi_(user, payload),
       listPlanningsSuivis: () => ({ ok: true, plannings: listPlanningsSuivis_(user) }),
@@ -1966,7 +1982,9 @@ function nettoyerDonnees_(actor, p) {
 // Règle : seul un niveau SUPÉRIEUR peut demander une activité à un niveau INFÉRIEUR de sa propre
 // hiérarchie (NATIONAL > DEPARTEMENT > RCSE > PF > ASCQ > RC). Le RC ne peut en créer aucune.
 const RANG_ROLE_ = { RC: 0, ASCQ: 1, PF_CNLS_TP: 2, RCSE: 3, DEPARTEMENT: 4, NATIONAL: 5 };
-const TYPES_ACTIVITE_ = ['Collecte de données', 'Formation', 'Test / Quiz', 'Information / Document', 'Autre'];
+const TYPE_TACHE_ = 'Tâche (recensement et suivi)';
+const TYPES_ACTIVITE_ = ['Collecte de données', TYPE_TACHE_, 'Formation', 'Test / Quiz', 'Information / Document', 'Autre'];
+function estTache_(a) { return a && a.Type === TYPE_TACHE_; }
 
 function aujourdhuiIso_() { return nowStr_().slice(0, 10); }
 // Une activité n'est visible des subalternes que jusqu'à son échéance incluse.
@@ -1986,7 +2004,14 @@ function createActivite_(actor, p) {
   const type = TYPES_ACTIVITE_.includes(p.type) ? p.type : 'Autre';
   const lien = String(p.lien || '').trim();
   if (lien && !lienValide_(lien)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' };
-  if (!lien && type !== 'Information / Document') return { ok: false, error: 'Ajoutez le lien du formulaire, de la formation ou du test.' };
+  if (!lien && type !== 'Information / Document' && type !== TYPE_TACHE_) return { ok: false, error: 'Ajoutez le lien du formulaire, de la formation ou du test.' };
+  let questionnaire = '';
+  if (type === TYPE_TACHE_) {
+    const q = nettoyerQuestionnaire_(p.questionnaire); // lève une erreur claire si le questionnaire est incomplet
+    questionnaire = JSON.stringify(q);
+  }
+  // Une tâche (recensement et suivi) est toujours remplie par les relais communautaires.
+  if (type === TYPE_TACHE_) p.cibleRoles = ['RC'];
   const roles = (Array.isArray(p.cibleRoles) ? p.cibleRoles : []).filter(r => RANG_ROLE_[r] !== undefined && RANG_ROLE_[r] < RANG_ROLE_[actor.Role]);
   if (!roles.length) return { ok: false, error: 'Choisissez au moins un niveau destinataire, situé en dessous du vôtre.' };
   const cibles = comptesCiblesActivite_(actor, roles);
@@ -1997,7 +2022,7 @@ function createActivite_(actor, p) {
     ID: newId_('ACT'), Type: type, Titre: titre, Description: String(p.description || '').trim(), Lien: lien,
     DateLimite: p.dateLimite ? dateIso_(p.dateLimite) : '', CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom,
     CreeParRole: actor.Role, CibleRoles: JSON.stringify(roles), Statut: 'Active', Commentaires: '[]',
-    DateCreation: nowStr_(), DateModification: nowStr_()
+    DateCreation: nowStr_(), DateModification: nowStr_(), Questionnaire: questionnaire
   };
   appendRow_(SHEETS.ACTIVITES, rec);
   notifierCiblesActivite_(cibles, rec, `Nouvelle activité (${type}) : ${titre}` + (rec.DateLimite ? ' - à faire avant le ' + rec.DateLimite.split('-').reverse().join('/') : '') + ` - demandée par ${rec.CreeParNom}`);
@@ -2010,10 +2035,13 @@ function notifierCiblesActivite_(cibles, act, message) {
 
 // Une activité est visible par un compte si son rôle est ciblé ET que le créateur est au-dessus de lui.
 function activiteVisiblePar_(act, user) {
-  if (act.Statut !== 'Active' || activiteEcheue_(act)) return false;
+  if (act.Statut !== 'Active') return false;
   const roles = parseArr_(act.CibleRoles);
   if (!roles.includes(user.Role)) return false;
-  return chainAbove_(user).some(sup => sup.ID === act.CreeParId);
+  if (!chainAbove_(user).some(sup => sup.ID === act.CreeParId)) return false;
+  if (!activiteEcheue_(act)) return true;
+  // Une tâche échue (plus de nouveaux cas) reste visible tant que le RC a des cas à suivre.
+  return estTache_(act) && activitesAvecCasEnSuivi_(user.ID).has(act.ID);
 }
 
 function mesSuiviActivites_(userId) {
@@ -2026,8 +2054,11 @@ function listActivites_(actor) {
   const toutes = readSheet_(SHEETS.ACTIVITES);
   const suivi = mesSuiviActivites_(actor.ID);
   const chaine = chainAbove_(actor).map(u => u.ID);
-  const recues = toutes.filter(a => a.Statut === 'Active' && !activiteEcheue_(a) && parseArr_(a.CibleRoles).includes(actor.Role) && chaine.includes(a.CreeParId))
-    .map(a => Object.assign({}, a, { DateLimite: dateIso_(a.DateLimite), MonStatut: suivi[a.ID] ? suivi[a.ID].Statut : 'À faire', MaDate: suivi[a.ID] ? suivi[a.ID].Date : '' }));
+  const casEnSuivi = actor.Role === ROLES.RC ? activitesAvecCasEnSuivi_(actor.ID) : new Set();
+  const statsTaches = actor.Role === ROLES.RC ? statsTachesDuRc_(actor.ID) : {};
+  const recues = toutes.filter(a => a.Statut === 'Active' && (!activiteEcheue_(a) || (estTache_(a) && casEnSuivi.has(a.ID))) && parseArr_(a.CibleRoles).includes(actor.Role) && chaine.includes(a.CreeParId))
+    .map(a => Object.assign({}, a, { DateLimite: dateIso_(a.DateLimite), Echue: activiteEcheue_(a), MonStatut: suivi[a.ID] ? suivi[a.ID].Statut : 'À faire', MaDate: suivi[a.ID] ? suivi[a.ID].Date : '' },
+      estTache_(a) ? { NbCas: (statsTaches[a.ID] || {}).nbCas || 0, NbCasEnSuivi: (statsTaches[a.ID] || {}).enSuivi || 0, NbSuivisDus: (statsTaches[a.ID] || {}).dus || 0 } : {}));
   recues.sort((a, b) => String(b.DateCreation).localeCompare(String(a.DateCreation)));
 
   let creees = [];
@@ -2038,8 +2069,10 @@ function listActivites_(actor) {
       const cibles = users.filter(u => parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u));
       const ids = new Set(cibles.map(u => u.ID));
       const sv = tousSuivis.filter(x => x.ActiviteId === a.ID && ids.has(x.UserId));
+      const casA = estTache_(a) ? readSheet_(SHEETS.TACHES_CAS).filter(c => c.ActiviteId === a.ID && ids.has(c.RcId)) : [];
       return Object.assign({}, a, { Echue: activiteEcheue_(a), DateLimite: dateIso_(a.DateLimite), NbCibles: cibles.length,
-        NbFaits: sv.filter(x => x.Statut === 'Fait').length, NbOuverts: sv.filter(x => x.Statut === 'Ouvert').length });
+        NbFaits: sv.filter(x => x.Statut === 'Fait').length, NbOuverts: sv.filter(x => x.Statut === 'Ouvert').length },
+        estTache_(a) ? { NbCas: casA.length, NbCasEnSuivi: casA.filter(c => etatCas_(c, aujourdhuiIso_()) === 'En suivi').length } : {});
     }).sort((x, y) => String(y.DateCreation).localeCompare(String(x.DateCreation)));
   }
   return { ok: true, recues, creees, peutCreer: RANG_ROLE_[actor.Role] >= 1 };
@@ -2067,7 +2100,10 @@ function updateActivite_(actor, p) {
   const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
   const ch = { DateModification: nowStr_() };
   if (p.titre !== undefined) { if (String(p.titre).trim().length < 3) return { ok: false, error: 'Titre trop court.' }; ch.Titre = String(p.titre).trim(); }
-  if (p.type !== undefined && TYPES_ACTIVITE_.includes(p.type)) ch.Type = p.type;
+  if (p.type !== undefined && TYPES_ACTIVITE_.includes(p.type)) {
+    if ((p.type === TYPE_TACHE_) !== estTache_(r.a)) return { ok: false, error: 'Le type « Tâche » ne peut pas être changé après création (le questionnaire et les cas recensés en dépendent).' };
+    ch.Type = p.type;
+  }
   if (p.description !== undefined) ch.Description = String(p.description).trim();
   if (p.lien !== undefined) { const l = String(p.lien).trim(); if (l && !lienValide_(l)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' }; ch.Lien = l; }
   if (p.dateLimite !== undefined) { if (!p.dateLimite) return { ok: false, error: 'L\'échéance est obligatoire.' }; ch.DateLimite = dateIso_(p.dateLimite); }
@@ -2093,6 +2129,7 @@ function deleteActivite_(actor, p) {
   const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
   deleteRowById_(SHEETS.ACTIVITES, r.a.ID);
   deleteRowsWhere_(SHEETS.ACTIVITES_SUIVI, 'ActiviteId', r.a.ID);
+  if (estTache_(r.a)) { deleteRowsWhere_(SHEETS.TACHES_CAS, 'ActiviteId', r.a.ID); deleteRowsWhere_(SHEETS.TACHES_SUIVIS, 'ActiviteId', r.a.ID); }
   return { ok: true };
 }
 
@@ -2105,6 +2142,273 @@ function marquerActivite_(actor, p) {
   if (!ex) appendRow_(SHEETS.ACTIVITES_SUIVI, { ID: newId_('AS'), ActiviteId: a.ID, UserId: actor.ID, UserNom: actor.Prenom + ' ' + actor.Nom, Statut: p.statut, Date: nowStr_() });
   else if (p.statut === 'Fait' || ex.Statut !== 'Fait' || p.force) updateRowById_(SHEETS.ACTIVITES_SUIVI, ex.ID, { Statut: p.statut, Date: nowStr_() });
   return { ok: true };
+}
+
+// ============================================================
+// TÂCHES « RECENSEMENT ET SUIVI » (activité de type tâche)
+// ============================================================
+// Le niveau supérieur rédige, DANS la plateforme, deux questionnaires :
+//   • « champsCas »   : les informations clés demandées quand un RC recense un cas ;
+//   • « champsSuivi » : le questionnaire de suivi que le RC remplit chaque jour pour ce cas.
+// Un cas recensé est suivi pendant `dureeJours` jours (DateFinSuivi = date du recensement + durée).
+// Les réponses sont enregistrées dans les feuilles TachesCas / TachesSuivis et consultées par le
+// demandeur (et le National) dans l'onglet Activités > « Données collectées ».
+
+const TYPES_CHAMP_ = ['texte', 'texte_long', 'nombre', 'date', 'choix', 'choix_multiple', 'oui_non'];
+const ISSUES_CAS_ = ['Guéri', 'Décédé', 'Référé / transféré', 'Perdu de vue', 'Autre'];
+
+function nettoyerChamps_(arr, libelleListe) {
+  const liste = Array.isArray(arr) ? arr.slice(0, 40) : [];
+  const out = [];
+  liste.forEach(c => {
+    const label = coupe_(c && c.label, 140);
+    if (!label) return;
+    const type = TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : 'texte';
+    let options = [];
+    if (type === 'choix' || type === 'choix_multiple') {
+      options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
+      if (options.length < 2) throw new Error('Dans « ' + libelleListe + ' », la question « ' + label + ' » doit proposer au moins 2 choix.');
+    }
+    out.push({ id: 'c' + (out.length + 1), label: label, type: type, options: options, obligatoire: !!c.obligatoire });
+  });
+  return out;
+}
+
+function nettoyerQuestionnaire_(q) {
+  q = q || {};
+  const champsCas = nettoyerChamps_(q.champsCas, 'Informations du cas');
+  const champsSuivi = nettoyerChamps_(q.champsSuivi, 'Questionnaire de suivi');
+  if (!champsCas.length) throw new Error('Ajoutez au moins une question dans « Informations du cas à recenser ».');
+  if (!champsSuivi.length) throw new Error('Ajoutez au moins une question dans le « Questionnaire de suivi ».');
+  const duree = Math.floor(Number(q.dureeJours));
+  if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
+  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree };
+}
+
+function questionnaireDe_(a) {
+  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7 }; }
+  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7 }; }
+}
+
+// Valide et normalise les réponses d'un RC par rapport à la liste de questions.
+function nettoyerReponses_(champs, rep) {
+  rep = rep || {};
+  const out = {};
+  champs.forEach(c => {
+    let v = rep[c.id];
+    let vide = v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
+    if (!vide) {
+      if (c.type === 'nombre') { const n = Number(v); if (!isFinite(n)) throw new Error('Réponse numérique attendue : ' + c.label); v = n; }
+      else if (c.type === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) throw new Error('Date invalide : ' + c.label); v = String(v); }
+      else if (c.type === 'choix') { if (c.options.indexOf(String(v)) === -1) throw new Error('Choix invalide : ' + c.label); v = String(v); }
+      else if (c.type === 'choix_multiple') { v = (Array.isArray(v) ? v : [v]).map(String).filter(x => c.options.indexOf(x) !== -1); vide = !v.length; }
+      else if (c.type === 'oui_non') { v = String(v) === 'Oui' ? 'Oui' : (String(v) === 'Non' ? 'Non' : ''); vide = !v; }
+      else v = String(v).replace(/\r/g, '').trim().slice(0, c.type === 'texte_long' ? 2000 : 500);
+      if (v === '') vide = true;
+    }
+    if (vide) { if (c.obligatoire) throw new Error('Réponse obligatoire : ' + c.label); out[c.id] = (c.type === 'choix_multiple') ? [] : ''; }
+    else out[c.id] = v;
+  });
+  return out;
+}
+
+function ajouterJours_(iso, n) {
+  const d = new Date(String(iso).slice(0, 10) + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return Utilities.formatDate(d, 'Africa/Porto-Novo', 'yyyy-MM-dd');
+}
+function joursEntre_(a, b) { return Math.round((new Date(String(b).slice(0, 10) + 'T12:00:00') - new Date(String(a).slice(0, 10) + 'T12:00:00')) / 86400000); }
+
+// 'En suivi' | 'Suivi terminé' (durée écoulée) | 'Clôturé' (clôturé par le RC avec une issue)
+function etatCas_(c, aujourdhui) {
+  if (c.Statut === 'Clôturé') return 'Clôturé';
+  return dateIso_(c.DateFinSuivi) >= aujourdhui ? 'En suivi' : 'Suivi terminé';
+}
+
+// Pour chaque cas : jours de suivi attendus (1..durée, jusqu'à aujourd'hui), faits, manquants.
+function enrichirCas_(c, suivisDuCas, aujourdhui) {
+  const enreg = dateIso_(c.DateEnregistrement), fin = dateIso_(c.DateFinSuivi);
+  const duree = joursEntre_(enreg, fin);
+  const dernierJourAttendu = aujourdhui < fin ? aujourdhui : fin;
+  const attendus = [];
+  for (let j = 1; j <= duree; j++) { const jour = ajouterJours_(enreg, j); if (jour <= dernierJourAttendu) attendus.push(jour); }
+  const jours = {};
+  suivisDuCas.forEach(s => { jours[dateIso_(s.Jour)] = true; });
+  const manquants = attendus.filter(j => !jours[j]);
+  const etat = etatCas_(c, aujourdhui);
+  return {
+    ID: c.ID, ActiviteId: c.ActiviteId, RcId: c.RcId, RcNom: c.RcNom, VillageNom: c.VillageNom, ArrondissementId: c.ArrondissementId,
+    Reponses: (function () { try { return JSON.parse(c.Reponses || '{}'); } catch (e) { return {}; } })(),
+    DateEnregistrement: enreg, DateFinSuivi: fin, DureeJours: duree, Etat: etat, Issue: c.Issue || '', DateCloture: dateIso_(c.DateCloture),
+    HorsLigne: c.HorsLigne || '',
+    Suivis: suivisDuCas.map(s => ({ Jour: dateIso_(s.Jour), DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
+      .sort((x, y) => x.Jour.localeCompare(y.Jour)),
+    NbAttendus: attendus.length, NbFaits: attendus.length - manquants.length, JoursManquants: manquants,
+    SuiviDu: etat === 'En suivi' && manquants.indexOf(aujourdhui) !== -1
+  };
+}
+
+function activitesAvecCasEnSuivi_(rcId) {
+  const auj = aujourdhuiIso_(), set = new Set();
+  readSheet_(SHEETS.TACHES_CAS).forEach(c => { if (c.RcId === rcId && etatCas_(c, auj) === 'En suivi') set.add(c.ActiviteId); });
+  return set;
+}
+
+// { activiteId: { nbCas, enSuivi, dus } } pour un RC (dus = cas dont le suivi d'un jour attendu manque).
+function statsTachesDuRc_(rcId) {
+  const auj = aujourdhuiIso_(), out = {};
+  const suivis = readSheet_(SHEETS.TACHES_SUIVIS).filter(s => s.RcId === rcId);
+  readSheet_(SHEETS.TACHES_CAS).filter(c => c.RcId === rcId).forEach(c => {
+    const e = enrichirCas_(c, suivis.filter(s => s.CasId === c.ID), auj);
+    const o = out[c.ActiviteId] || (out[c.ActiviteId] = { nbCas: 0, enSuivi: 0, dus: 0 });
+    o.nbCas++; if (e.Etat === 'En suivi') { o.enSuivi++; if (e.JoursManquants.length) o.dus++; }
+  });
+  return out;
+}
+
+function tacheEnregistrerCas_(actor, p) {
+  if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut recenser un cas.' };
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === p.activiteId);
+  if (!a || !estTache_(a) || !activiteVisiblePar_(a, actor)) return { ok: false, error: 'Tâche introuvable pour votre compte.' };
+  if (activiteEcheue_(a)) return { ok: false, error: 'Le recensement de cette tâche est clos (échéance dépassée) : vous ne pouvez plus ajouter de cas, seulement suivre ceux déjà recensés.' };
+  const clientId = String(p.clientId || '');
+  if (clientId) { const deja = readSheet_(SHEETS.TACHES_CAS).find(c => c.ClientId === clientId && c.RcId === actor.ID); if (deja) return { ok: true, cas: deja, doublon: true }; }
+  const q = questionnaireDe_(a);
+  const reponses = nettoyerReponses_(q.champsCas, p.reponses);
+  const auj = aujourdhuiIso_();
+  const date = p.date ? dateIso_(p.date) : auj;
+  if (date > auj) return { ok: false, error: 'La date de recensement ne peut pas être dans le futur.' };
+  const saisie = dateSaisieClient_(p);
+  const rec = {
+    ID: newId_('CAS'), ActiviteId: a.ID, RcId: actor.ID, RcNom: actor.Prenom + ' ' + actor.Nom,
+    ArrondissementId: actor.ArrondissementId || '', VillageId: actor.VillageId || '', VillageNom: actor.VillageNom || '',
+    Reponses: JSON.stringify(reponses), DateEnregistrement: date, DateFinSuivi: ajouterJours_(date, q.dureeJours),
+    Statut: 'En suivi', Issue: '', DateCloture: '', DateCreation: saisie || nowStr_(), ClientId: clientId, HorsLigne: saisie ? 'Oui' : ''
+  };
+  appendRow_(SHEETS.TACHES_CAS, rec);
+  return { ok: true, cas: rec };
+}
+
+function tacheSaisirSuivi_(actor, p) {
+  if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut saisir le suivi d\'un cas.' };
+  const c = readSheet_(SHEETS.TACHES_CAS).find(x => x.ID === p.casId && x.RcId === actor.ID);
+  if (!c) return { ok: false, error: 'Cas introuvable pour votre compte.' };
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === c.ActiviteId);
+  if (!a || a.Statut !== 'Active') return { ok: false, error: 'Cette tâche a été archivée ou supprimée par son demandeur.' };
+  if (c.Statut === 'Clôturé') return { ok: false, error: 'Le suivi de ce cas est clôturé.' };
+  const auj = aujourdhuiIso_();
+  const jour = p.jour ? dateIso_(p.jour) : auj;
+  if (jour > auj) return { ok: false, error: 'Le suivi ne peut pas être saisi pour une date future.' };
+  if (jour < dateIso_(c.DateEnregistrement)) return { ok: false, error: 'La date du suivi précède le recensement du cas.' };
+  if (jour > dateIso_(c.DateFinSuivi)) return { ok: false, error: 'La période de suivi de ce cas est terminée (fin le ' + dateIso_(c.DateFinSuivi).split('-').reverse().join('/') + ').' };
+  const q = questionnaireDe_(a);
+  const reponses = nettoyerReponses_(q.champsSuivi, p.reponses);
+  const existant = readSheet_(SHEETS.TACHES_SUIVIS).find(s => s.CasId === c.ID && dateIso_(s.Jour) === jour);
+  const saisie = dateSaisieClient_(p);
+  if (existant) updateRowById_(SHEETS.TACHES_SUIVIS, existant.ID, { Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_() });
+  else appendRow_(SHEETS.TACHES_SUIVIS, { ID: newId_('SUV'), CasId: c.ID, ActiviteId: c.ActiviteId, RcId: actor.ID, Jour: jour, Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: String(p.clientId || '') });
+  if (p.cloturer) {
+    const issue = ISSUES_CAS_.indexOf(p.issue) !== -1 ? p.issue : '';
+    if (!issue) return { ok: false, error: 'Choisissez l\'issue du cas pour clôturer son suivi (le suivi du jour est enregistré).' };
+    updateRowById_(SHEETS.TACHES_CAS, c.ID, { Statut: 'Clôturé', Issue: issue, DateCloture: auj });
+  }
+  return { ok: true, remplace: !!existant };
+}
+
+// Lecture des cas : le RC voit les siens ; le demandeur (et le National) voit ceux des RC de sa hiérarchie.
+// p.activiteId (facultatif) restreint à une tâche.
+function listTacheCas_(actor, p) {
+  p = p || {};
+  const auj = aujourdhuiIso_();
+  const activites = readSheet_(SHEETS.ACTIVITES).filter(a => estTache_(a));
+  let casListe;
+  if (actor.Role === ROLES.RC) {
+    casListe = readSheet_(SHEETS.TACHES_CAS).filter(c => c.RcId === actor.ID);
+  } else {
+    const miennes = activites.filter(a => a.CreeParId === actor.ID || actor.Role === ROLES.NATIONAL).map(a => a.ID);
+    const ids = new Set(miennes);
+    const rcOk = {};
+    casListe = readSheet_(SHEETS.TACHES_CAS).filter(c => {
+      if (!ids.has(c.ActiviteId)) return false;
+      if (actor.Role === ROLES.NATIONAL) return true;
+      if (rcOk[c.RcId] === undefined) { const rc = readSheet_(SHEETS.USERS).find(u => u.ID === c.RcId); rcOk[c.RcId] = !!rc && isSupervisorOf_(actor, rc); }
+      return rcOk[c.RcId];
+    });
+  }
+  if (p.activiteId) casListe = casListe.filter(c => c.ActiviteId === p.activiteId);
+  const suivis = readSheet_(SHEETS.TACHES_SUIVIS);
+  const parCas = {};
+  suivis.forEach(s => { (parCas[s.CasId] = parCas[s.CasId] || []).push(s); });
+  const cas = casListe.map(c => enrichirCas_(c, parCas[c.ID] || [], auj))
+    .sort((x, y) => (y.DateEnregistrement + y.ID).localeCompare(x.DateEnregistrement + x.ID));
+  // Questionnaires nécessaires pour afficher les réponses (étiquettes des questions).
+  const actIds = new Set(cas.map(c => c.ActiviteId));
+  if (p.activiteId) actIds.add(p.activiteId);
+  const acts = {};
+  activites.filter(a => actIds.has(a.ID)).forEach(a => { acts[a.ID] = { id: a.ID, titre: a.Titre, questionnaire: questionnaireDe_(a), dateLimite: dateIso_(a.DateLimite), statut: a.Statut }; });
+  return { ok: true, cas: cas, activites: acts };
+}
+
+// ============================================================
+// PREUVES DE SENSIBILISATION COMMUNAUTAIRE (par le RC)
+// ============================================================
+// Photo(s) de la séance + liste nominative des personnes sensibilisées (nom, sexe, âge).
+// Stockage des photos dans Google Drive (voir autoriserDrive). Envoi possible hors connexion.
+
+function submitSensibilisation_(actor, p) {
+  if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut enregistrer une sensibilisation.' };
+  const clientId = String(p.clientId || '');
+  if (clientId) { const deja = readSheet_(SHEETS.SENSIBILISATIONS).find(r => r.ClientId === clientId && r.RcId === actor.ID); if (deja) return { ok: true, sensibilisation: deja, doublon: true }; }
+  const theme = coupe_(p.theme, 160);
+  if (theme.length < 3) return { ok: false, error: 'Indiquez le thème de la sensibilisation.' };
+  if (!p.date) return { ok: false, error: 'La date de la sensibilisation est obligatoire.' };
+  const date = dateIso_(p.date);
+  if (date > aujourdhuiIso_()) return { ok: false, error: 'La date de la sensibilisation ne peut pas être dans le futur : c\'est une preuve, enregistrez-la une fois la séance tenue.' };
+  const participants = [];
+  (Array.isArray(p.participants) ? p.participants : []).slice(0, 500).forEach(x => {
+    const nom = coupe_(x && x.nom, 80);
+    if (!nom) return;
+    const sexe = x.sexe === 'F' ? 'F' : (x.sexe === 'M' ? 'M' : '');
+    const age = Math.floor(Number(x.age));
+    if (!sexe) throw new Error('Précisez le sexe de « ' + nom + ' ».');
+    if (!isFinite(age) || age < 0 || age > 120) throw new Error('Âge invalide pour « ' + nom + ' ».');
+    participants.push({ nom: nom, sexe: sexe, age: age });
+  });
+  if (!participants.length) return { ok: false, error: 'Ajoutez au moins une personne sensibilisée (nom, sexe, âge).' };
+  const photos = (Array.isArray(p.photos) ? p.photos : []).slice(0, 5);
+  if (!photos.length) return { ok: false, error: 'Ajoutez au moins une photo de la sensibilisation : c\'est la preuve de la séance.' };
+  let urls = [];
+  try { urls = enregistrerPhotosSuivi_(photos, 'sensibilisation_' + actor.ID + '_' + date); }
+  catch (e) {
+    if (/authoriz|autoris|permission/i.test(e.message || '')) return { ok: false, error: 'Le script n\'a pas encore l\'autorisation d\'accéder à Google Drive (nécessaire pour stocker les photos). Dans l\'éditeur Apps Script : exécutez la fonction "autoriserDrive", acceptez l\'autorisation, puis redéployez une nouvelle version de l\'application web.' };
+    return { ok: false, error: 'Erreur lors de l\'enregistrement des photos : ' + e.message };
+  }
+  if (!urls.length) return { ok: false, error: 'Les photos envoyées sont invalides (formats acceptés : JPEG, PNG, WebP).' };
+  const trace = tracesHorsLigne_(p);
+  const rec = {
+    ID: newId_('SENS'), RcId: actor.ID, RcNom: actor.Prenom + ' ' + actor.Nom,
+    ArrondissementId: actor.ArrondissementId || '', VillageId: actor.VillageId || '', VillageNom: actor.VillageNom || '', GrappeNom: actor.GrappeNom || '',
+    Date: date, Theme: theme, Lieu: coupe_(p.lieu, 120),
+    Participants: JSON.stringify(participants), NbParticipants: participants.length,
+    NbHommes: participants.filter(x => x.sexe === 'M').length, NbFemmes: participants.filter(x => x.sexe === 'F').length,
+    PhotosUrls: JSON.stringify(urls), Commentaires: String(p.commentaires || '').trim().slice(0, 1000),
+    DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe
+  };
+  appendRow_(SHEETS.SENSIBILISATIONS, rec);
+  cascadeNotify_(actor, 'SENSIBILISATION', rec.ID, `Sensibilisation « ${theme} » réalisée par ${rec.RcNom} le ${date.split('-').reverse().join('/')} : ${participants.length} personne(s) sensibilisée(s)${rec.VillageNom ? ' - Village: ' + rec.VillageNom : ''}${mentionHorsLigne_(trace)}`);
+  return { ok: true, sensibilisation: rec };
+}
+
+function listSensibilisations_(actor, p) {
+  let rows = readSheet_(SHEETS.SENSIBILISATIONS);
+  if (actor.Role === ROLES.RC) rows = rows.filter(r => r.RcId === actor.ID);
+  else if (actor.Role !== ROLES.NATIONAL) {
+    const ok = {};
+    readSheet_(SHEETS.USERS).forEach(u => { if (u.Role === ROLES.RC && isSupervisorOf_(actor, u)) ok[u.ID] = true; });
+    rows = rows.filter(r => ok[r.RcId]);
+  }
+  const sorted = rows.map(r => Object.assign({}, r, { Date: dateIso_(r.Date) })).sort((a, b) => (b.Date + b.ID).localeCompare(a.Date + a.ID));
+  return { ok: true, sensibilisations: sorted.slice(0, 1000), total: sorted.length };
 }
 
 // ============================================================

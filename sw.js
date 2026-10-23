@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'sivec-v30';
+const CACHE_VERSION = 'sivec-v31';
 
 const APP_SHELL = [
   './',
@@ -40,6 +40,8 @@ const APP_SHELL = [
   './assets/suivi-groupe-lecture.js',
   './assets/suivi-groupe-ascq.js',
   './assets/activites.js',
+  './assets/taches.js',
+  './assets/sensibilisations.js',
   './assets/export-excel.js',
   './assets/tendances.js',
   './assets/nettoyage.js',

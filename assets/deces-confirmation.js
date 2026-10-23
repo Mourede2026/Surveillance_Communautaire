@@ -22,13 +22,15 @@
   function carte(d, actions) {
     const statut = d.Statut === 'Confirmé' ? '<span class="badge badge-done">✔ Confirmé</span>' : d.Statut === 'Non confirmé' ? '<span class="badge badge-cancel">✖ Non confirmé</span>' : '<span class="badge badge-new">À confirmer</span>';
     const decision = d.Statut !== 'Nouveau' ? `<div class="verrou">🔒 ${escHtml(d.Statut)} par ${escHtml(d.ConfirmeParNom || '')} le ${fmtDate(d.DateConfirmation)}${d.CommentaireConfirmation ? ' — ' + escHtml(d.CommentaireConfirmation) : ''}. Décision définitive.</div>` : '';
+    const plus = window.NotifRc ? `<details class="nrc-details"><summary>📋 Toutes les données collectées par le RC</summary>${NotifRc.donneesHtml('DECES', d)}</details>` : '';
+    const gestion = window.NotifRc ? `<div class="nrc-gestion">${d.Statut === 'Nouveau' ? `<button class="btn-secondary btn-mini" data-dec="modifier" data-id="${escHtml(d.ID)}">✏️ Modifier les données</button>` : '<span class="petit">🔒 Décision prise : données non modifiables</span>'}<button class="btn-secondary btn-mini nrc-suppr" data-dec="supprimer" data-id="${escHtml(d.ID)}">🗑️ Supprimer la notification</button></div>` : '';
     return `<div class="card deces-card">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><strong>${escHtml(d.Nom || 'Personne non nommée')}</strong>${statut}</div>
       <div class="deces-grille">
         ${champ('Type de décès', lib(TYPES, d.TypeDeces))}${champ('Date du décès', fmtDate(d.DateDeces))}${champ('Âge', age(d))}${champ('Sexe', d.Sexe)}
         ${champ('Village', d.VillageNom)}${champ('Lieu du décès', lib(LIEUX, d.LieuDeces))}${champ('Circonstances', lib(CIRC, d.Circonstances))}${champ('Cause probable', d.CauseProbable)}
         ${champ('Parent / proche', d.NomParent)}${champ('Téléphone du proche', d.TelephoneParent)}${champ('Notifié par (RC)', d.NotificateurNom)}${champ('Notifié le', fmtDate(d.DateSaisie))}
-      </div>${decision}${actions || ''}</div>`;
+      </div>${plus}${decision}${actions || ''}${gestion}</div>`;
   }
 
   window.loadDecesAConfirmer = async function () {
@@ -36,6 +38,7 @@
     el.innerHTML = 'Chargement…';
     try {
       const { deces } = await Api.call('listDeces', {});
+      window.__decesParId = {}; deces.forEach(x => { window.__decesParId[x.ID] = x; });
       const aTraiter = deces.filter(d => d.Statut === 'Nouveau').sort((a, b) => String(a.DateSaisie).localeCompare(String(b.DateSaisie)));
       const traites = deces.filter(d => d.Statut !== 'Nouveau').sort((a, b) => String(b.DateConfirmation).localeCompare(String(a.DateConfirmation)));
       let html = `<h3 class="sous-titre">⏳ À confirmer (${aTraiter.length})</h3>`;
@@ -50,6 +53,12 @@
   document.addEventListener('click', async e => {
     const b = e.target.closest('button[data-dec]'); if (!b) return;
     const id = b.dataset.id, decision = b.dataset.dec;
+    if (decision === 'modifier' || decision === 'supprimer') {
+      const ligne = (window.__decesParId || {})[id]; if (!ligne || !window.NotifRc) return;
+      const rafraichir = () => { window.loadDecesAConfirmer(); if (typeof loadDashboard === 'function') loadDashboard(); };
+      if (decision === 'modifier') NotifRc.modifier('DECES', ligne, rafraichir); else NotifRc.supprimer('DECES', ligne, rafraichir);
+      return;
+    }
     let commentaire = '';
     if (decision === 'confirmer') {
       if (!confirm('Confirmer ce décès ?\n\nIl sera compté dans le rapport hebdomadaire. Cette décision est définitive.')) return;

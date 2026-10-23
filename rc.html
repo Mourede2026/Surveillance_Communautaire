@@ -61,6 +61,12 @@
           <h2>📊 Tendances par semaine épidémiologique</h2>
           <div id="tendancesZone"></div>
         </div>
+      
+  <div class="card" style="margin-top:18px">
+    <h2>📅 Calendrier épidémiologique</h2>
+    <p class="petit">Calendrier de l'année défini par l'administrateur national : téléchargez-le au format PDF.</p>
+    <div id="calendrierPdf"></div>
+  </div>
       </section>
 
       <section id="tab-alerte" style="display:none">
@@ -105,6 +111,8 @@
 <script src="assets/notifications-liste.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/hors-ligne.js"></script>
+<script src="assets/pdf-mini.js"></script>
+<script src="assets/calendrier-pdf.js"></script>
 <script src="assets/export-excel.js"></script>
 <script src="assets/tendances.js"></script>
 <script src="assets/activites.js"></script>
@@ -178,5 +186,6 @@ loadDashboard();
 <script>renderTendances('tendancesZone');</script>
 <script src="assets/pwa-register.js"></script>
 <script>HorsLigne.rendreFile('hlFile');</script>
+<script>renderCalendrierPdf('calendrierPdf');</script>
 </body>
 </html>

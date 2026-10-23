@@ -483,3 +483,22 @@ table.lp-table td.lp-sigcell { min-width: 130px; height: 60px; text-align: cente
 @media print { #hlBandeau { display: none; } }
 .reprise { margin: 4px 0 14px; padding: 12px; border: 1.5px solid var(--teal-700); border-radius: 10px; background: var(--tint-2); text-align: center; }
 .reprise-nom { margin-bottom: 8px; } .reprise-ou { margin-top: 8px; }
+
+/* === Notification du RC : données complètes, correction, suppression === */
+.nrc-carte { background: #FAFCFB; border-left: 4px solid var(--teal-700); }
+.nrc-tete { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.nrc-boutons { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.nrc-suppr { color: #B00020 !important; }
+.nrc-titre { margin: 12px 0 4px; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.nrc-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 14px; }
+.nrc-champ span { display: block; font-size: .7rem; color: var(--ink-soft); }
+.nrc-champ b { font-size: .9rem; font-weight: 600; word-break: break-word; }
+.nrc-chips { display: flex; flex-wrap: wrap; gap: 5px; } .nrc-chip { background: #E0F0EE; border-radius: 999px; padding: 2px 10px; font-size: .8rem; }
+.nrc-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.nrc-badge { font-size: .74rem; border-radius: 999px; padding: 2px 10px; font-weight: 600; } .nrc-hl { background: #FFF1CC; color: #7A5200; } .nrc-mod { background: #E3ECFF; color: #1E3A8A; }
+.nrc-details { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: #FAFCFB; }
+.nrc-details summary { cursor: pointer; font-weight: 600; }
+.nrc-gestion { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.nrc-box { max-width: 760px; width: 96vw; max-height: 92vh; overflow: auto; }
+.nrc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.nrc-alerte { background: #FFF3F0; border: 1px solid #F4B6A8; border-radius: 8px; padding: 8px 10px; }

@@ -54,6 +54,11 @@
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
   <div class="card" style="margin-top:18px">
+    <h2>📅 Calendrier épidémiologique</h2>
+    <p class="petit">Calendrier de l'année défini par l'administrateur national : téléchargez-le au format PDF.</p>
+    <div id="calendrierPdf"></div>
+  </div>
+  <div class="card" style="margin-top:18px">
     <h2>✅ Alertes infection validées par l'ASCQ</h2>
     <p class="petit">Chaque événement investigué et validé par un ASCQ (et chaque décès confirmé) apparaît ici avec son résumé : affection, localisation, cas touchés et décédés, animaux concernés, et la personne qui a fait la notification.</p>
     <div id="alertesValidees"></div>
@@ -259,6 +264,7 @@
 <script src="assets/user-admin.js"></script>
 <script src="assets/dashboard-detail.js"></script>
 <script src="assets/notifications-liste.js"></script>
+<script src="assets/notification-rc.js"></script>
 <script src="assets/deces-confirmation.js"></script>
 <script src="assets/liste-presence.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
@@ -266,6 +272,8 @@
 <script src="assets/alerte-sonore.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/hors-ligne.js"></script>
+<script src="assets/pdf-mini.js"></script>
+<script src="assets/calendrier-pdf.js"></script>
 <script src="assets/export-excel.js"></script>
 <script src="assets/alertes-validees.js"></script>
 <script src="assets/tendances.js"></script>
@@ -322,10 +330,11 @@ async function loadPending() {
     rows.forEach(r => {
       html += `<tr><td>Alerte</td><td>${fmtDate(r.DateSaisie)}</td>
         <td>${r.Nom || r.TypeAlerte}</td>
-        <td><button data-inv="${r.refType}|${r.ID}">Investiguer</button></td></tr>`;
+        <td style="white-space:nowrap"><button data-inv="${r.refType}|${r.ID}">Investiguer</button> <button class="btn-secondary btn-mini nrc-suppr" data-supp="${r.ID}" title="Supprimer cette notification">🗑️</button></td></tr>`;
     });
     pendingTable.innerHTML = html + '</tbody></table>';
     pendingTable.querySelectorAll('[data-inv]').forEach(b => b.addEventListener('click', () => openInvestigation(b.dataset.inv)));
+    pendingTable.querySelectorAll('[data-supp]').forEach(b => b.addEventListener('click', () => NotifRc.supprimer('ALERTE', __pendingAlertesParId[b.dataset.supp], () => { loadPending(); loadDashboard(); })));
   } catch (e) { pendingTable.innerHTML = '<div class="empty-state">Erreur de chargement.</div>'; }
 }
 
@@ -353,7 +362,12 @@ function resumeAlerteHtml_(r) {
 
 function openInvestigation(key) {
   const [refType, refId] = key.split('|');
-  document.getElementById('invResumeCard').innerHTML = resumeAlerteHtml_(__pendingAlertesParId[refId]);
+  // Toutes les données collectées par le RC, corrigeables avant de valider ; la notification peut aussi être supprimée.
+  const zoneCarte = document.getElementById('invResumeCard'), ligneRc = __pendingAlertesParId[refId];
+  NotifRc.rendreCarte(zoneCarte, 'ALERTE', ligneRc, {
+    onChange: (l) => { __pendingAlertesParId[refId] = l; prerempli_(l); loadPending(); },
+    onSupprime: () => { invFormCard.style.display = 'none'; zoneCarte.innerHTML = ''; loadPending(); loadDashboard(); }
+  });
   invFormCard.style.display = 'block';
   invFormCard.scrollIntoView({ behavior: 'smooth' });
   const CAT = ['0-11 mois masculin','0-11 mois féminin','1 à 5 ans masculin','1 à 5 ans féminin',
@@ -382,6 +396,15 @@ function openInvestigation(key) {
     <div class="field"><label>Synthèse des actions menées</label><textarea name="actions"></textarea></div>
     <button type="submit">Envoyer la fiche d'investigation</button>
   `;
+  // Préremplissage à partir de la notification du RC (modifiable) : événement, début de la maladie, nom du relais.
+  const prerempli_ = (l) => {
+    if (!l) return;
+    const m = formInvestigation.elements['maladie'], ds = formInvestigation.elements['dateSurvenue'], rl = formInvestigation.elements['relais'];
+    if (m && !m.value) m.value = l.AutrePreciser || String(l.TypeAlerte || '').replace(/^\d+\.\s*/, '');
+    if (ds && !ds.value) ds.value = String(l.DateDebutMaladie || '').slice(0, 10);
+    if (rl && !rl.value) rl.value = l.NotificateurNom || '';
+  };
+  prerempli_(ligneRc);
   formInvestigation.onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(formInvestigation);
@@ -536,5 +559,6 @@ demarrerAlerteSonoreNouvellesAlertes();
 <script>majBadgeActivites_('navActivites');</script>
 <script>renderTendances('tendancesZone'); renderAlertesValidees('alertesValidees');</script>
 <script src="assets/pwa-register.js"></script>
+<script>renderCalendrierPdf('calendrierPdf');</script>
 </body>
 </html>

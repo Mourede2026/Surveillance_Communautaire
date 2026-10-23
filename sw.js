@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'sivec-v28';
+const CACHE_VERSION = 'sivec-v30';
 
 const APP_SHELL = [
   './',
@@ -44,10 +44,13 @@ const APP_SHELL = [
   './assets/tendances.js',
   './assets/nettoyage.js',
   './assets/admin.js',
+  './assets/notification-rc.js',
   './assets/deces-confirmation.js',
   './assets/sivec-logo.png',
   './assets/sivec-intro.js',
   './assets/alertes-validees.js',
+  './assets/pdf-mini.js',
+  './assets/calendrier-pdf.js',
   './assets/liste-presence.js',
   './assets/sivec-spot.m4a',
   './assets/sivec-sting.m4a',

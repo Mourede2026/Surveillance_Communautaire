@@ -58,6 +58,11 @@
           <div class="stat-card"><div class="n" id="statNotif">–</div><div class="l">Notifications non lues</div></div>
         </div>
   <div class="card" style="margin-top:18px">
+    <h2>📅 Calendrier épidémiologique</h2>
+    <p class="petit">Calendrier de l'année défini par l'administrateur national : téléchargez-le au format PDF.</p>
+    <div id="calendrierPdf"></div>
+  </div>
+  <div class="card" style="margin-top:18px">
     <h2>✅ Alertes infection validées par l'ASCQ</h2>
     <p class="petit">Chaque événement investigué et validé par un ASCQ (et chaque décès confirmé) apparaît ici avec son résumé : affection, localisation, cas touchés et décédés, animaux concernés, et la personne qui a fait la notification.</p>
     <div id="alertesValidees"></div>
@@ -181,6 +186,8 @@
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/api.js"></script>
 <script src="assets/hors-ligne.js"></script>
+<script src="assets/pdf-mini.js"></script>
+<script src="assets/calendrier-pdf.js"></script>
 <script src="assets/export-excel.js"></script>
 <script src="assets/alertes-validees.js"></script>
 <script src="assets/tendances.js"></script>
@@ -375,5 +382,6 @@ loadWeekPill();
 </script>
 <script>renderTendances('tendancesZone'); renderAlertesValidees('alertesValidees');</script>
 <script src="assets/pwa-register.js"></script>
+<script>renderCalendrierPdf('calendrierPdf');</script>
 </body>
 </html>

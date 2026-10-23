@@ -55,6 +55,7 @@ const SHEETS = {
   NOTIFICATIONS: 'Notifications',
   SESSIONS: 'Sessions',
   JOURNAL: 'JournalAssignations',
+  JOURNAL_MODIFS: 'JournalModifications',
   SUIVIS: 'SuivisGroupes',
   PLANNINGS: 'PlanningsSuivis',
   ACTIVITES: 'Activites',
@@ -107,13 +108,13 @@ const COLS = {
     'DateNaissance','Age','GPSLon','GPSLat','TypeAlerte','AutrePreciser','DateDebutMaladie',
     'DateNotification','Signes','PersonnesTouchees','PersonnesMortes','AnimauxMalades',
     'AnimauxMorts','EnCours','NotificateurId','NotificateurNom','Titre','CentreSante',
-    'DateSaisie','Statut','InvestigationId','ClientId','HorsLigne','SynchroniseLe'],
+    'DateSaisie','Statut','InvestigationId','ClientId','HorsLigne','SynchroniseLe','ModifieParAscq','DateModification'],
   Deces: ['ID','Annee','SemaineEpi','Mois','NPI','NDeces','Departement','ZoneSanitaire',
     'CommuneId','ArrondissementId','VillageId','NGrappe','Adresse','Nom','NomParent',
     'TelephoneParent','DateNaissance','AgeAnnees','AgeMois','AgeJours','Sexe','GPSLon','GPSLat',
     'TypeDeces','DateDeces','DateNotification','LieuDeces','Circonstances','CauseProbable',
     'NotificateurId','NotificateurNom','Titre','CentreSante','DateSaisie','Statut','InvestigationId',
-    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation','ClientId','HorsLigne','SynchroniseLe'],
+    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation','ClientId','HorsLigne','SynchroniseLe','ModifieParAscq','DateModification'],
   Investigations: ['ID','RefType','RefId','ASCQId','Departement','ZoneSanitaire','CommuneId',
     'ArrondissementId','VillageId','Relais','TelRelais','ASCQNom','TelASCQ','GPSLon','GPSLat',
     'EvenementAvere','Source','Maladie','Description','Circonstances','DateSurvenue',
@@ -126,6 +127,7 @@ const COLS = {
   Notifications: ['ID','DestinataireId','Type','RefId','Message','Lu','DateCreation'],
   Sessions: ['Token','UserId','Expire'],
   JournalAssignations: ['ID','Type','CibleId','AssigneA','AssignePar','Date'],
+  JournalModifications: ['ID','Date','Action','RefType','RefId','AuteurId','AuteurNom','Motif','Avant','Apres'],
   SuivisGroupes: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','Date','Themes',
     'RcPresentsIds','RcPresentsNoms','NbPresents','PhotosUrls','Commentaires','DateCreation',
     'VillageIds','VillageNoms','DocumentsUrls','PlanningId','Lieu','RcConviesNoms','RcAbsentsNoms',
@@ -204,6 +206,8 @@ function doPost(e) {
 
       submitAlerte: () => avecVerrou_(() => submitAlerte_(user, payload)),
       submitDeces: () => avecVerrou_(() => submitDeces_(user, payload)),
+      modifierNotificationRc: () => avecVerrou_(() => modifierNotificationRc_(user, payload)),
+      supprimerNotificationRc: () => avecVerrou_(() => supprimerNotificationRc_(user, payload)),
       submitInvestigation: () => submitInvestigation_(user, payload),
       confirmerDeces: () => confirmerDeces_(user, payload),
       submitSuiviGroupe: () => submitSuiviGroupe_(user, payload),
@@ -1449,6 +1453,103 @@ function confirmerDeces_(actor, p) {
 // ============================================================
 // FORMULAIRE 3 (ASCQ) — investigation d'une alerte/décès
 // ============================================================
+
+// ============================================================
+// DONNÉES COLLECTÉES PAR LE RC — l'ASCQ y a accès, peut les CORRIGER avant de valider (investigation d'une
+// alerte, confirmation d'un décès) et peut SUPPRIMER une notification. Chaque correction et chaque
+// suppression est tracée dans la feuille JournalModifications (qui, quand, avant/après, motif) et le RC en
+// est informé par une notification.
+// ============================================================
+const CHAMPS_MODIFIABLES = {
+  ALERTE: { Nom: 'texte', Sexe: 'sexe', Telephone: 'texte', DateNaissance: 'date', Age: 'texte', Adresse: 'texte', TypeAlerte: 'texte', AutrePreciser: 'texte',
+    DateDebutMaladie: 'date', DateNotification: 'date', Signes: 'liste', PersonnesTouchees: 'entier', PersonnesMortes: 'entier', AnimauxMalades: 'entier',
+    AnimauxMorts: 'entier', EnCours: 'ouinon', CentreSante: 'texte' },
+  DECES: { Nom: 'texte', NomParent: 'texte', TelephoneParent: 'texte', Sexe: 'sexe', DateNaissance: 'date', AgeAnnees: 'entier', AgeMois: 'entier', TypeDeces: 'code',
+    DateDeces: 'date', DateNotification: 'date', LieuDeces: 'code', Circonstances: 'code', Adresse: 'texte', CentreSante: 'texte', CauseProbable: 'texte' }
+};
+const LIBELLE_CHAMP = {
+  Nom: 'nom', Sexe: 'sexe', Telephone: 'téléphone', DateNaissance: 'date de naissance', Age: 'âge', Adresse: 'adresse', TypeAlerte: 'type d\'alerte', AutrePreciser: 'précision',
+  DateDebutMaladie: 'date de début', DateNotification: 'date de notification', Signes: 'signes', PersonnesTouchees: 'personnes touchées', PersonnesMortes: 'personnes décédées',
+  AnimauxMalades: 'animaux malades', AnimauxMorts: 'animaux morts', EnCours: 'événement en cours', CentreSante: 'centre de santé', NomParent: 'parent / proche',
+  TelephoneParent: 'téléphone du proche', AgeAnnees: 'âge (années)', AgeMois: 'âge (mois)', TypeDeces: 'type de décès', DateDeces: 'date du décès', LieuDeces: 'lieu du décès',
+  Circonstances: 'circonstances', CauseProbable: 'cause probable'
+};
+
+function normaliserChamp_(type, v) {
+  const t = v === null || v === undefined ? '' : (Array.isArray(v) ? v : String(v).trim());
+  switch (type) {
+    case 'texte': return { ok: true, valeur: String(t).slice(0, 300) };
+    case 'sexe': return t === '' || t === 'M' || t === 'F' ? { ok: true, valeur: t } : { ok: false, error: 'M ou F attendu.' };
+    case 'date': {
+      if (t === '') return { ok: true, valeur: '' };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(t) || isNaN(new Date(t + 'T00:00:00').getTime())) return { ok: false, error: 'date invalide (AAAA-MM-JJ).' };
+      return { ok: true, valeur: t };
+    }
+    case 'entier': {
+      if (t === '') return { ok: true, valeur: '' };
+      const n = Number(t); return isFinite(n) && n >= 0 && n <= 100000 && Math.floor(n) === n ? { ok: true, valeur: n } : { ok: false, error: 'nombre entier positif attendu.' };
+    }
+    case 'liste': {
+      const arr = Array.isArray(t) ? t : String(t).split('|');
+      return { ok: true, valeur: arr.map(x => String(x).trim().slice(0, 80)).filter(Boolean).join('|').slice(0, 800) };
+    }
+    case 'ouinon': return t === 'Oui' || t === 'Non' ? { ok: true, valeur: t } : { ok: false, error: 'Oui ou Non attendu.' };
+    case 'code': return /^\d{1,2}$/.test(String(t)) ? { ok: true, valeur: String(t) } : { ok: false, error: 'valeur non reconnue.' };
+  }
+  return { ok: false, error: 'champ non modifiable.' };
+}
+
+function notificationRcDuPerimetre_(actor, p) {
+  if (actor.Role !== ROLES.ASCQ) return { error: 'Seul un ASCQ peut modifier ou supprimer une notification de relais communautaire.' };
+  const type = p.refType === 'DECES' ? 'DECES' : 'ALERTE', feuille = type === 'DECES' ? SHEETS.DECES : SHEETS.ALERTES;
+  const ligne = listScoped_(feuille, actor).find(x => x.ID === p.refId);
+  if (!ligne) return { error: 'Notification introuvable dans votre périmètre.' };
+  return { type: type, feuille: feuille, ligne: ligne };
+}
+
+function modifierNotificationRc_(actor, p) {
+  const c = notificationRcDuPerimetre_(actor, p); if (c.error) return { ok: false, error: c.error };
+  const ligne = c.ligne, autorises = CHAMPS_MODIFIABLES[c.type];
+  if ((c.type === 'ALERTE' && ligne.Statut === 'Investigué') || (c.type === 'DECES' && ligne.Statut === 'Confirmé'))
+    return { ok: false, error: 'Cette notification est déjà validée : elle ne peut plus être modifiée.' };
+  const champs = p.champs || {}, changes = {}, avant = {}, apres = {};
+  for (const col of Object.keys(champs)) {
+    if (!autorises[col]) return { ok: false, error: 'Champ non modifiable : ' + col };
+    const n = normaliserChamp_(autorises[col], champs[col]);
+    if (!n.ok) return { ok: false, error: (LIBELLE_CHAMP[col] || col) + ' : ' + n.error };
+    if (col === 'Nom' && !n.valeur) return { ok: false, error: 'Le nom du cas est obligatoire.' };
+    const ancien = autorises[col] === 'date' ? dateIso_(ligne[col]) : String(ligne[col] === null || ligne[col] === undefined ? '' : ligne[col]);
+    if (String(n.valeur) !== ancien) { changes[col] = n.valeur; avant[col] = ancien; apres[col] = n.valeur; }
+  }
+  if (!Object.keys(changes).length) return { ok: true, aucunChangement: true, ligne: ligne };
+  Object.assign(changes, { ModifieParAscq: 'Oui', DateModification: nowStr_() });
+  updateRowById_(c.feuille, ligne.ID, changes);
+  const nomAscq = (actor.Prenom + ' ' + actor.Nom).trim();
+  appendRow_(SHEETS.JOURNAL_MODIFS, { ID: newId_('MOD'), Date: nowStr_(), Action: 'MODIFICATION', RefType: c.type, RefId: ligne.ID, AuteurId: actor.ID, AuteurNom: nomAscq,
+    Motif: coupe_(p.motif, 300), Avant: JSON.stringify(avant).slice(0, 45000), Apres: JSON.stringify(apres).slice(0, 45000) });
+  const libelles = Object.keys(avant).map(k => LIBELLE_CHAMP[k] || k);
+  if (ligne.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, { ID: newId_('NOTIF'), DestinataireId: ligne.NotificateurId, Type: 'MODIF_NOTIF', RefId: ligne.ID,
+    Message: 'Votre ASCQ ' + nomAscq + ' a corrigé votre notification ' + (c.type === 'DECES' ? 'de décès' : 'd\'alerte') + ' (' + ligne.Nom + ') : ' + libelles.join(', ') + '.', Lu: false, DateCreation: nowStr_() });
+  return { ok: true, ligne: Object.assign({}, ligne, changes), champsModifies: Object.keys(avant) };
+}
+
+function supprimerNotificationRc_(actor, p) {
+  const c = notificationRcDuPerimetre_(actor, p); if (c.error) return { ok: false, error: c.error };
+  const motif = String(p.motif || '').trim();
+  if (motif.length < 3) return { ok: false, error: 'Le motif de la suppression est obligatoire.' };
+  const ligne = c.ligne, inv = ligne.InvestigationId ? readSheet_(SHEETS.INVESTIGATIONS).find(i => i.ID === ligne.InvestigationId) : null;
+  const nomAscq = (actor.Prenom + ' ' + actor.Nom).trim();
+  // La trace est écrite AVANT la suppression : elle garde une copie de la notification (et de sa fiche d'investigation).
+  appendRow_(SHEETS.JOURNAL_MODIFS, { ID: newId_('MOD'), Date: nowStr_(), Action: 'SUPPRESSION', RefType: c.type, RefId: ligne.ID, AuteurId: actor.ID, AuteurNom: nomAscq,
+    Motif: coupe_(motif, 300), Avant: JSON.stringify({ notification: ligne, investigation: inv || null }).slice(0, 45000), Apres: '' });
+  const liees = readSheet_(SHEETS.NOTIFICATIONS).filter(n => n.RefId === ligne.ID || (inv && n.RefId === inv.ID));
+  liees.forEach(n => deleteRowById_(SHEETS.NOTIFICATIONS, n.ID));
+  if (inv) deleteRowById_(SHEETS.INVESTIGATIONS, inv.ID);
+  deleteRowById_(c.feuille, ligne.ID);
+  if (ligne.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, { ID: newId_('NOTIF'), DestinataireId: ligne.NotificateurId, Type: 'SUPPR_NOTIF', RefId: '',
+    Message: 'Votre ASCQ ' + nomAscq + ' a supprimé votre notification ' + (c.type === 'DECES' ? 'de décès' : 'd\'alerte') + ' (' + ligne.Nom + ') — motif : ' + motif + '.', Lu: false, DateCreation: nowStr_() });
+  return { ok: true, supprimee: ligne.ID, notificationsRetirees: liees.length, investigationSupprimee: !!inv };
+}
 
 // Champs de la fiche d'investigation : le formulaire envoie des noms en minuscules (maladie,
 // evenementAvere, description...) alors que les colonnes de la feuille sont capitalisées. Sans cette

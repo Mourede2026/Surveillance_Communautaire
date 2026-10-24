@@ -2115,24 +2115,38 @@ function updateActivite_(actor, p) {
   const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
   const ch = { DateModification: nowStr_() }, modifs = [];
   if (p.titre !== undefined && String(p.titre).trim() !== r.a.Titre) { if (String(p.titre).trim().length < 3) return { ok: false, error: 'Titre trop court.' }; ch.Titre = String(p.titre).trim(); modifs.push('titre'); }
+  let nouvelleTache = false, quitteTache = false;
   if (p.type !== undefined && TYPES_ACTIVITE_.includes(p.type) && p.type !== r.a.Type) {
-    if ((p.type === TYPE_TACHE_) !== estTache_(r.a)) return { ok: false, error: 'Le type « Tâche » ne peut pas être changé après création (le questionnaire et les cas recensés en dépendent).' };
+    if (p.type === TYPE_TACHE_ && !estTache_(r.a)) nouvelleTache = true;
+    if (p.type !== TYPE_TACHE_ && estTache_(r.a)) {
+      if (readSheet_(SHEETS.TACHES_CAS).some(c => c.ActiviteId === r.a.ID)) return { ok: false, error: 'Cette tâche a déjà des cas recensés : elle ne peut pas devenir une activité classique (supprimez-la ou archivez-la).' };
+      quitteTache = true;
+    }
     ch.Type = p.type; modifs.push('type');
   }
+  const typeFinal = ch.Type || r.a.Type;
   if (p.description !== undefined && String(p.description).trim() !== String(r.a.Description || '')) { ch.Description = String(p.description).trim(); modifs.push('consignes'); }
   if (p.lien !== undefined) { const l = String(p.lien).trim(); if (l && !lienValide_(l)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' }; if (l !== String(r.a.Lien || '')) { ch.Lien = l; modifs.push('lien'); } }
+  if (typeFinal !== TYPE_TACHE_ && typeFinal !== 'Information / Document' && !String(ch.Lien !== undefined ? ch.Lien : (r.a.Lien || '')).trim()) return { ok: false, error: 'Ajoutez le lien du formulaire, de la formation ou du test.' };
   // Échéance facultative : une valeur vide la supprime.
   if (p.dateLimite !== undefined) { const d = p.dateLimite ? dateIso_(p.dateLimite) : ''; if (d !== dateIso_(r.a.DateLimite)) { ch.DateLimite = d; modifs.push('échéance'); } }
   // Destinataires (niveaux ciblés) d'une activité classique ; une tâche reste destinée aux RC.
-  if (p.cibleRoles !== undefined && !estTache_(r.a)) {
+  if (p.cibleRoles !== undefined && typeFinal !== TYPE_TACHE_) {
     const roles = (Array.isArray(p.cibleRoles) ? p.cibleRoles : []).filter(x => RANG_ROLE_[x] !== undefined && RANG_ROLE_[x] < RANG_ROLE_[actor.Role]);
     if (!roles.length) return { ok: false, error: 'Cochez au moins un niveau destinataire.' };
     if (!comptesCiblesActivite_(actor, roles).length) return { ok: false, error: 'Aucun compte actif dans votre hiérarchie pour ces niveaux.' };
-    if (JSON.stringify(roles) !== JSON.stringify(parseArr_(r.a.CibleRoles))) { ch.CibleRoles = JSON.stringify(roles); modifs.push('destinataires'); }
+    if (quitteTache || JSON.stringify(roles) !== JSON.stringify(parseArr_(r.a.CibleRoles))) { ch.CibleRoles = JSON.stringify(roles); modifs.push('destinataires'); }
   }
   // Questionnaire d'une tâche : questions ajoutées, modifiées, déplacées ou retirées ; durée du suivi.
   let prolongation = null;
-  if (p.questionnaire !== undefined && estTache_(r.a)) {
+  if (nouvelleTache) {
+    // Une activité classique devient une tâche : questionnaire obligatoire, destinataires = RC de la hiérarchie.
+    let q; try { q = nettoyerQuestionnaire_(p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
+    if (!comptesCiblesActivite_(actor, ['RC']).length) return { ok: false, error: 'Aucun relais communautaire actif dans votre hiérarchie.' };
+    ch.Questionnaire = JSON.stringify(q); ch.CibleRoles = JSON.stringify(['RC']); modifs.push('questionnaire');
+  } else if (quitteTache) {
+    ch.Questionnaire = '';
+  } else if (p.questionnaire !== undefined && estTache_(r.a)) {
     const ancien = questionnaireDe_(r.a);
     let q; try { q = fusionnerQuestionnaire_(ancien, p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
     const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours });
@@ -2142,6 +2156,7 @@ function updateActivite_(actor, p) {
       if (JSON.stringify(q.champsCas) !== JSON.stringify(ancien.champsCas) || JSON.stringify(q.champsSuivi) !== JSON.stringify(ancien.champsSuivi)) modifs.push('questionnaire');
     }
   }
+  if (quitteTache && ch.CibleRoles === undefined) return { ok: false, error: 'Cochez au moins un niveau destinataire.' };
   if (p.statut !== undefined) { if (!['Active', 'Archivée'].includes(p.statut)) return { ok: false, error: 'Statut invalide.' }; ch.Statut = p.statut; }
   updateRowById_(SHEETS.ACTIVITES, r.a.ID, ch);
   // Nouvelle durée : s'applique aussi aux cas déjà recensés dont le suivi n'est pas clôturé.
@@ -2233,7 +2248,7 @@ function nettoyerQuestionnaire_(q) {
 }
 
 // Modification d'un questionnaire déjà publié : les questions existantes (id connu) gardent leur identifiant,
-// donc leurs réponses déjà collectées ; leur type ne change pas. Les nouvelles questions reçoivent un id jamais utilisé.
+// donc leurs réponses déjà collectées (tout reste modifiable : intitulé, type, choix, ordre). Les nouvelles questions reçoivent un id jamais utilisé.
 function fusionnerQuestionnaire_(ancien, nouveau) {
   nouveau = nouveau || {};
   const out = { champsCas: [], champsSuivi: [], seq: {} };
@@ -2246,7 +2261,7 @@ function fusionnerQuestionnaire_(ancien, nouveau) {
       const label = coupe_(c && c.label, 140); if (!label) return;
       const existant = c.id ? anc.find(x => x.id === c.id) : null;
       if (existant && vus[existant.id]) return;
-      const type = existant ? existant.type : (TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : 'texte');
+      const type = TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : (existant ? existant.type : 'texte'); // le type reste modifiable ; les anciennes réponses sont conservées telles quelles
       let options = [];
       if (type === 'choix' || type === 'choix_multiple') {
         options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);

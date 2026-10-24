@@ -200,18 +200,18 @@
       <form id="formModifAct">
         <div class="grid grid-2">
           <div class="field"><label>Titre</label><input name="titre" value="${escHtml(a.Titre)}" required></div>
-          <div class="field"><label>Type</label><select name="type" ${a.Type === TACHE ? 'disabled' : ''}>${TYPES.filter(t => t !== TACHE || a.Type === TACHE).map(t => `<option ${t === a.Type ? 'selected' : ''}>${escHtml(t)}</option>`).join('')}</select></div>
-          <div class="field"><label>Lien</label><input name="lien" type="url" value="${escHtml(a.Lien)}"></div>
+          <div class="field"><label>Type</label><select name="type">${TYPES.map(t => `<option ${t === a.Type ? 'selected' : ''}>${escHtml(t)}</option>`).join('')}</select></div>
+          <div class="field" id="actModifChampLien"><label>Lien</label><input name="lien" type="url" value="${escHtml(a.Lien)}"></div>
           <div class="field"><label>Échéance (facultative — videz le champ pour la supprimer)</label><input name="dateLimite" type="date" value="${escHtml(a.DateLimite || '')}"></div>
         </div>
         <div class="field"><label>Consignes</label><textarea name="description">${escHtml(a.Description)}</textarea></div>
-        ${a.Type === TACHE ? '' : `<fieldset id="actModifCibles"><legend>Niveaux destinataires</legend><div class="checks">${rolesCibles().map(r => `<label><input type="checkbox" name="cibles" value="${r}" ${jsonArr(a.CibleRoles).includes(r) ? 'checked' : ''}> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>`}
-        ${a.Type === TACHE ? '<div id="actModifQuestionnaire"></div>' : ''}
+        ${`<fieldset id="actModifCibles" style="${a.Type === TACHE ? 'display:none' : ''}"><legend>Niveaux destinataires</legend><div class="checks">${rolesCibles().map(r => `<label><input type="checkbox" name="cibles" value="${r}" ${jsonArr(a.CibleRoles).includes(r) ? 'checked' : ''}> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>`}
+        <div id="actModifQuestionnaire" style="${a.Type === TACHE ? '' : 'display:none'}"><h4 class="sous-titre" style="margin-top:12px">Questionnaire de la tâche</h4><div class="petit" style="margin-bottom:8px">Tout est modifiable comme à la création : questions, types, choix, ordre, durée du suivi. Les réponses déjà collectées sont conservées (une question retirée n'est plus affichée).</div><div id="actModifConstructeur"></div></div>
         <div class="petit" style="margin:6px 0">Toute modification d'une activité en cours est notifiée aux destinataires.</div>
         <button type="submit" class="btn-secondary btn-mini">Enregistrer les modifications</button>
         ${a.Lien ? ` <a href="${escHtml(lienSur(a.Lien))}" target="_blank" rel="noopener noreferrer" class="petit">Ouvrir le lien ↗</a>` : ''}
       </form>
-      ${a.Type === TACHE ? (() => { const q = window.Taches.parseQuestionnaire(a); return `<div class="petit" style="margin-top:12px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ Questionnaire de la tâche : ${q.champsCas.length} question(s) d'enregistrement du cas, ${q.champsSuivi.length} question(s) de suivi quotidien, suivi pendant ${q.dureeJours} jour(s). Vous pouvez le modifier ci-dessus (les questions existantes gardent leurs réponses ; une nouvelle durée s'applique aussi aux cas dont le suivi n'est pas clôturé).<br><button type="button" class="btn-mini" id="actVoirDonnees" style="margin-top:6px">🗂️ Voir les données collectées</button></div>`; })() : ''}
+      ${a.Type === TACHE ? (() => { const q = window.Taches.parseQuestionnaire(a); return `<div class="petit" style="margin-top:12px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ Questionnaire de la tâche : ${q.champsCas.length} question(s) d'enregistrement du cas, ${q.champsSuivi.length} question(s) de suivi quotidien, suivi pendant ${q.dureeJours} jour(s). Vous pouvez le modifier ci-dessus, comme à la création (les réponses déjà collectées sont conservées ; une nouvelle durée s'applique aussi aux cas dont le suivi n'est pas clôturé).<br><button type="button" class="btn-mini" id="actVoirDonnees" style="margin-top:6px">🗂️ Voir les données collectées</button></div>`; })() : ''}
       <h4 class="sous-titre" style="margin-top:16px">💬 Commentaires (visibles par les destinataires)</h4>
       <div>${jsonArr(a.Commentaires).map(x => `<div class="act-com"><span class="petit">${fmtDate(x.date)} · ${escHtml(x.auteur)}</span><br>${escHtml(x.texte).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="petit">Aucun commentaire.</div>'}</div>
       <div style="display:flex;gap:8px;margin-top:8px"><textarea id="actNouvCom" rows="2" placeholder="Ajouter un commentaire ou une précision…" style="flex:1"></textarea><button id="actEnvoyerCom" class="btn-mini">Publier</button></div>
@@ -225,23 +225,31 @@
     ov.querySelector('#actFermer').onclick = fermer;
     ov.addEventListener('click', e => { if (e.target === ov) fermer(); });
     const appel = async (action, payload, msg) => { try { await Api.call(action, Object.assign({ id }, payload)); toast(msg); fermer(); await rafraichir(); } catch (err) { toast(err.message, true); } };
-    let constructeurModif = null;
-    if (a.Type === TACHE) {
-      const zq = ov.querySelector('#actModifQuestionnaire');
-      zq.innerHTML = '<h4 class="sous-titre" style="margin-top:12px">Questionnaire de la tâche</h4><div id="actModifConstructeur"></div>';
-      constructeurModif = window.Taches.construire(zq.querySelector('#actModifConstructeur'), window.Taches.parseQuestionnaire(a));
-    }
+    // Même formulaire qu'à la création, pré-rempli : le questionnaire existant (ou un modèle si on passe en « Tâche »).
+    const constructeurModif = window.Taches.construire(ov.querySelector('#actModifConstructeur'), a.Type === TACHE ? window.Taches.parseQuestionnaire(a) : undefined);
+    const typeModif = f => TYPES.find(t => String(f.get('type')).includes(t)) || a.Type;
+    ov.querySelector('#formModifAct select[name=type]').addEventListener('change', e => {
+      const estT = typeModif(new FormData(ov.querySelector('#formModifAct'))) === TACHE;
+      ov.querySelector('#actModifQuestionnaire').style.display = estT ? '' : 'none';
+      ov.querySelector('#actModifCibles').style.display = estT ? 'none' : '';
+      ov.querySelector('#actModifChampLien').style.display = estT ? 'none' : '';
+    });
+    if (a.Type === TACHE) ov.querySelector('#actModifChampLien').style.display = 'none';
     ov.querySelector('#formModifAct').addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const f = { titre: fd.get('titre'), lien: fd.get('lien'), dateLimite: fd.get('dateLimite') || '', description: fd.get('description') };
-      if (a.Type !== TACHE) { f.type = TYPES.find(t => String(fd.get('type')).includes(t)) || a.Type; f.cibleRoles = fd.getAll('cibles'); if (!f.cibleRoles.length) { toast('Cochez au moins un niveau destinataire.', true); return; } }
-      if (constructeurModif) {
+      f.type = typeModif(fd);
+      if (f.type !== TACHE) { f.cibleRoles = fd.getAll('cibles'); if (!f.cibleRoles.length) { toast('Cochez au moins un niveau destinataire.', true); return; } }
+      else {
         try { f.questionnaire = constructeurModif.lire(); } catch (err) { toast(err.message, true); return; }
-        const avant = window.Taches.parseQuestionnaire(a), apres = constructeurModif.ids();
-        const retirees = ['champsCas', 'champsSuivi'].reduce((n, k) => n + avant[k].filter(c => !apres[k].includes(c.id)).length, 0);
-        if (retirees && !confirm(retirees + ' question(s) vont être retirée(s) : leurs réponses déjà collectées ne seront plus affichées. Continuer ?')) return;
+        if (a.Type === TACHE) {
+          const avant = window.Taches.parseQuestionnaire(a), apres = constructeurModif.ids();
+          const retirees = ['champsCas', 'champsSuivi'].reduce((n, k) => n + avant[k].filter(c => !apres[k].includes(c.id)).length, 0);
+          if (retirees && !confirm(retirees + ' question(s) vont être retirée(s) : leurs réponses déjà collectées ne seront plus affichées. Continuer ?')) return;
+        }
       }
+      if (a.Type === TACHE && f.type !== TACHE && !confirm('Transformer cette tâche en activité classique ? Le questionnaire sera supprimé (possible seulement si aucun cas n\'a été recensé).')) return;
       appel('updateActivite', f, 'Modifications enregistrées. Les destinataires sont prévenus.');
     });
     const vd = ov.querySelector('#actVoirDonnees');

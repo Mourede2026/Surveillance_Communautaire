@@ -59,7 +59,7 @@
       return `<div class="q-row" data-l="${cle}" data-i="${i}">
         <div class="q-ligne1">
           <input class="q-label" placeholder="Intitulé de la question" value="${esc(c.label)}" maxlength="140">
-          <select class="q-type" ${c.id ? 'disabled title="Le type d\'une question existante ne peut pas être changé"' : ''}>${TYPES_CHAMP.map(t => `<option value="${t[0]}" ${t[0] === c.type ? 'selected' : ''}>${t[1]}</option>`).join('')}</select>
+          <select class="q-type">${TYPES_CHAMP.map(t => `<option value="${t[0]}" ${t[0] === c.type ? 'selected' : ''}>${t[1]}</option>`).join('')}</select>
         </div>
         <div class="q-ligne2">
           <label class="q-req"><input type="checkbox" class="q-oblig" ${c.obligatoire ? 'checked' : ''}> Obligatoire</label>

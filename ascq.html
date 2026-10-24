@@ -222,7 +222,12 @@
               <fieldset>
                 <legend>Rapport du suivi (au moins une photo ou un document)</legend>
                 <div class="grid grid-2">
-                  <div class="field"><label>📷 Photo(s) de la séance</label><input type="file" id="suiviPhotos" accept="image/*" multiple></div>
+                  <div class="field"><label>📷 Photo(s) de la séance</label>
+                    <div class="photo-actions">
+                      <label class="btn-secondary btn-photo">📷 Prendre une photo<input type="file" id="suiviPhotosCamera" accept="image/*" capture="environment" hidden></label>
+                      <label class="btn-secondary btn-photo">🖼️ Choisir dans la galerie<input type="file" id="suiviPhotos" accept="image/*" multiple hidden></label>
+                    </div>
+                    <div class="petit">« Prendre une photo » ouvre directement l'appareil photo du téléphone ; vous pouvez en prendre plusieurs, une par une.</div></div>
                   <div class="field"><label>📄 Document(s) du rapport (PDF, Word, Excel — 5 Mo max)</label><input type="file" id="suiviDocs" accept=".pdf,.doc,.docx,.xls,.xlsx,.odt,.txt" multiple></div>
                 </div>
                 <div id="suiviFichiersApercu" class="fichiers-apercu"></div>

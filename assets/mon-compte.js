@@ -21,7 +21,8 @@ function ensureMonCompteModal_() {
       <div class="photo-ligne">
         <div id="monComptePhoto" class="photo-profil"></div>
         <div>
-          <label class="btn-secondary" style="display:inline-block;padding:8px 14px;border-radius:8px;cursor:pointer">📷 Choisir une photo<input type="file" id="monComptePhotoInput" accept="image/*" style="display:none"></label>
+          <label class="btn-secondary btn-photo">📷 Prendre une photo<input type="file" id="monComptePhotoCamera" accept="image/*" capture="user" hidden></label>
+          <label class="btn-secondary btn-photo">🖼️ Choisir dans la galerie<input type="file" id="monComptePhotoInput" accept="image/*" hidden></label>
           <button type="button" class="btn-secondary" id="monComptePhotoSupp">Retirer</button>
           <div class="petit" id="monComptePhotoMsg">La photo est enregistrée dans votre compte.</div>
         </div>
@@ -118,7 +119,7 @@ function photoAfficher_() {
   if (typeof window.majAvatarProfil_ === 'function') window.majAvatarProfil_();
 }
 document.addEventListener('change', async e => {
-  if (e.target.id !== 'monComptePhotoInput' || !e.target.files[0]) return;
+  if ((e.target.id !== 'monComptePhotoInput' && e.target.id !== 'monComptePhotoCamera') || !e.target.files[0]) return;
   try {
     const photo = await photoReduire_(e.target.files[0]);
     await Api.call('setPhoto', { photo });

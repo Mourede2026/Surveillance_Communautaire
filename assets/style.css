@@ -541,3 +541,7 @@ table.rs-part th { width: 52%; text-align: left; }
 .act-ligne { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--card); }
 .act-ligne .grid { gap: 8px; }
 @media print { .lp-saut { break-after: page; page-break-after: always; height: 0; border: 0; margin: 0; } }
+
+/* ---- Prise de photo : appareil photo + galerie ---- */
+.photo-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; }
+.btn-photo { display: inline-block; padding: 10px 14px; border-radius: 8px; cursor: pointer; text-align: center; }

@@ -98,9 +98,12 @@
       </tbody></table></div>
       <div id="sensCompteurs" class="petit" style="margin:6px 0 10px"></div>
       <h4 class="sous-titre" style="margin-top:14px">Photo(s) de la sensibilisation (preuve)</h4>
-      <input type="file" id="sensPhotoInput" accept="image/*" multiple>
+      <div class="photo-actions">
+        <label class="btn-secondary btn-photo">📷 Prendre une photo<input type="file" id="sensPhotoCamera" accept="image/*" capture="environment" hidden></label>
+        <label class="btn-secondary btn-photo">🖼️ Choisir dans la galerie<input type="file" id="sensPhotoInput" accept="image/*" multiple hidden></label>
+      </div>
       <div id="sensPhotos" class="fiche-photos" style="margin-top:8px"></div>
-      <div class="petit">Au moins une photo, ${MAX_PHOTOS} au maximum. Les photos sont réduites automatiquement.</div>
+      <div class="petit">« Prendre une photo » ouvre l'appareil photo du téléphone. Au moins une photo, ${MAX_PHOTOS} au maximum. Les photos sont réduites automatiquement.</div>
       <button type="submit" class="btn-block" style="margin-top:14px">Envoyer la preuve de sensibilisation</button>
     </form>`;
     const form = zone.querySelector('#formSens');
@@ -116,14 +119,16 @@
       zone.querySelector('#sensPhotos').innerHTML = photos.map((u, i) => `<div style="position:relative"><img src="${u}" alt="Photo ${i + 1}"><button type="button" class="btn-danger btn-mini" data-ph="${i}" style="position:absolute;top:4px;right:4px">✕</button></div>`).join('');
     }
     zone.querySelector('#sensPhotos').addEventListener('click', e => { const b = e.target.closest('[data-ph]'); if (b) { photos.splice(Number(b.dataset.ph), 1); dessinerPhotos(); } });
-    zone.querySelector('#sensPhotoInput').addEventListener('change', async e => {
+    const surPhotos = async e => {
       const fichiers = Array.from(e.target.files || []); e.target.value = '';
       for (const f of fichiers) {
         if (photos.length >= MAX_PHOTOS) { toast('Maximum ' + MAX_PHOTOS + ' photos.', true); break; }
         try { photos.push(await redimensionner(f, 1280)); } catch (err) { toast(err.message, true); }
       }
       dessinerPhotos();
-    });
+    };
+    zone.querySelector('#sensPhotoInput').addEventListener('change', surPhotos);
+    zone.querySelector('#sensPhotoCamera').addEventListener('change', surPhotos);
 
     form.addEventListener('submit', async e => {
       e.preventDefault();

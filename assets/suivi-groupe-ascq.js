@@ -250,7 +250,7 @@
       // Les photos S'AJOUTENT à la liste (on peut en reprendre plusieurs, une par une) ; le champ est
       // remis à zéro après chaque choix pour que reprendre la même photo déclenche bien l'événement.
       const MAX_PHOTOS = 10;
-      $('suiviPhotos').addEventListener('change', async e => {
+      const surPhotos = async e => {
         const fichiers = [...e.target.files]; e.target.value = '';
         if (!fichiers.length) return;
         $('suiviFichiersApercu').insertAdjacentHTML('beforeend', '<span class="petit"> Traitement de la photo…</span>');
@@ -260,7 +260,9 @@
           catch (err) { toast(err.message, true); }
         }
         apercuFichiers();
-      });
+      };
+      $('suiviPhotos').addEventListener('change', surPhotos);
+      $('suiviPhotosCamera').addEventListener('change', surPhotos);
       $('suiviDocs').addEventListener('change', async e => {
         const fichiers = [...e.target.files]; e.target.value = '';
         for (const f of fichiers) {

@@ -5,7 +5,7 @@
 //
 // CACHE_VERSION : incrémenter à chaque mise à jour des fichiers listés ci-dessous, sinon les
 // téléphones qui ont déjà installé l'app continueront de voir une ancienne version en cache.
-const CACHE_VERSION = 'sivec-v33';
+const CACHE_VERSION = 'sivec-v34';
 
 const APP_SHELL = [
   './',

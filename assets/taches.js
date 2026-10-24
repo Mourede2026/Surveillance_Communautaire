@@ -47,6 +47,8 @@
 
   function construire(conteneur, init) {
     const etat = init ? JSON.parse(JSON.stringify(init)) : defaut();
+    // Édition d'un questionnaire publié : les questions existantes gardent leur id (donc leurs réponses) et leur type.
+    ['champsCas', 'champsSuivi'].forEach(k => etat[k].forEach(c => { if (c.opts === undefined) c.opts = (c.options || []).join('\n'); }));
     const BLOCS = [
       { cle: 'champsCas', titre: '1. Informations clés du cas à recenser', aide: 'Questions posées au relais communautaire quand il enregistre un nouveau cas (identité, âge, sexe, signes…).' },
       { cle: 'champsSuivi', titre: '2. Questionnaire de suivi quotidien', aide: 'Questions que le relais remplira chaque jour pour chaque cas recensé, pendant toute la durée du suivi.' }
@@ -57,7 +59,7 @@
       return `<div class="q-row" data-l="${cle}" data-i="${i}">
         <div class="q-ligne1">
           <input class="q-label" placeholder="Intitulé de la question" value="${esc(c.label)}" maxlength="140">
-          <select class="q-type">${TYPES_CHAMP.map(t => `<option value="${t[0]}" ${t[0] === c.type ? 'selected' : ''}>${t[1]}</option>`).join('')}</select>
+          <select class="q-type" ${c.id ? 'disabled title="Le type d\'une question existante ne peut pas être changé"' : ''}>${TYPES_CHAMP.map(t => `<option value="${t[0]}" ${t[0] === c.type ? 'selected' : ''}>${t[1]}</option>`).join('')}</select>
         </div>
         <div class="q-ligne2">
           <label class="q-req"><input type="checkbox" class="q-oblig" ${c.obligatoire ? 'checked' : ''}> Obligatoire</label>
@@ -101,9 +103,10 @@
     dessiner();
 
     return {
+      ids() { return { champsCas: etat.champsCas.filter(c => c.id).map(c => c.id), champsSuivi: etat.champsSuivi.filter(c => c.id).map(c => c.id) }; },
       lire() {
         const net = liste => liste.filter(c => c.label.trim()).map(c => ({
-          label: c.label.trim(), type: c.type, obligatoire: !!c.obligatoire,
+          id: c.id || undefined, label: c.label.trim(), type: c.type, obligatoire: !!c.obligatoire,
           options: (c.type === 'choix' || c.type === 'choix_multiple') ? String(c.opts || '').split('\n').map(x => x.trim()).filter(Boolean) : []
         }));
         const q = { champsCas: net(etat.champsCas), champsSuivi: net(etat.champsSuivi), dureeJours: Number(etat.dureeJours) };

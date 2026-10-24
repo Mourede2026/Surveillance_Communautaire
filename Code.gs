@@ -2031,8 +2031,8 @@ function createActivite_(actor, p) {
   if (!roles.length) return { ok: false, error: 'Choisissez au moins un niveau destinataire, situé en dessous du vôtre.' };
   const cibles = comptesCiblesActivite_(actor, roles);
   if (!cibles.length) return { ok: false, error: 'Aucun compte actif de ce(s) niveau(x) dans votre hiérarchie pour le moment.' };
-  if (!p.dateLimite) return { ok: false, error: 'Indiquez l\'échéance de l\'activité.' };
-  if (dateIso_(p.dateLimite) < aujourdhuiIso_()) return { ok: false, error: 'L\'échéance ne peut pas être dans le passé.' };
+  // L'échéance est facultative : sans date, l'activité reste ouverte jusqu'à son archivage.
+  if (p.dateLimite && dateIso_(p.dateLimite) < aujourdhuiIso_()) return { ok: false, error: 'L\'échéance ne peut pas être dans le passé.' };
   const rec = {
     ID: newId_('ACT'), Type: type, Titre: titre, Description: String(p.description || '').trim(), Lien: lien,
     DateLimite: p.dateLimite ? dateIso_(p.dateLimite) : '', CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom,
@@ -2113,18 +2113,50 @@ function getActiviteDetail_(actor, p) {
 
 function updateActivite_(actor, p) {
   const r = activiteDuCreateur_(actor, p.id); if (r.err) return { ok: false, error: r.err };
-  const ch = { DateModification: nowStr_() };
-  if (p.titre !== undefined) { if (String(p.titre).trim().length < 3) return { ok: false, error: 'Titre trop court.' }; ch.Titre = String(p.titre).trim(); }
-  if (p.type !== undefined && TYPES_ACTIVITE_.includes(p.type)) {
+  const ch = { DateModification: nowStr_() }, modifs = [];
+  if (p.titre !== undefined && String(p.titre).trim() !== r.a.Titre) { if (String(p.titre).trim().length < 3) return { ok: false, error: 'Titre trop court.' }; ch.Titre = String(p.titre).trim(); modifs.push('titre'); }
+  if (p.type !== undefined && TYPES_ACTIVITE_.includes(p.type) && p.type !== r.a.Type) {
     if ((p.type === TYPE_TACHE_) !== estTache_(r.a)) return { ok: false, error: 'Le type « Tâche » ne peut pas être changé après création (le questionnaire et les cas recensés en dépendent).' };
-    ch.Type = p.type;
+    ch.Type = p.type; modifs.push('type');
   }
-  if (p.description !== undefined) ch.Description = String(p.description).trim();
-  if (p.lien !== undefined) { const l = String(p.lien).trim(); if (l && !lienValide_(l)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' }; ch.Lien = l; }
-  if (p.dateLimite !== undefined) { if (!p.dateLimite) return { ok: false, error: 'L\'échéance est obligatoire.' }; ch.DateLimite = dateIso_(p.dateLimite); }
+  if (p.description !== undefined && String(p.description).trim() !== String(r.a.Description || '')) { ch.Description = String(p.description).trim(); modifs.push('consignes'); }
+  if (p.lien !== undefined) { const l = String(p.lien).trim(); if (l && !lienValide_(l)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' }; if (l !== String(r.a.Lien || '')) { ch.Lien = l; modifs.push('lien'); } }
+  // Échéance facultative : une valeur vide la supprime.
+  if (p.dateLimite !== undefined) { const d = p.dateLimite ? dateIso_(p.dateLimite) : ''; if (d !== dateIso_(r.a.DateLimite)) { ch.DateLimite = d; modifs.push('échéance'); } }
+  // Destinataires (niveaux ciblés) d'une activité classique ; une tâche reste destinée aux RC.
+  if (p.cibleRoles !== undefined && !estTache_(r.a)) {
+    const roles = (Array.isArray(p.cibleRoles) ? p.cibleRoles : []).filter(x => RANG_ROLE_[x] !== undefined && RANG_ROLE_[x] < RANG_ROLE_[actor.Role]);
+    if (!roles.length) return { ok: false, error: 'Cochez au moins un niveau destinataire.' };
+    if (!comptesCiblesActivite_(actor, roles).length) return { ok: false, error: 'Aucun compte actif dans votre hiérarchie pour ces niveaux.' };
+    if (JSON.stringify(roles) !== JSON.stringify(parseArr_(r.a.CibleRoles))) { ch.CibleRoles = JSON.stringify(roles); modifs.push('destinataires'); }
+  }
+  // Questionnaire d'une tâche : questions ajoutées, modifiées, déplacées ou retirées ; durée du suivi.
+  let prolongation = null;
+  if (p.questionnaire !== undefined && estTache_(r.a)) {
+    const ancien = questionnaireDe_(r.a);
+    let q; try { q = fusionnerQuestionnaire_(ancien, p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
+    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours });
+    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours }) !== avant) {
+      ch.Questionnaire = JSON.stringify(q);
+      if (q.dureeJours !== ancien.dureeJours) { modifs.push('durée du suivi'); prolongation = q.dureeJours; }
+      if (JSON.stringify(q.champsCas) !== JSON.stringify(ancien.champsCas) || JSON.stringify(q.champsSuivi) !== JSON.stringify(ancien.champsSuivi)) modifs.push('questionnaire');
+    }
+  }
   if (p.statut !== undefined) { if (!['Active', 'Archivée'].includes(p.statut)) return { ok: false, error: 'Statut invalide.' }; ch.Statut = p.statut; }
   updateRowById_(SHEETS.ACTIVITES, r.a.ID, ch);
-  return { ok: true };
+  // Nouvelle durée : s'applique aussi aux cas déjà recensés dont le suivi n'est pas clôturé.
+  if (prolongation) {
+    readSheet_(SHEETS.TACHES_CAS).filter(c => c.ActiviteId === r.a.ID && c.Statut !== 'Clôturé')
+      .forEach(c => updateRowById_(SHEETS.TACHES_CAS, c.ID, { DateFinSuivi: ajouterJours_(dateIso_(c.DateEnregistrement), prolongation) }));
+  }
+  // Les destinataires sont prévenus de toute modification d'une activité en cours.
+  const apres = Object.assign({}, r.a, ch);
+  if (modifs.length && apres.Statut === 'Active') {
+    const createur = { ID: r.a.CreeParId, Role: r.a.CreeParRole };
+    notifierCiblesActivite_(comptesCiblesActivite_(createur, parseArr_(apres.CibleRoles)), apres,
+      `Activité modifiée : « ${apres.Titre} » (${modifs.join(', ')}) - par ${r.a.CreeParNom}`);
+  }
+  return { ok: true, modifications: modifs };
 }
 
 function commenterActivite_(actor, p) {
@@ -2197,12 +2229,46 @@ function nettoyerQuestionnaire_(q) {
   if (!champsSuivi.length) throw new Error('Ajoutez au moins une question dans le « Questionnaire de suivi ».');
   const duree = Math.floor(Number(q.dureeJours));
   if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
-  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree };
+  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
+}
+
+// Modification d'un questionnaire déjà publié : les questions existantes (id connu) gardent leur identifiant,
+// donc leurs réponses déjà collectées ; leur type ne change pas. Les nouvelles questions reçoivent un id jamais utilisé.
+function fusionnerQuestionnaire_(ancien, nouveau) {
+  nouveau = nouveau || {};
+  const out = { champsCas: [], champsSuivi: [], seq: {} };
+  [['champsCas', 'Informations du cas'], ['champsSuivi', 'Questionnaire de suivi']].forEach(([cle, lib]) => {
+    const anc = ancien[cle] || [];
+    const num = id => Number(String(id).replace(/\D/g, '')) || 0;
+    let seq = Math.max(Number((ancien.seq || {})[cle]) || 0, anc.reduce((m, c) => Math.max(m, num(c.id)), 0));
+    const vus = {};
+    (Array.isArray(nouveau[cle]) ? nouveau[cle] : []).slice(0, 40).forEach(c => {
+      const label = coupe_(c && c.label, 140); if (!label) return;
+      const existant = c.id ? anc.find(x => x.id === c.id) : null;
+      if (existant && vus[existant.id]) return;
+      const type = existant ? existant.type : (TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : 'texte');
+      let options = [];
+      if (type === 'choix' || type === 'choix_multiple') {
+        options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
+        if (options.length < 2) throw new Error('Dans « ' + lib + ' », la question « ' + label + ' » doit proposer au moins 2 choix.');
+      }
+      const id = existant ? existant.id : 'c' + (++seq);
+      if (existant) vus[id] = true;
+      out[cle].push({ id: id, label: label, type: type, options: options, obligatoire: !!c.obligatoire });
+    });
+    out.seq[cle] = seq;
+  });
+  if (!out.champsCas.length) throw new Error('Gardez au moins une question dans « Informations du cas à recenser ».');
+  if (!out.champsSuivi.length) throw new Error('Gardez au moins une question dans le « Questionnaire de suivi ».');
+  const duree = Math.floor(Number(nouveau.dureeJours === undefined ? ancien.dureeJours : nouveau.dureeJours));
+  if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
+  out.dureeJours = duree;
+  return out;
 }
 
 function questionnaireDe_(a) {
-  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7 }; }
-  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7 }; }
+  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, seq: q.seq || {} }; }
+  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, seq: {} }; }
 }
 
 // Valide et normalise les réponses d'un RC par rapport à la liste de questions.
@@ -2675,27 +2741,33 @@ function updatePlanningSuivi_(actor, p) {
   const plan = readSheet_(SHEETS.PLANNINGS).find(x => x.ID === p.id && x.AscqId === actor.ID);
   if (!plan) return { ok: false, error: 'Séance planifiée introuvable.' };
   if (plan.Statut === 'Réalisé') return { ok: false, error: 'Cette séance est déjà réalisée.' };
-  const changes = {};
+  const changes = {}, modifs = [];
   if (p.statut) {
     if (['Planifié', 'Annulé'].indexOf(p.statut) === -1) return { ok: false, error: 'Statut invalide.' };
     changes.Statut = p.statut;
   }
-  if (p.datePrevue) {
+  if (p.datePrevue && dateIso_(p.datePrevue) !== dateIso_(plan.DatePrevue)) {
     if (dateIso_(p.datePrevue) < dateIso_(new Date())) return { ok: false, error: 'La date prévue ne peut pas être dans le passé.' };
-    changes.DatePrevue = dateIso_(p.datePrevue);
+    changes.DatePrevue = dateIso_(p.datePrevue); modifs.push('date');
+  }
+  if (p.heure !== undefined) { const h = String(p.heure || '').replace(':', 'h'); if (h !== String(plan.Heure || '')) { changes.Heure = h; modifs.push('heure'); } }
+  if (p.lieu !== undefined && String(p.lieu || '') !== String(plan.Lieu || '')) { changes.Lieu = coupe_(p.lieu, 160); modifs.push('lieu'); }
+  if (p.objectif !== undefined && String(p.objectif || '') !== String(plan.Objectif || '')) { changes.Objectif = String(p.objectif || '').trim().slice(0, 500); modifs.push('objectif'); }
+  if (p.themes !== undefined) {
+    const th = (Array.isArray(p.themes) ? p.themes : []).map(String);
+    if (JSON.stringify(th) !== JSON.stringify(parseArr_(plan.Themes))) { changes.Themes = JSON.stringify(th); modifs.push('thèmes'); }
   }
   if (!Object.keys(changes).length) return { ok: false, error: 'Aucune modification demandée.' };
   updateRowById_(SHEETS.PLANNINGS, plan.ID, changes);
-  const action = changes.Statut === 'Annulé' ? 'annulé' : (changes.Statut === 'Planifié' ? 'réactivé' : 'reporté');
-  cascadeNotify_(actor, 'PLANNING', plan.ID, `Suivi groupé ${action} (prévu le ${dateIso_(plan.DatePrevue)}) par ${plan.AscqNom}`);
+  const apres = Object.assign({}, plan, changes);
+  const action = changes.Statut === 'Annulé' ? 'annulé' : (changes.Statut === 'Planifié' ? 'réactivé' : (modifs.length === 1 && modifs[0] === 'date' ? 'reporté' : 'modifié (' + modifs.join(', ') + ')'));
+  cascadeNotify_(actor, 'PLANNING', plan.ID, `Suivi groupé ${action} (prévu le ${dateIso_(apres.DatePrevue)}) par ${plan.AscqNom}`);
   const ids = parseArr_(plan.RcConviesIds);
   const rcs = readSheet_(SHEETS.USERS).filter(u => u.Role === ROLES.RC && ids.includes(u.ID));
-  notifierRcConvoques_(rcs, Object.assign({}, plan, changes), 'Suivi groupé ' + action);
+  notifierRcConvoques_(rcs, apres, 'Suivi groupé ' + action);
   return { ok: true };
 }
 
-// Plannings visibles : les siens (ASCQ) ou ceux de tous les ASCQ de son périmètre (PF, RCSE,
-// Département, National) — même règle de visibilité que les suivis groupés.
 function listPlanningsSuivis_(actor) {
   const ascqIds = ascqIdsVisibles_(actor);
   if (!ascqIds.length) return [];

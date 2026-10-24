@@ -333,6 +333,8 @@
           pickerSuivi.set(jsonArr_(plan.RcConviesIds), jsonArr_(plan.VillageIds));
           majBandeauPlanning();
           $('suiviBandeauPlanning').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (b.dataset.plan === 'modifier') {
+          modifierPlanning(plan);
         } else {
           try {
             await Api.call('updatePlanningSuivi', { id: plan.ID, statut: b.dataset.plan === 'annuler' ? 'Annulé' : 'Planifié' });
@@ -346,6 +348,34 @@
     pickerSuivi.init(); pickerPlan.init();
   };
 
+  // Modification d'une séance planifiée (date, heure, lieu, objectif, thèmes) : RC convoqués et hiérarchie sont prévenus.
+  function modifierPlanning(plan) {
+    const ov = document.createElement('div'); ov.className = 'modal-overlay';
+    const themesPlan = jsonArr_(plan.Themes), heure = String(plan.Heure || '').replace('h', ':');
+    const modules = (typeof BRIEFING_MODULES !== 'undefined') ? BRIEFING_MODULES : [];
+    ov.innerHTML = `<div class="modal-box" style="width:680px;max-height:92vh;overflow:auto"><h3 style="margin-top:0">✏️ Modifier la séance planifiée</h3>
+      <form id="formModifPlan"><div class="grid grid-2">
+        <div class="field"><label>Date prévue</label><input type="date" name="datePrevue" required min="${aujourdhui()}" value="${escHtml(String(plan.DatePrevue).slice(0, 10))}"></div>
+        <div class="field"><label>Heure</label><input type="time" name="heure" value="${/^\d{1,2}:\d{2}$/.test(heure) ? escHtml(heure.padStart(5, '0')) : ''}"></div>
+        <div class="field"><label>Lieu</label><input name="lieu" value="${escHtml(plan.Lieu || '')}"></div>
+        <div class="field"><label>Objectif</label><input name="objectif" value="${escHtml(plan.Objectif || '')}"></div></div>
+        <fieldset><legend>Thèmes prévus</legend><div class="checks">${modules.map(m => `<label><input type="checkbox" name="themes" value="${escHtml(m.id)}" ${themesPlan.includes(m.id) ? 'checked' : ''}> ${m.icon} ${escHtml(m.title)}</label>`).join('')}</div></fieldset>
+        <div class="petit" style="margin:6px 0">Les RC convoqués et votre hiérarchie sont prévenus de la modification. Pour changer les villages ou les RC convoqués, annulez cette séance et planifiez-en une nouvelle.</div>
+        <div style="display:flex;gap:8px;margin-top:10px"><button type="submit" class="btn-block">Enregistrer</button><button type="button" class="btn-secondary btn-block" id="modifPlanFermer">Fermer</button></div></form></div>`;
+    document.body.appendChild(ov);
+    const fermer = () => ov.remove();
+    ov.querySelector('#modifPlanFermer').onclick = fermer;
+    ov.addEventListener('click', e => { if (e.target === ov) fermer(); });
+    ov.querySelector('#formModifPlan').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target), btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        await Api.call('updatePlanningSuivi', { id: plan.ID, datePrevue: fd.get('datePrevue'), heure: fd.get('heure') || '', lieu: fd.get('lieu') || '', objectif: fd.get('objectif') || '', themes: fd.getAll('themes') });
+        toast('Séance modifiée. Les RC convoqués sont prévenus.'); fermer(); chargerPlannings();
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
+    });
+  }
+
   async function chargerPlannings() {
     const el = $('planningTable');
     el.innerHTML = 'Chargement…';
@@ -357,7 +387,7 @@
       let html = '<div class="table-wrap"><table><thead><tr><th>Date / heure</th><th>Village(s)</th><th>RC convoqués</th><th>Lieu</th><th>Objectif / thèmes</th><th>Statut</th><th></th></tr></thead><tbody>';
       plannings.slice().sort((a, b) => ordre(a) - ordre(b) || String(a.DatePrevue).localeCompare(String(b.DatePrevue))).forEach(p => {
         let actions = '';
-        if (p.Statut === 'Planifié') actions = `<button class="btn-mini" data-plan="rapport" data-id="${escHtml(p.ID)}">Faire le compte rendu</button> <button class="btn-secondary btn-mini" data-plan="annuler" data-id="${escHtml(p.ID)}">Annuler</button>`;
+        if (p.Statut === 'Planifié') actions = `<button class="btn-mini" data-plan="rapport" data-id="${escHtml(p.ID)}">Faire le compte rendu</button> <button class="btn-secondary btn-mini" data-plan="modifier" data-id="${escHtml(p.ID)}">✏️ Modifier</button> <button class="btn-secondary btn-mini" data-plan="annuler" data-id="${escHtml(p.ID)}">Annuler</button>`;
         else if (p.Statut === 'Annulé') actions = `<button class="btn-secondary btn-mini" data-plan="reactiver" data-id="${escHtml(p.ID)}">Réactiver</button>`;
         const th = themesLabels_(jsonArr_(p.Themes)).join(', ');
         html += `<tr><td>${planningQuandHtml_(p)}</td><td>${escHtml(jsonArr_(p.VillageNoms).join(', '))}</td>

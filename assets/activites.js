@@ -130,9 +130,9 @@
           <div class="field"><label>Type</label><select name="type">${TYPES.map(t => `<option>${ICONES[t]} ${escHtml(t)}</option>`).join('')}</select></div>
           <div class="field"><label>Titre</label><input name="titre" required placeholder="Ex : Collecte de données sur les mpox"></div>
           <div class="field" id="actChampLien"><label>Lien (https://…)</label><input name="lien" type="url" placeholder="https://forms.gle/… ou lien de formation / test"></div>
-          <div class="field"><label id="actLibEcheance">Échéance (obligatoire)</label><input name="dateLimite" type="date" required min="${aujourdhui()}"></div>
+          <div class="field"><label id="actLibEcheance">Échéance (facultative)</label><input name="dateLimite" type="date" min="${aujourdhui()}"></div>
         </div>
-        <div id="actBlocTache" style="display:none"><div class="petit" style="margin:0 0 10px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ <strong>Tâche de recensement et suivi</strong> : les relais communautaires de votre hiérarchie recensent chaque cas avec les informations clés ci-dessous, puis le suivent chaque jour avec le questionnaire de suivi. L'échéance ci-dessus est la <strong>date limite de recensement de nouveaux cas</strong> ; le suivi des cas déjà recensés se poursuit jusqu'à la fin de sa durée.</div><div id="actConstructeur"></div></div>
+        <div id="actBlocTache" style="display:none"><div class="petit" style="margin:0 0 10px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ <strong>Tâche de recensement et suivi</strong> : les relais communautaires de votre hiérarchie recensent chaque cas avec les informations clés ci-dessous, puis le suivent chaque jour avec le questionnaire de suivi. L'échéance ci-dessus (facultative) est la <strong>date limite de recensement de nouveaux cas</strong> ; sans date, le recensement reste ouvert. Le suivi des cas déjà recensés se poursuit jusqu'à la fin de sa durée. Vous pourrez modifier la tâche et son questionnaire après l'envoi.</div><div id="actConstructeur"></div></div>
         <div class="field"><label>Consignes / commentaire (optionnel)</label><textarea name="description" placeholder="Explications, public concerné, comment remplir…"></textarea></div>
         <fieldset id="actCiblesBloc"><legend>Niveaux destinataires</legend><div class="checks">${roles.map(r => `<label><input type="checkbox" name="cibles" value="${r}"> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>
         <button type="submit" class="btn-block">Publier l'activité</button>
@@ -146,7 +146,7 @@
       document.getElementById('actBlocTache').style.display = estT ? 'block' : 'none';
       document.getElementById('actCiblesBloc').style.display = estT ? 'none' : '';
       document.getElementById('actChampLien').style.display = estT ? 'none' : '';
-      document.getElementById('actLibEcheance').textContent = estT ? 'Date limite de recensement (obligatoire)' : 'Échéance (obligatoire)';
+      document.getElementById('actLibEcheance').textContent = estT ? 'Date limite de recensement (facultative)' : 'Échéance (facultative)';
     });
     formAct.addEventListener('submit', async e => {
       e.preventDefault();
@@ -172,7 +172,7 @@
       return `<tr><td>${ICONES[a.Type] || '🔗'} <strong>${escHtml(a.Titre)}</strong>${a.Statut === 'Archivée' ? ' <span class="badge badge-cancel">Archivée</span>' : ''}${a.Echue ? ' <span class="badge badge-late">Échue (masquée aux destinataires)</span>' : ''}<div class="petit">${escHtml(a.Type)} · ${fmtDate(a.DateCreation)}</div></td>
         <td>${escHtml(jsonArr(a.CibleRoles).map(r => LIB_ROLE_COURT[r] || r).join(', '))} <span class="petit">(${a.NbCibles})</span></td><td>${a.DateLimite ? fmtDate(a.DateLimite) : '—'}</td>
         <td><div class="barre"><span style="width:${pct}%"></span></div><span class="petit">${a.Type === TACHE ? (a.NbCas || 0) + ' cas recensés · ' + (a.NbCasEnSuivi || 0) + ' en suivi' : a.NbFaits + '/' + a.NbCibles + ' faits · ' + a.NbOuverts + ' en cours'}</span></td>
-        <td><button class="btn-secondary btn-mini" data-detail="${escHtml(a.ID)}">Détails</button></td></tr>`;
+        <td><button class="btn-secondary btn-mini" data-detail="${escHtml(a.ID)}">Voir / Modifier</button></td></tr>`;
     }).join('') + '</tbody></table></div>';
     zone.addEventListener('click', e => { const b = e.target.closest('[data-detail]'); if (b) ouvrirDetail(b.dataset.detail); });
   }
@@ -202,13 +202,16 @@
           <div class="field"><label>Titre</label><input name="titre" value="${escHtml(a.Titre)}" required></div>
           <div class="field"><label>Type</label><select name="type" ${a.Type === TACHE ? 'disabled' : ''}>${TYPES.filter(t => t !== TACHE || a.Type === TACHE).map(t => `<option ${t === a.Type ? 'selected' : ''}>${escHtml(t)}</option>`).join('')}</select></div>
           <div class="field"><label>Lien</label><input name="lien" type="url" value="${escHtml(a.Lien)}"></div>
-          <div class="field"><label>Échéance</label><input name="dateLimite" type="date" required value="${escHtml(a.DateLimite || '')}"></div>
+          <div class="field"><label>Échéance (facultative — videz le champ pour la supprimer)</label><input name="dateLimite" type="date" value="${escHtml(a.DateLimite || '')}"></div>
         </div>
         <div class="field"><label>Consignes</label><textarea name="description">${escHtml(a.Description)}</textarea></div>
+        ${a.Type === TACHE ? '' : `<fieldset id="actModifCibles"><legend>Niveaux destinataires</legend><div class="checks">${rolesCibles().map(r => `<label><input type="checkbox" name="cibles" value="${r}" ${jsonArr(a.CibleRoles).includes(r) ? 'checked' : ''}> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>`}
+        ${a.Type === TACHE ? '<div id="actModifQuestionnaire"></div>' : ''}
+        <div class="petit" style="margin:6px 0">Toute modification d'une activité en cours est notifiée aux destinataires.</div>
         <button type="submit" class="btn-secondary btn-mini">Enregistrer les modifications</button>
         ${a.Lien ? ` <a href="${escHtml(lienSur(a.Lien))}" target="_blank" rel="noopener noreferrer" class="petit">Ouvrir le lien ↗</a>` : ''}
       </form>
-      ${a.Type === TACHE ? (() => { const q = window.Taches.parseQuestionnaire(a); return `<div class="petit" style="margin-top:12px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ Questionnaire de la tâche : ${q.champsCas.length} question(s) d'enregistrement du cas, ${q.champsSuivi.length} question(s) de suivi quotidien, suivi pendant ${q.dureeJours} jour(s). Il ne peut plus être modifié après publication ; pour le changer, créez une nouvelle tâche.<br><button type="button" class="btn-mini" id="actVoirDonnees" style="margin-top:6px">🗂️ Voir les données collectées</button></div>`; })() : ''}
+      ${a.Type === TACHE ? (() => { const q = window.Taches.parseQuestionnaire(a); return `<div class="petit" style="margin-top:12px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ Questionnaire de la tâche : ${q.champsCas.length} question(s) d'enregistrement du cas, ${q.champsSuivi.length} question(s) de suivi quotidien, suivi pendant ${q.dureeJours} jour(s). Vous pouvez le modifier ci-dessus (les questions existantes gardent leurs réponses ; une nouvelle durée s'applique aussi aux cas dont le suivi n'est pas clôturé).<br><button type="button" class="btn-mini" id="actVoirDonnees" style="margin-top:6px">🗂️ Voir les données collectées</button></div>`; })() : ''}
       <h4 class="sous-titre" style="margin-top:16px">💬 Commentaires (visibles par les destinataires)</h4>
       <div>${jsonArr(a.Commentaires).map(x => `<div class="act-com"><span class="petit">${fmtDate(x.date)} · ${escHtml(x.auteur)}</span><br>${escHtml(x.texte).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="petit">Aucun commentaire.</div>'}</div>
       <div style="display:flex;gap:8px;margin-top:8px"><textarea id="actNouvCom" rows="2" placeholder="Ajouter un commentaire ou une précision…" style="flex:1"></textarea><button id="actEnvoyerCom" class="btn-mini">Publier</button></div>
@@ -222,7 +225,25 @@
     ov.querySelector('#actFermer').onclick = fermer;
     ov.addEventListener('click', e => { if (e.target === ov) fermer(); });
     const appel = async (action, payload, msg) => { try { await Api.call(action, Object.assign({ id }, payload)); toast(msg); fermer(); await rafraichir(); } catch (err) { toast(err.message, true); } };
-    ov.querySelector('#formModifAct').addEventListener('submit', e => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); appel('updateActivite', f, 'Modifications enregistrées.'); });
+    let constructeurModif = null;
+    if (a.Type === TACHE) {
+      const zq = ov.querySelector('#actModifQuestionnaire');
+      zq.innerHTML = '<h4 class="sous-titre" style="margin-top:12px">Questionnaire de la tâche</h4><div id="actModifConstructeur"></div>';
+      constructeurModif = window.Taches.construire(zq.querySelector('#actModifConstructeur'), window.Taches.parseQuestionnaire(a));
+    }
+    ov.querySelector('#formModifAct').addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const f = { titre: fd.get('titre'), lien: fd.get('lien'), dateLimite: fd.get('dateLimite') || '', description: fd.get('description') };
+      if (a.Type !== TACHE) { f.type = TYPES.find(t => String(fd.get('type')).includes(t)) || a.Type; f.cibleRoles = fd.getAll('cibles'); if (!f.cibleRoles.length) { toast('Cochez au moins un niveau destinataire.', true); return; } }
+      if (constructeurModif) {
+        try { f.questionnaire = constructeurModif.lire(); } catch (err) { toast(err.message, true); return; }
+        const avant = window.Taches.parseQuestionnaire(a), apres = constructeurModif.ids();
+        const retirees = ['champsCas', 'champsSuivi'].reduce((n, k) => n + avant[k].filter(c => !apres[k].includes(c.id)).length, 0);
+        if (retirees && !confirm(retirees + ' question(s) vont être retirée(s) : leurs réponses déjà collectées ne seront plus affichées. Continuer ?')) return;
+      }
+      appel('updateActivite', f, 'Modifications enregistrées. Les destinataires sont prévenus.');
+    });
     const vd = ov.querySelector('#actVoirDonnees');
     if (vd) vd.onclick = () => { fermer(); const sub = document.querySelector('[data-act-sub=donnees]'); if (sub) { sub.click(); const ch = document.getElementById('actDonneesChoix'); if (ch) { ch.value = id; ch.dispatchEvent(new Event('change')); } } };
     ov.querySelector('#actEnvoyerCom').onclick = () => { const t = ov.querySelector('#actNouvCom').value.trim(); if (!t) return; appel('commenterActivite', { texte: t }, 'Commentaire publié (les destinataires sont notifiés).'); };

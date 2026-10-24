@@ -209,6 +209,12 @@
                 <div class="checks" id="suiviAutres"></div>
                 <div class="petit">Cochez les superviseurs (PF, RCSE, Département…) qui ont participé : ils figureront aussi dans la liste de présence, avec leur signature.</div>
               </fieldset>
+              <fieldset id="suiviActeursBloc">
+                <legend>Autres acteurs présents (sans compte SIVEC)</legend>
+                <div class="petit" style="margin-bottom:8px">Ex. médecin chef de commune, chef d'arrondissement, partenaire… Renseignez les informations de la liste de présence ; ils y figureront avec une case de signature à remplir à la main après impression. Cliquez sur « + » pour en ajouter autant que nécessaire.</div>
+                <div id="suiviActeurs"></div>
+                <button type="button" class="btn-secondary btn-mini" id="suiviActeurAjout">+ Ajouter un autre acteur</button>
+              </fieldset>
               <fieldset>
                 <legend>Thèmes abordés (définitions de cas)</legend>
                 <div class="checks" id="suiviThemes"></div>
@@ -271,6 +277,7 @@
 <script src="assets/notifications-liste.js"></script>
 <script src="assets/notification-rc.js"></script>
 <script src="assets/deces-confirmation.js"></script>
+<script src="assets/rapport-seance.js"></script>
 <script src="assets/liste-presence.js"></script>
 <script src="assets/suivi-groupe-lecture.js"></script>
 <script src="assets/suivi-groupe-ascq.js"></script>

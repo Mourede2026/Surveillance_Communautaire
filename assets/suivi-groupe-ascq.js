@@ -184,6 +184,25 @@
     }
   }
 
+  // Autres acteurs (sans compte) : médecin chef de commune, etc. — autant de lignes que nécessaire.
+  function ligneActeur() {
+    const div = document.createElement('div'); div.className = 'act-ligne';
+    div.innerHTML = `<div class="grid grid-2">
+        <div class="field"><label>Nom</label><input class="ac-nom" maxlength="60" placeholder="Nom"></div>
+        <div class="field"><label>Prénom</label><input class="ac-prenom" maxlength="80" placeholder="Prénom"></div>
+        <div class="field"><label>Qualification</label><input class="ac-qual" maxlength="120" placeholder="Ex : Médecin chef de commune"></div>
+        <div class="field"><label>Provenance (arrondissement, village, structure)</label><input class="ac-prov" maxlength="120" placeholder="Ex : Mairie / Centre de santé de commune"></div>
+        <div class="field"><label>Contact téléphonique</label><input class="ac-tel" type="tel" maxlength="30" inputmode="tel" placeholder="Ex : 97 00 00 00"></div>
+        <div class="field" style="align-self:end"><button type="button" class="btn-danger btn-mini" data-ac-retirer>✕ Retirer cet acteur</button></div></div>`;
+    $('suiviActeurs').appendChild(div); return div;
+  }
+  function lireActeurs() {
+    return Array.from(document.querySelectorAll('#suiviActeurs .act-ligne')).map(l => ({
+      nom: l.querySelector('.ac-nom').value.trim(), prenom: l.querySelector('.ac-prenom').value.trim(), qualification: l.querySelector('.ac-qual').value.trim(),
+      provenance: l.querySelector('.ac-prov').value.trim(), telephone: l.querySelector('.ac-tel').value.trim()
+    })).filter(a => a.nom || a.prenom || a.qualification || a.provenance || a.telephone);
+  }
+
   function afficherSousOnglet(nom) {
     document.querySelectorAll('[data-suivi-sub]').forEach(b => b.classList.toggle('active', b.dataset.suiviSub === nom));
     ['planning', 'compte', 'historique'].forEach(n => { $('suiviSub-' + n).style.display = n === nom ? 'block' : 'none'; });
@@ -221,6 +240,8 @@
         zone.innerHTML = sups.map(u => `<label class="check"><input type="checkbox" name="autres" value="${escHtml(u.ID)}"> ${escHtml(u.Prenom + ' ' + u.Nom)} <span class="petit">(${escHtml(lib[u.Role] || u.Role)})</span></label>`).join('');
         bloc.style.display = '';
       }).catch(() => { /* facultatif : le suivi reste enregistrable sans */ });
+      $('suiviActeurAjout').onclick = () => { const l = ligneActeur(); l.querySelector('.ac-nom').focus(); };
+      $('suiviActeurs').addEventListener('click', e => { if (e.target.closest('[data-ac-retirer]')) e.target.closest('.act-ligne').remove(); });
       $('suiviDate').value = aujourdhui(); $('suiviDate').max = aujourdhui();
       $('planDate').value = aujourdhui();
       $('planDate').min = aujourdhui();
@@ -261,17 +282,20 @@
         if (!themes.length) { toast('Sélectionnez au moins un thème abordé.', true); return; }
         if (!rcPresentsIds.length) { toast('Cochez au moins un RC présent (cochez un ou plusieurs villages, puis leurs RC).', true); return; }
         if (!photos.length && !documents.length) { toast('Ajoutez au moins une photo ou un document du rapport de suivi.', true); return; }
+        const autresActeurs = lireActeurs();
+        const incomplet = autresActeurs.find(a => !a.nom || !a.prenom || !a.qualification);
+        if (incomplet) { toast('Autres acteurs : renseignez le nom, le prénom et la qualification de chaque acteur (ou retirez la ligne).', true); return; }
         if (!confirm('Enregistrer ce suivi groupé ?\n\n' + rcPresentsIds.length + ' RC présent(s), ' + (photos.length + documents.length) + ' pièce(s) jointe(s).\nUne fois enregistré, le rapport est VERROUILLÉ : vous pourrez le consulter mais plus le modifier.')) return;
         const btn = $('formSuivi').querySelector('button[type=submit]'); btn.disabled = true;
         try {
           await Api.call('submitSuiviGroupe', {
-            date: fd.get('date'), lieu: fd.get('lieu') || '', themes, rcPresentsIds, autresPresentsIds: fd.getAll('autres'), villageIds: pickerSuivi.villageIds(),
+            date: fd.get('date'), lieu: fd.get('lieu') || '', themes, rcPresentsIds, autresPresentsIds: fd.getAll('autres'), autresActeurs, villageIds: pickerSuivi.villageIds(),
             photos, fichiers: documents, commentaires: fd.get('commentaires') || '',
             planningId: planningLie ? planningLie.ID : undefined
           });
           toast('Suivi groupé enregistré.');
           $('formSuivi').reset(); $('suiviDate').value = aujourdhui(); $('suiviLieu').value = '';
-          photos = []; documents = []; planningLie = null; apercuFichiers(); majBandeauPlanning(); pickerSuivi.reset();
+          $('suiviActeurs').innerHTML = ''; photos = []; documents = []; planningLie = null; apercuFichiers(); majBandeauPlanning(); pickerSuivi.reset();
           afficherSousOnglet('historique');
         } catch (err) { toast(err.message, true); }
         btn.disabled = false;

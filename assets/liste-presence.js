@@ -21,7 +21,8 @@
       return '<tr><td class="lp-c">' + p.ordre + '</td><td>' + escHtml(p.nom) + '</td><td>' + escHtml(p.qualification) + '</td><td>' + escHtml(p.provenance || '—') + '</td><td class="lp-c">' + escHtml(p.telephone || '—') + '</td>' +
         '<td class="lp-sigcell">' + (p.signature ? '<img class="lp-sig" alt="Signature de ' + escHtml(p.nom) + '" src="' + p.signature + '">' : '') + '</td></tr>';
     }).join('');
-    return '<div ' + (sansId ? '' : 'id="lpPrintArea" ') + 'class="lp-doc">' +
+    var rapport = (window.RapportSeance && d.rapport) ? window.RapportSeance.documentHtml(d) + '<div class="lp-saut"></div>' : '';
+    return '<div ' + (sansId ? '' : 'id="lpPrintArea" ') + 'class="lp-doc">' + rapport +
       '<div class="lp-haut"><div class="lp-rep">RÉPUBLIQUE DU BÉNIN<br>MINISTÈRE DE LA SANTÉ</div><div class="lp-marque"><img class="lp-logo" alt="" src="assets/icons/icon-192.png"><b>SIVEC</b></div></div>' +
       '<h2 class="lp-titre">LISTE DE PRÉSENCE</h2><div class="lp-sous">Suivi groupé des relais communautaires</div>' +
       '<table class="lp-meta"><tr><td><b>Département :</b> ' + escHtml(h.departement || '—') + '</td><td><b>Zone sanitaire :</b> ' + escHtml(h.zoneSanitaire || '—') + '</td></tr>' +
@@ -38,6 +39,10 @@
   }
 
   /** Feuille Excel : informations d'en-tête, tableau et signatures en images. */
+  function feuillesExcel(d) {
+    var rap = window.RapportSeance ? window.RapportSeance.feuilleExcel(d) : null;
+    return (rap ? [rap] : []).concat([feuilleExcel(d)]);
+  }
   function feuilleExcel(d) {
     var h = d.header || {}, lignes = [
       [{ v: 'LISTE DE PRÉSENCE — Suivi groupé des relais communautaires', s: 't' }], [],
@@ -60,19 +65,19 @@
   async function ouvrir(suiviId) {
     fermer();
     var ov = document.createElement('div'); ov.id = 'lpOverlay'; ov.className = 'modal-overlay lp-overlay'; ov.style.display = 'flex';
-    ov.innerHTML = '<div class="modal-box lp-box"><p class="petit">Chargement de la liste de présence…</p></div>';
+    ov.innerHTML = '<div class="modal-box lp-box"><p class="petit">Chargement du rapport et de la liste de présence…</p></div>';
     document.body.appendChild(ov);
     ov.addEventListener('click', function (e) { if (e.target === ov) fermer(); });
     try {
       var d = await Api.call('getListePresence', { suiviId: suiviId });
       ov.firstChild.innerHTML =
         '<div class="lp-actions no-print"><button type="button" id="lpImprimer">🖨️ Imprimer / PDF</button>' +
-        '<button type="button" class="btn-secondary" id="lpExcel">⬇ Excel</button><button type="button" class="btn-secondary" id="lpFermer">Fermer</button></div>' +
+        '<button type="button" class="btn-secondary" id="lpExcel">⬇ Excel (rapport + liste)</button><button type="button" class="btn-secondary" id="lpFermer">Fermer</button></div>' +
         documentHtml(d);
       document.getElementById('lpFermer').onclick = fermer;
       document.getElementById('lpImprimer').onclick = function () { window.print(); };
       document.getElementById('lpExcel').onclick = function () {
-        try { ExportExcel.telecharger('SIVEC_liste_presence_' + String((d.header || {}).date || '').slice(0, 10) + '.xlsx', [feuilleExcel(d)]); toast('Fichier Excel prêt.'); }
+        try { ExportExcel.telecharger('SIVEC_rapport_et_presence_' + String((d.header || {}).date || '').slice(0, 10) + '.xlsx', feuillesExcel(d)); toast('Fichier Excel prêt.'); }
         catch (err) { toast('Export Excel impossible : ' + err.message, true); }
       };
     } catch (err) { ov.firstChild.innerHTML = '<p style="color:#b00020">' + escHtml(err.message) + '</p><button type="button" class="btn-secondary" id="lpFermer">Fermer</button>'; document.getElementById('lpFermer').onclick = fermer; }

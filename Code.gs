@@ -134,7 +134,7 @@ const COLS = {
   SuivisGroupes: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','Date','Themes',
     'RcPresentsIds','RcPresentsNoms','NbPresents','PhotosUrls','Commentaires','DateCreation',
     'VillageIds','VillageNoms','DocumentsUrls','PlanningId','Lieu','RcConviesNoms','RcAbsentsNoms',
-    'AutresPresentsIds','AutresPresentsNoms'],
+    'AutresPresentsIds','AutresPresentsNoms','AutresActeurs'],
   // Planning des suivis groupés (créé par l'ASCQ, visible par toute sa hiérarchie : PF, RCSE,
   // Département, National). Statut : Planifié -> Réalisé (lié au suivi enregistré) ou Annulé.
   PlanningsSuivis: ['ID','AscqId','AscqNom','ArrondissementId','ArrondissementNom','DatePrevue','Heure',
@@ -152,7 +152,7 @@ const COLS = {
   TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId'],
   // Preuves de sensibilisation communautaire envoyées par les RC (photo + liste nominative sexe/âge).
   Sensibilisations: ['ID','RcId','RcNom','ArrondissementId','VillageId','VillageNom','GrappeNom','Date','Theme','Lieu',
-    'Participants','NbParticipants','NbHommes','NbFemmes','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe']
+    'Participants','NbParticipants','NbHommes','NbFemmes','NbAdultesH','NbAdultesF','NbEnfantsG','NbEnfantsF','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe']
 };
 
 // ============================================================
@@ -1784,8 +1784,23 @@ function getListePresence_(actor, p) {
   if (ascq) participants.push(ligne(ascq));
   parseArr_(s.RcPresentsIds).forEach(id => { if (parId[id]) participants.push(ligne(parId[id])); });
   parseArr_(s.AutresPresentsIds).forEach(id => { if (parId[id]) participants.push(ligne(parId[id])); });
+  // Autres acteurs saisis à la main (sans compte) : signature laissée vide pour signer après impression.
+  parseArr_(s.AutresActeurs).forEach(a => participants.push({
+    nom: ((a.nom || '') + ' ' + (a.prenom || '')).replace(/\s+/g, ' ').trim(), qualification: a.qualification || 'Autre acteur',
+    provenance: a.provenance || '', telephone: a.telephone || '', signature: '', autreActeur: true
+  }));
   participants.forEach((x, i) => { x.ordre = i + 1; });
-  return { ok: true, header: header, participants: participants };
+  // Rapport de séance : affiché avec la liste de présence (thèmes développés, participation, preuves).
+  const plan = s.PlanningId ? readSheet_(SHEETS.PLANNINGS).find(x => x.ID === s.PlanningId) : null;
+  const rcPresents = parseArr_(s.RcPresentsNoms);
+  const rapport = {
+    themes: parseArr_(s.Themes), villages: parseArr_(s.VillageNoms), objectif: plan ? (plan.Objectif || '') : '',
+    commentaires: String(s.Commentaires || ''), ascq: s.AscqNom || '', dateDepot: s.DateCreation ? String(s.DateCreation).slice(0, 10) : '',
+    nbRcPresents: rcPresents.length, rcAbsents: parseArr_(s.RcAbsentsNoms), rcConvies: plan ? parseArr_(plan.RcConviesNoms) : [],
+    nbAutres: parseArr_(s.AutresPresentsIds).length + parseArr_(s.AutresActeurs).length, nbParticipants: participants.length,
+    photos: parseArr_(s.PhotosUrls), documents: parseArr_(s.DocumentsUrls).map(d => ({ nom: d.nom || 'Document', url: d.url || '' }))
+  };
+  return { ok: true, header: header, participants: participants, rapport: rapport };
 }
 
 // ============================================================
@@ -2364,17 +2379,16 @@ function submitSensibilisation_(actor, p) {
   if (!p.date) return { ok: false, error: 'La date de la sensibilisation est obligatoire.' };
   const date = dateIso_(p.date);
   if (date > aujourdhuiIso_()) return { ok: false, error: 'La date de la sensibilisation ne peut pas être dans le futur : c\'est une preuve, enregistrez-la une fois la séance tenue.' };
-  const participants = [];
-  (Array.isArray(p.participants) ? p.participants : []).slice(0, 500).forEach(x => {
-    const nom = coupe_(x && x.nom, 80);
-    if (!nom) return;
-    const sexe = x.sexe === 'F' ? 'F' : (x.sexe === 'M' ? 'M' : '');
-    const age = Math.floor(Number(x.age));
-    if (!sexe) throw new Error('Précisez le sexe de « ' + nom + ' ».');
-    if (!isFinite(age) || age < 0 || age > 120) throw new Error('Âge invalide pour « ' + nom + ' ».');
-    participants.push({ nom: nom, sexe: sexe, age: age });
-  });
-  if (!participants.length) return { ok: false, error: 'Ajoutez au moins une personne sensibilisée (nom, sexe, âge).' };
+  // Statistiques de la séance (pas de noms) : adultes et enfants (moins de 18 ans), par sexe.
+  const effectif = (v, lib) => {
+    const n = (v === undefined || v === null || v === '') ? 0 : Number(v);
+    if (!isFinite(n) || n < 0 || Math.floor(n) !== n || n > 5000) throw new Error('Effectif invalide pour « ' + lib + ' » : saisissez un nombre entier entre 0 et 5000.');
+    return n;
+  };
+  const adH = effectif(p.adultesHommes, 'Adultes - hommes'), adF = effectif(p.adultesFemmes, 'Adultes - femmes');
+  const enG = effectif(p.enfantsGarcons, 'Enfants - garçons'), enF = effectif(p.enfantsFilles, 'Enfants - filles');
+  const total = adH + adF + enG + enF;
+  if (total < 1) return { ok: false, error: 'Indiquez le nombre de personnes sensibilisées (adultes et enfants, par sexe).' };
   const photos = (Array.isArray(p.photos) ? p.photos : []).slice(0, 5);
   if (!photos.length) return { ok: false, error: 'Ajoutez au moins une photo de la sensibilisation : c\'est la preuve de la séance.' };
   let urls = [];
@@ -2389,13 +2403,13 @@ function submitSensibilisation_(actor, p) {
     ID: newId_('SENS'), RcId: actor.ID, RcNom: actor.Prenom + ' ' + actor.Nom,
     ArrondissementId: actor.ArrondissementId || '', VillageId: actor.VillageId || '', VillageNom: actor.VillageNom || '', GrappeNom: actor.GrappeNom || '',
     Date: date, Theme: theme, Lieu: coupe_(p.lieu, 120),
-    Participants: JSON.stringify(participants), NbParticipants: participants.length,
-    NbHommes: participants.filter(x => x.sexe === 'M').length, NbFemmes: participants.filter(x => x.sexe === 'F').length,
+    Participants: '', NbParticipants: total, NbHommes: adH + enG, NbFemmes: adF + enF,
+    NbAdultesH: adH, NbAdultesF: adF, NbEnfantsG: enG, NbEnfantsF: enF,
     PhotosUrls: JSON.stringify(urls), Commentaires: String(p.commentaires || '').trim().slice(0, 1000),
     DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe
   };
   appendRow_(SHEETS.SENSIBILISATIONS, rec);
-  cascadeNotify_(actor, 'SENSIBILISATION', rec.ID, `Sensibilisation « ${theme} » réalisée par ${rec.RcNom} le ${date.split('-').reverse().join('/')} : ${participants.length} personne(s) sensibilisée(s)${rec.VillageNom ? ' - Village: ' + rec.VillageNom : ''}${mentionHorsLigne_(trace)}`);
+  cascadeNotify_(actor, 'SENSIBILISATION', rec.ID, `Sensibilisation « ${theme} » réalisée par ${rec.RcNom} le ${date.split('-').reverse().join('/')} : ${total} personne(s) sensibilisée(s) (adultes : ${adH + adF}, enfants : ${enG + enF})${rec.VillageNom ? ' - Village: ' + rec.VillageNom : ''}${mentionHorsLigne_(trace)}`);
   return { ok: true, sensibilisation: rec };
 }
 
@@ -2407,7 +2421,15 @@ function listSensibilisations_(actor, p) {
     readSheet_(SHEETS.USERS).forEach(u => { if (u.Role === ROLES.RC && isSupervisorOf_(actor, u)) ok[u.ID] = true; });
     rows = rows.filter(r => ok[r.RcId]);
   }
-  const sorted = rows.map(r => Object.assign({}, r, { Date: dateIso_(r.Date) })).sort((a, b) => (b.Date + b.ID).localeCompare(a.Date + a.ID));
+  // Anciennes saisies nominatives (si elles existent) : effectifs déduits des âges (enfant = moins de 18 ans).
+  const effectifs = r => {
+    const saisi = [r.NbAdultesH, r.NbAdultesF, r.NbEnfantsG, r.NbEnfantsF].some(v => v !== '' && v !== undefined && v !== null);
+    if (saisi) return { NbAdultesH: Number(r.NbAdultesH) || 0, NbAdultesF: Number(r.NbAdultesF) || 0, NbEnfantsG: Number(r.NbEnfantsG) || 0, NbEnfantsF: Number(r.NbEnfantsF) || 0 };
+    const o = { NbAdultesH: 0, NbAdultesF: 0, NbEnfantsG: 0, NbEnfantsF: 0 };
+    parseArr_(r.Participants).forEach(x => { const enf = Number(x.age) < 18; if (x.sexe === 'F') o[enf ? 'NbEnfantsF' : 'NbAdultesF']++; else o[enf ? 'NbEnfantsG' : 'NbAdultesH']++; });
+    return o;
+  };
+  const sorted = rows.map(r => Object.assign({}, r, { Date: dateIso_(r.Date) }, effectifs(r))).sort((a, b) => (b.Date + b.ID).localeCompare(a.Date + a.ID));
   return { ok: true, sensibilisations: sorted.slice(0, 1000), total: sorted.length };
 }
 
@@ -2503,6 +2525,18 @@ function submitSuiviGroupe_(actor, p) {
   const autresPresents = (Array.isArray(p.autresPresentsIds) ? p.autresPresentsIds : []).filter((id, k, a) => supIds.indexOf(id) !== -1 && a.indexOf(id) === k)
     .map(id => readSheet_(SHEETS.USERS).find(u => u.ID === id)).filter(Boolean);
 
+  // Autres acteurs : personnes sans compte SIVEC (ex. médecin chef de commune) saisies à la main par l'ASCQ
+  // avec les informations de la liste de présence (nom, prénom, qualification, provenance, contact).
+  const autresActeurs = [];
+  (Array.isArray(p.autresActeurs) ? p.autresActeurs : []).slice(0, 40).forEach(x => {
+    const nom = coupe_(x && x.nom, 60), prenom = coupe_(x && x.prenom, 80), qualification = coupe_(x && x.qualification, 120);
+    if (!nom && !prenom && !qualification && !coupe_(x && x.provenance, 1) && !coupe_(x && x.telephone, 1)) return; // ligne vide ignorée
+    const etiquette = (prenom + ' ' + nom).trim() || 'un autre acteur';
+    if (!nom || !prenom) throw new Error('Autres acteurs : renseignez le nom ET le prénom de « ' + etiquette + ' ».');
+    if (!qualification) throw new Error('Autres acteurs : renseignez la qualification (fonction) de « ' + etiquette + ' ».');
+    autresActeurs.push({ nom: nom, prenom: prenom, qualification: qualification, provenance: coupe_(x.provenance, 120), telephone: coupe_(x.telephone, 30) });
+  });
+
   // Un rapport est une PREUVE : la séance ne peut pas être datée dans le futur.
   if (dateIso_(p.date) > dateIso_(new Date())) return { ok: false, error: 'La date du suivi ne peut pas être dans le futur : enregistrez le compte rendu une fois la séance tenue.' };
 
@@ -2562,7 +2596,8 @@ function submitSuiviGroupe_(actor, p) {
         .map(id => { const u = mesRc.find(x => x.ID === id); return u ? u.Prenom + ' ' + u.Nom : id; })) : '',
     Commentaires: p.commentaires || '', DateCreation: nowStr_(),
     AutresPresentsIds: JSON.stringify(autresPresents.map(u => u.ID)),
-    AutresPresentsNoms: JSON.stringify(autresPresents.map(u => u.Prenom + ' ' + u.Nom))
+    AutresPresentsNoms: JSON.stringify(autresPresents.map(u => u.Prenom + ' ' + u.Nom)),
+    AutresActeurs: JSON.stringify(autresActeurs)
   };
   appendRow_(SHEETS.SUIVIS, rec);
   if (planning) updateRowById_(SHEETS.PLANNINGS, planning.ID, { Statut: 'Réalisé', SuiviId: rec.ID });

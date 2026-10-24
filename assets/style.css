@@ -523,3 +523,21 @@ table.lp-table td.lp-sigcell { min-width: 130px; height: 60px; text-align: cente
 @media (max-width: 640px) { .q-ligne1 { grid-template-columns: 1fr; } }
 :root[data-theme="dark"] .q-bloc { background: #172622; }
 :root[data-theme="dark"] .q-row { background: var(--card); }
+
+/* ---- Rapport de séance (affiché avec la liste de présence) ---- */
+.rs-doc { margin-bottom: 18px; }
+.rs-h { margin: 14px 0 6px; font-size: .95rem; color: #0B3D3A; border-bottom: 1px solid #333; padding-bottom: 2px; }
+.rs-themes { margin: 4px 0 0 18px; padding: 0; }
+.rs-theme { border: 1px solid #bbb; border-radius: 6px; padding: 8px 10px; margin: 8px 0; break-inside: avoid; page-break-inside: avoid; }
+.rs-theme-titre { font-weight: 700; margin-bottom: 4px; }
+.rs-sec { margin: 6px 0; }
+.rs-sec-titre { font-weight: 600; font-size: .82rem; text-decoration: underline; }
+.rs-p { margin: 2px 0; }
+.rs-ul { margin: 2px 0 2px 18px; padding: 0; }
+.rs-photos { display: flex; flex-wrap: wrap; gap: 6px; }
+.rs-photo { height: 110px; width: auto; border: 1px solid #999; border-radius: 4px; }
+table.rs-part th { width: 52%; text-align: left; }
+.lp-saut { height: 18px; border-top: 2px dashed #aaa; margin: 14px 0; }
+.act-ligne { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--card); }
+.act-ligne .grid { gap: 8px; }
+@media print { .lp-saut { break-after: page; page-break-after: always; height: 0; border: 0; margin: 0; } }

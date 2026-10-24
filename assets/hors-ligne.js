@@ -180,7 +180,7 @@
   function libelleEnvoi(it) {
     var p = it.payload || {};
     if (it.action === 'submitDeces') return '🕯️ Décès — ' + (p.nom || 'sans nom') + (p.villageNom ? ' · ' + p.villageNom : '');
-    if (it.action === 'submitSensibilisation') return '📣 Sensibilisation — ' + (p.theme || 'sans thème') + ' · ' + ((p.participants || []).length) + ' personne(s)';
+    if (it.action === 'submitSensibilisation') return '📣 Sensibilisation — ' + (p.theme || 'sans thème') + ' · ' + ((Number(p.adultesHommes) || 0) + (Number(p.adultesFemmes) || 0) + (Number(p.enfantsGarcons) || 0) + (Number(p.enfantsFilles) || 0)) + ' personne(s)';
     if (it.action === 'tacheEnregistrerCas') return '🗂️ Cas recensé — ' + (p.date || 'aujourd\'hui');
     if (it.action === 'tacheSaisirSuivi') return '📝 Suivi de cas — ' + (p.jour || 'aujourd\'hui');
     return '🚨 Alerte — ' + (p.typeAlerte || 'événement') + (p.villageNom ? ' · ' + p.villageNom : '');

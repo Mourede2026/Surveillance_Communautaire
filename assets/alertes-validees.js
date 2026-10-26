@@ -7,12 +7,138 @@
  * cas décédés (et, si l'événement concerne des animaux, le nombre d'animaux touchés et décédés), le
  * résumé, la personne qui a fait la notification et l'ASCQ qui l'a validée.
  *
+ * En tête du bloc : « Point de la semaine » — un paragraphe (et des puces) qui résume, pour une semaine
+ * épidémiologique choisie (par défaut la semaine en cours), les événements validés du périmètre :
+ * « 3 cas de rougeole dans l'arrondissement de X, un décès maternel dans l'arrondissement de Y… », SANS
+ * nom d'auteur (ni notificateur ni ASCQ). Texte copiable pour un bulletin ou un message.
+ *
  * renderAlertesValidees(idConteneur) — action serveur : listAlertesValidees (limitée au périmètre).
  */
 (function () {
   'use strict';
   var PAGE = 15;
-  var etat = { liste: [], filtre: '', type: '', vues: PAGE, cont: null };
+  var etat = { liste: [], filtre: '', type: '', vues: PAGE, cont: null, cal: [], idx: -1, idxCourant: -1, debut: null };
+
+  // ---------------------------------------------------------------- Point de la semaine
+  var TYPES_DECES = {
+    '1': ['décès maternel', 'décès maternels'],
+    '2': ['décès de bébé (0-28 jours)', 'décès de bébés (0-28 jours)'],
+    '3': ['décès d\'enfant de 1 mois à 1 an', 'décès d\'enfants de 1 mois à 1 an'],
+    '4': ['décès d\'enfant de 1 à 5 ans', 'décès d\'enfants de 1 à 5 ans'],
+    '5': ['décès de personne de plus de 5 ans', 'décès de personnes de plus de 5 ans']
+  };
+  function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function ajouteJours(d, n) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); return x; }
+  function lundi(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+  function de(nom) { nom = String(nom || '').trim(); return (/^[AEIOUYÉÈÊ]/i.test(nom) ? 'd\'' : 'de ') + nom; }
+  function minuscule(t) { t = String(t || '').trim(); return (t.length > 1 && t[1] === t[1].toUpperCase() && t[1] !== t[1].toLowerCase()) ? t : t.charAt(0).toLowerCase() + t.slice(1); }
+  function liste_(a) { return a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' et ' + a[a.length - 1]; }
+  function pluriel(n, sing, plur) { return n + ' ' + (n > 1 ? plur : sing); }
+  var MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  function jourTxt(d) { return d.getDate() === 1 ? '1er' : String(d.getDate()); }
+  function dateLongue(d, avecAnnee) { return jourTxt(d) + ' ' + MOIS[d.getMonth()] + (avecAnnee ? ' ' + d.getFullYear() : ''); }
+
+  function plage() {
+    if (etat.cal.length && etat.idx >= 0) {
+      var w = etat.cal[etat.idx];
+      return { label: 'S' + w.SemaineEpi + ' / ' + w.Annee, debut: debutJournee_(w.DateDebut), fin: finJournee_(w.DateFin), courante: etat.idx === etat.idxCourant };
+    }
+    var d = etat.debut || lundi(new Date());
+    return { label: 'du lundi ' + dateLongue(d), debut: d, fin: ajouteJours(d, 6), courante: iso(d) === iso(lundi(new Date())) };
+  }
+  function periodeTexte(p) {
+    var d = p.debut, f = p.fin, memeMois = d.getMonth() === f.getMonth() && d.getFullYear() === f.getFullYear();
+    return memeMois ? 'du ' + jourTxt(d) + ' au ' + dateLongue(f, true) : 'du ' + dateLongue(d, d.getFullYear() !== f.getFullYear()) + ' au ' + dateLongue(f, true);
+  }
+  function lieuTexte(a) {
+    if (a.village) return 'dans le village ' + de(a.village) + (a.arrondissement ? ' (arrondissement ' + de(a.arrondissement) + ')' : '');
+    if (a.arrondissement) return 'dans l\'arrondissement ' + de(a.arrondissement);
+    if (a.commune) return 'dans la commune ' + de(a.commune);
+    return '';
+  }
+
+  // Événements validés de la semaine, regroupés par affection et lieu (jamais d'auteur).
+  function evenementsSemaine(p) {
+    var du = iso(p.debut), au = iso(p.fin);
+    var liste = etat.liste.filter(function (a) { var d = String(a.dateValidation || a.date || '').slice(0, 10); return d >= du && d <= au; });
+    var groupes = {}, ordre = [];
+    liste.forEach(function (a) {
+      var l = lieuTexte(a), animal = estAnimal(a), k, g;
+      if (a.kind === 'DECES') {
+        var t = TYPES_DECES[a.typeDeces] || ['décès communautaire', 'décès communautaires'], suf = a.maladie ? ' (' + minuscule(a.maladie) + ')' : '';
+        k = 'D|' + a.typeDeces + '|' + (a.maladie || '') + '|' + l;
+        g = groupes[k] || (groupes[k] = { kind: 'D', n: 0, sing: t[0] + suf, plur: t[1] + suf, lieu: l, deces: 0 });
+        g.n += Math.max(1, Number(a.casDeces) || 0); g.deces += Math.max(1, Number(a.casDeces) || 0);
+      } else if (animal && !(a.casTouches > 0)) {
+        k = 'A|' + a.affection + '|' + l;
+        g = groupes[k] || (groupes[k] = { kind: 'A', aff: a.affection, lieu: l, touches: 0, morts: 0 });
+        g.touches += Number(a.animauxTouches) || 0; g.morts += Number(a.animauxMorts) || 0;
+      } else {
+        k = 'H|' + a.affection + '|' + l;
+        g = groupes[k] || (groupes[k] = { kind: 'H', aff: a.affection, lieu: l, n: 0, deces: 0, animT: 0, animM: 0 });
+        g.n += Math.max(1, Number(a.casTouches) || 0); g.deces += Number(a.casDeces) || 0; g.animT += Number(a.animauxTouches) || 0; g.animM += Number(a.animauxMorts) || 0;
+      }
+      if (ordre.indexOf(k) === -1) ordre.push(k);
+    });
+    var items = ordre.map(function (k) {
+      var g = groupes[k], txt;
+      if (g.kind === 'D') txt = g.n > 1 ? g.n + ' ' + g.plur : 'un ' + g.sing;
+      else if (g.kind === 'A') txt = 'une alerte animale ' + de(minuscule(g.aff)) + ' : ' + pluriel(g.touches, 'animal touché', 'animaux touchés') + (g.morts ? ' dont ' + pluriel(g.morts, 'mort', 'morts') : '');
+      else {
+        txt = (g.n > 1 ? g.n + ' cas ' : 'un cas ') + de(minuscule(g.aff)) + (g.deces ? ' (dont ' + (g.deces > 1 ? g.deces + ' décès' : 'un décès') + ')' : '')
+          + (g.animT ? ' avec ' + pluriel(g.animT, 'animal touché', 'animaux touchés') + (g.animM ? ' dont ' + g.animM + ' mort' + (g.animM > 1 ? 's' : '') : '') : '');
+      }
+      return (txt + (g.lieu ? ' ' + g.lieu : '')).trim();
+    });
+    var tot = { nb: liste.length, cas: 0, deces: 0, animT: 0, animM: 0 };
+    liste.forEach(function (a) {
+      if (estAnimal(a) && !(a.casTouches > 0) && a.kind !== 'DECES') { tot.animT += a.animauxTouches || 0; tot.animM += a.animauxMorts || 0; return; }
+      tot.cas += a.casTouches || 0; tot.deces += a.casDeces || 0; tot.animT += a.animauxTouches || 0; tot.animM += a.animauxMorts || 0;
+    });
+    return { items: items, tot: tot };
+  }
+
+  function paragrapheSemaine(p, ev) {
+    var en = 'Point de la semaine ' + p.label + ' (' + periodeTexte(p) + ') : ';
+    if (!ev.tot.nb) return en + 'aucun événement de santé validé par les ASCQ cette semaine dans votre périmètre.';
+    var t = ev.tot;
+    var phrase = en + pluriel(t.nb, 'événement de santé validé', 'événements de santé validés') + ' par les ASCQ dans votre périmètre. On note ' + liste_(ev.items) + '.';
+    var bilan = [];
+    if (t.cas) bilan.push(pluriel(t.cas, 'personne touchée', 'personnes touchées') + (t.deces ? ' dont ' + pluriel(t.deces, 'décès', 'décès') : ''));
+    else if (t.deces) bilan.push(pluriel(t.deces, 'décès', 'décès'));
+    if (t.animT) bilan.push(pluriel(t.animT, 'animal touché', 'animaux touchés') + (t.animM ? ' dont ' + pluriel(t.animM, 'mort', 'morts') : ''));
+    return phrase + (bilan.length ? ' Bilan : ' + liste_(bilan) + '.' : '');
+  }
+
+  function syntheseHtml() {
+    var p = plage(), ev = evenementsSemaine(p), texte = paragrapheSemaine(p, ev);
+    etat.texteSemaine = texte + (ev.items.length ? '\n' + ev.items.map(function (i) { return '- ' + i; }).join('\n') : '');
+    var peutPrec = etat.cal.length ? etat.idx > 0 : true, peutSuiv = !p.courante;
+    return '<section class="av-synthese"><div class="av-synthese-tete"><h3>🗓️ Point de la semaine</h3><div class="av-sem-nav">' +
+      '<button type="button" class="btn-secondary btn-mini" id="avSemPrec"' + (peutPrec ? '' : ' disabled') + '>‹ Semaine précédente</button>' +
+      '<span class="av-sem-label">' + escHtml(p.label) + (p.courante ? ' (en cours)' : '') + '</span>' +
+      '<button type="button" class="btn-secondary btn-mini" id="avSemSuiv"' + (peutSuiv ? '' : ' disabled') + '>Semaine suivante ›</button></div></div>' +
+      '<p class="av-synthese-texte">' + escHtml(texte) + '</p>' +
+      (ev.items.length ? '<ul class="av-synthese-puces">' + ev.items.map(function (i) { return '<li>' + escHtml(i) + '</li>'; }).join('') + '</ul>' : '') +
+      '<div class="av-synthese-pied"><span class="petit">Événements validés par les ASCQ, regroupés par affection et lieu, sans mention des auteurs.</span>' +
+      '<button type="button" class="btn-secondary btn-mini" id="avCopier">📋 Copier le texte</button></div></section>';
+  }
+  function lierSynthese() {
+    var prec = document.getElementById('avSemPrec'), suiv = document.getElementById('avSemSuiv'), cop = document.getElementById('avCopier');
+    function aller(sens) {
+      if (etat.cal.length) etat.idx = Math.max(0, Math.min(etat.idxCourant >= 0 ? etat.idxCourant : etat.cal.length - 1, etat.idx + sens));
+      else etat.debut = ajouteJours(etat.debut || lundi(new Date()), 7 * sens);
+      dessiner();
+    }
+    if (prec) prec.onclick = function () { aller(-1); };
+    if (suiv) suiv.onclick = function () { aller(1); };
+    if (cop) cop.onclick = function () {
+      var t = etat.texteSemaine || '';
+      var ok = function () { toast('Texte copié.'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, function () { toast('Copie impossible.', true); });
+      else { var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { toast('Copie impossible.', true); } ta.remove(); }
+    };
+  }
 
   function estAnimal(a) { return (a.animauxTouches || 0) > 0 || (a.animauxMorts || 0) > 0; }
   function typeDe(a) { return a.kind === 'DECES' ? 'deces' : (estAnimal(a) ? 'animal' : 'humain'); }
@@ -48,7 +174,7 @@
   function dessiner() {
     var el = etat.cont; if (!el) return;
     var liste = filtrees(), nbAnimal = etat.liste.filter(function (a) { return typeDe(a) === 'animal'; }).length;
-    el.innerHTML =
+    el.innerHTML = syntheseHtml() +
       '<div class="av-barre">' +
         '<input type="search" id="avRecherche" placeholder="Rechercher (affection, village, notificateur…)" value="' + escHtml(etat.filtre) + '">' +
         '<select id="avType"><option value="">Tous les types</option><option value="humain"' + (etat.type === 'humain' ? ' selected' : '') + '>Alertes (personnes)</option>' +
@@ -63,6 +189,7 @@
     document.getElementById('avType').onchange = function (e) { etat.type = e.target.value; etat.vues = PAGE; dessiner(); };
     var plus = document.getElementById('avPlus'); if (plus) plus.onclick = function () { etat.vues += PAGE; dessiner(); };
     document.getElementById('avExcel').onclick = exporter;
+    lierSynthese();
   }
 
   function feuille(liste) {
@@ -94,8 +221,20 @@
   window.renderAlertesValidees = async function (idConteneur) {
     var el = document.getElementById(idConteneur); if (!el) return;
     etat.cont = el; el.innerHTML = '<p class="petit">Chargement des alertes validées…</p>';
-    try { var r = await Api.call('listAlertesValidees', {}); etat.liste = r.alertes || []; etat.vues = PAGE; dessiner(); }
+    try {
+      var r = await Api.call('listAlertesValidees', {}); etat.liste = r.alertes || []; etat.vues = PAGE;
+      // Semaines épidémiologiques (calendrier importé par le National) : semaine en cours par défaut.
+      try {
+        var c = await Api.call('listCalendrier', {}), auj = new Date();
+        etat.cal = (c.calendrier || []).slice().sort(function (a, b) { return debutJournee_(a.DateDebut) - debutJournee_(b.DateDebut); });
+        etat.idxCourant = etat.cal.findIndex(function (w) { return debutJournee_(w.DateDebut) <= auj && auj <= finJournee_(w.DateFin); });
+        if (etat.idxCourant < 0) etat.cal = [];
+        etat.idx = etat.idxCourant;
+      } catch (e) { etat.cal = []; etat.idx = -1; }
+      etat.debut = lundi(new Date());
+      dessiner();
+    }
     catch (err) { el.innerHTML = '<p class="petit" style="color:#b00020">' + escHtml(err.message) + '</p>'; }
   };
-  window.__alertesValidees = { carte: carte, feuille: feuille, filtrees: filtrees, etat: etat, estAnimal: estAnimal };
+  window.__alertesValidees = { synthese: function () { var p = plage(), ev = evenementsSemaine(p); return { texte: paragrapheSemaine(p, ev), items: ev.items }; }, carte: carte, feuille: feuille, filtrees: filtrees, etat: etat, estAnimal: estAnimal };
 })();

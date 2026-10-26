@@ -545,3 +545,13 @@ table.rs-part th { width: 52%; text-align: left; }
 /* ---- Prise de photo : appareil photo + galerie ---- */
 .photo-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0; }
 .btn-photo { display: inline-block; padding: 10px 14px; border-radius: 8px; cursor: pointer; text-align: center; }
+
+/* ---- Point de la semaine (synthèse des alertes validées) ---- */
+.av-synthese { border: 1px solid var(--line); border-left: 5px solid #0F766E; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; background: var(--card); }
+.av-synthese-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.av-synthese h3 { margin: 0; font-size: 1.05rem; }
+.av-sem-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.av-sem-label { font-weight: 700; }
+.av-synthese-texte { margin: 10px 0 6px; line-height: 1.55; }
+.av-synthese-puces { margin: 4px 0 8px 20px; padding: 0; }
+.av-synthese-pied { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }

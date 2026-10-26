@@ -1654,6 +1654,7 @@ function resumeAlerteValidee_(kind, inv, ref, geo) {
   if (kind === 'DECES') {
     const decInv = inv ? sommeCategories_(inv.DecesParCategorie) : 0, casInv = inv ? sommeCategories_(inv.CasParCategorie) : 0;
     return Object.assign(base, {
+      typeDeces: String(ref.TypeDeces == null ? '' : ref.TypeDeces).trim(), maladie: inv && inv.Maladie ? inv.Maladie : '',
       affection: inv && inv.Maladie ? inv.Maladie : ('Décès communautaire' + (libelleDeces_('type', ref.TypeDeces) ? ' — ' + libelleDeces_('type', ref.TypeDeces) : '')),
       casTouches: Math.max(casInv, decInv, 1), casDeces: Math.max(decInv, 1), animauxTouches: 0, animauxMorts: 0,
       ascq: inv ? inv.ASCQNom : (ref.ConfirmeParNom || ''), dateValidation: dateIso_(inv ? (inv.DateInvestigation || inv.DateSaisie) : (ref.DateConfirmation || ref.DateSaisie)),

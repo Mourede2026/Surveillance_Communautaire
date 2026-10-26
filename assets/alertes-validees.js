@@ -25,7 +25,7 @@
     '2': ['décès de bébé (0-28 jours)', 'décès de bébés (0-28 jours)'],
     '3': ['décès d\'enfant de 1 mois à 1 an', 'décès d\'enfants de 1 mois à 1 an'],
     '4': ['décès d\'enfant de 1 à 5 ans', 'décès d\'enfants de 1 à 5 ans'],
-    '5': ['décès de personne de plus de 5 ans', 'décès de personnes de plus de 5 ans']
+    '5': ['décès >= 5 ans', 'décès >= 5 ans']
   };
   function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function ajouteJours(d, n) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); return x; }
@@ -50,45 +50,33 @@
     var d = p.debut, f = p.fin, memeMois = d.getMonth() === f.getMonth() && d.getFullYear() === f.getFullYear();
     return memeMois ? 'du ' + jourTxt(d) + ' au ' + dateLongue(f, true) : 'du ' + dateLongue(d, d.getFullYear() !== f.getFullYear()) + ' au ' + dateLongue(f, true);
   }
-  function lieuTexte(a) {
-    if (a.village) return 'dans le village ' + de(a.village) + (a.arrondissement ? ' (arrondissement ' + de(a.arrondissement) + ')' : '');
-    if (a.arrondissement) return 'dans l\'arrondissement ' + de(a.arrondissement);
-    if (a.commune) return 'dans la commune ' + de(a.commune);
-    return '';
-  }
-
-  // Événements validés de la semaine, regroupés par affection et lieu (jamais d'auteur).
+  // Événements validés de la semaine, regroupés par affection (ou type de décès) puis par arrondissement,
+  // avec le nombre de cas. Les alertes passent avant les décès. Jamais de nom d'auteur.
   function evenementsSemaine(p) {
     var du = iso(p.debut), au = iso(p.fin);
     var liste = etat.liste.filter(function (a) { var d = String(a.dateValidation || a.date || '').slice(0, 10); return d >= du && d <= au; });
-    var groupes = {}, ordre = [];
+    var humains = {}, animaux = {}, deces = {};
+    function ajoute(map, cle, n, a, base) {
+      var g = map[cle] || (map[cle] = Object.assign({ cle: cle, total: 0, morts: 0, arrs: {} }, base));
+      var arr = a.arrondissement || a.commune || 'arrondissement non précisé';
+      g.total += n; g.arrs[arr] = (g.arrs[arr] || 0) + n; return g;
+    }
     liste.forEach(function (a) {
-      var l = lieuTexte(a), animal = estAnimal(a), k, g;
-      if (a.kind === 'DECES') {
-        var t = TYPES_DECES[a.typeDeces] || ['décès communautaire', 'décès communautaires'], suf = a.maladie ? ' (' + minuscule(a.maladie) + ')' : '';
-        k = 'D|' + a.typeDeces + '|' + (a.maladie || '') + '|' + l;
-        g = groupes[k] || (groupes[k] = { kind: 'D', n: 0, sing: t[0] + suf, plur: t[1] + suf, lieu: l, deces: 0 });
-        g.n += Math.max(1, Number(a.casDeces) || 0); g.deces += Math.max(1, Number(a.casDeces) || 0);
-      } else if (animal && !(a.casTouches > 0)) {
-        k = 'A|' + a.affection + '|' + l;
-        g = groupes[k] || (groupes[k] = { kind: 'A', aff: a.affection, lieu: l, touches: 0, morts: 0 });
-        g.touches += Number(a.animauxTouches) || 0; g.morts += Number(a.animauxMorts) || 0;
-      } else {
-        k = 'H|' + a.affection + '|' + l;
-        g = groupes[k] || (groupes[k] = { kind: 'H', aff: a.affection, lieu: l, n: 0, deces: 0, animT: 0, animM: 0 });
-        g.n += Math.max(1, Number(a.casTouches) || 0); g.deces += Number(a.casDeces) || 0; g.animT += Number(a.animauxTouches) || 0; g.animM += Number(a.animauxMorts) || 0;
-      }
-      if (ordre.indexOf(k) === -1) ordre.push(k);
+      if (a.kind === 'DECES') ajoute(deces, a.typeDeces || 'x', Math.max(1, Number(a.casDeces) || 0), a, {});
+      else if (estAnimal(a) && !(a.casTouches > 0)) { var g = ajoute(animaux, minuscule(a.affection), Number(a.animauxTouches) || 0, a, { aff: a.affection }); g.morts += Number(a.animauxMorts) || 0; }
+      else ajoute(humains, minuscule(a.affection), Math.max(1, Number(a.casTouches) || 0), a, { aff: a.affection });
     });
-    var items = ordre.map(function (k) {
-      var g = groupes[k], txt;
-      if (g.kind === 'D') txt = g.n > 1 ? g.n + ' ' + g.plur : 'un ' + g.sing;
-      else if (g.kind === 'A') txt = 'une alerte animale ' + de(minuscule(g.aff)) + ' : ' + pluriel(g.touches, 'animal touché', 'animaux touchés') + (g.morts ? ' dont ' + pluriel(g.morts, 'mort', 'morts') : '');
-      else {
-        txt = (g.n > 1 ? g.n + ' cas ' : 'un cas ') + de(minuscule(g.aff)) + (g.deces ? ' (dont ' + (g.deces > 1 ? g.deces + ' décès' : 'un décès') + ')' : '')
-          + (g.animT ? ' avec ' + pluriel(g.animT, 'animal touché', 'animaux touchés') + (g.animM ? ' dont ' + g.animM + ' mort' + (g.animM > 1 ? 's' : '') : '') : '');
-      }
-      return (txt + (g.lieu ? ' ' + g.lieu : '')).trim();
+    function detail(g) {
+      return Object.keys(g.arrs).sort(function (x, y) { return g.arrs[y] - g.arrs[x] || x.localeCompare(y, 'fr'); })
+        .map(function (k) { return k + ' (' + g.arrs[k] + ')'; }).join(', ');
+    }
+    function tri(map) { return Object.keys(map).map(function (k) { return map[k]; }).sort(function (x, y) { return y.total - x.total || String(x.cle).localeCompare(String(y.cle), 'fr'); }); }
+    var items = [];
+    tri(humains).forEach(function (g) { items.push((g.total > 1 ? g.total + ' cas suspects ' : '1 cas suspect ') + de(minuscule(g.aff)) + ' : ' + detail(g)); });
+    tri(animaux).forEach(function (g) { items.push(pluriel(g.total, 'animal touché', 'animaux touchés') + ' (' + minuscule(g.aff) + ')' + (g.morts ? ', dont ' + pluriel(g.morts, 'mort', 'morts') : '') + ' : ' + detail(g)); });
+    tri(deces).sort(function (x, y) { return String(x.cle).localeCompare(String(y.cle)); }).forEach(function (g) {
+      var t = TYPES_DECES[g.cle] || ['décès communautaire', 'décès communautaires'];
+      items.push(g.total + ' ' + (g.total > 1 ? t[1] : t[0]) + ' : ' + detail(g));
     });
     var tot = { nb: liste.length, cas: 0, deces: 0, animT: 0, animM: 0 };
     liste.forEach(function (a) {
@@ -98,29 +86,33 @@
     return { items: items, tot: tot };
   }
 
-  function paragrapheSemaine(p, ev) {
+  function enTete(p, ev) {
     var en = 'Point de la semaine ' + p.label + ' (' + periodeTexte(p) + ') : ';
     if (!ev.tot.nb) return en + 'aucun événement de santé validé par les ASCQ cette semaine dans votre périmètre.';
-    var t = ev.tot;
-    var phrase = en + pluriel(t.nb, 'événement de santé validé', 'événements de santé validés') + ' par les ASCQ dans votre périmètre. On note ' + liste_(ev.items) + '.';
-    var bilan = [];
-    if (t.cas) bilan.push(pluriel(t.cas, 'personne touchée', 'personnes touchées') + (t.deces ? ' dont ' + pluriel(t.deces, 'décès', 'décès') : ''));
-    else if (t.deces) bilan.push(pluriel(t.deces, 'décès', 'décès'));
-    if (t.animT) bilan.push(pluriel(t.animT, 'animal touché', 'animaux touchés') + (t.animM ? ' dont ' + pluriel(t.animM, 'mort', 'morts') : ''));
-    return phrase + (bilan.length ? ' Bilan : ' + liste_(bilan) + '.' : '');
+    return en + pluriel(ev.tot.nb, 'événement de santé validé', 'événements de santé validés') + ' par les ASCQ dans votre périmètre :';
   }
+  function bilan(ev) {
+    var t = ev.tot, b = [];
+    if (!t.nb) return '';
+    if (t.cas) b.push(pluriel(t.cas, 'personne touchée', 'personnes touchées') + (t.deces ? ' dont ' + pluriel(t.deces, 'décès', 'décès') : ''));
+    else if (t.deces) b.push(pluriel(t.deces, 'décès', 'décès'));
+    if (t.animT) b.push(pluriel(t.animT, 'animal touché', 'animaux touchés') + (t.animM ? ' dont ' + pluriel(t.animM, 'mort', 'morts') : ''));
+    return b.length ? 'Bilan : ' + liste_(b) + '.' : '';
+  }
+  function texteSemaine(p, ev) { return [enTete(p, ev)].concat(ev.items.map(function (i) { return '- ' + i; })).concat(bilan(ev) ? [bilan(ev)] : []).join('\n'); }
 
   function syntheseHtml() {
-    var p = plage(), ev = evenementsSemaine(p), texte = paragrapheSemaine(p, ev);
-    etat.texteSemaine = texte + (ev.items.length ? '\n' + ev.items.map(function (i) { return '- ' + i; }).join('\n') : '');
+    var p = plage(), ev = evenementsSemaine(p);
+    etat.texteSemaine = texteSemaine(p, ev);
     var peutPrec = etat.cal.length ? etat.idx > 0 : true, peutSuiv = !p.courante;
     return '<section class="av-synthese"><div class="av-synthese-tete"><h3>🗓️ Point de la semaine</h3><div class="av-sem-nav">' +
       '<button type="button" class="btn-secondary btn-mini" id="avSemPrec"' + (peutPrec ? '' : ' disabled') + '>‹ Semaine précédente</button>' +
       '<span class="av-sem-label">' + escHtml(p.label) + (p.courante ? ' (en cours)' : '') + '</span>' +
       '<button type="button" class="btn-secondary btn-mini" id="avSemSuiv"' + (peutSuiv ? '' : ' disabled') + '>Semaine suivante ›</button></div></div>' +
-      '<p class="av-synthese-texte">' + escHtml(texte) + '</p>' +
+      '<p class="av-synthese-texte">' + escHtml(enTete(p, ev)) + '</p>' +
       (ev.items.length ? '<ul class="av-synthese-puces">' + ev.items.map(function (i) { return '<li>' + escHtml(i) + '</li>'; }).join('') + '</ul>' : '') +
-      '<div class="av-synthese-pied"><span class="petit">Événements validés par les ASCQ, regroupés par affection et lieu, sans mention des auteurs.</span>' +
+      (bilan(ev) ? '<p class="av-synthese-bilan">' + escHtml(bilan(ev)) + '</p>' : '') +
+      '<div class="av-synthese-pied"><span class="petit">Événements validés par les ASCQ, regroupés par affection puis par arrondissement (nombre de cas entre parenthèses) ; alertes avant décès ; sans mention des auteurs.</span>' +
       '<button type="button" class="btn-secondary btn-mini" id="avCopier">📋 Copier le texte</button></div></section>';
   }
   function lierSynthese() {
@@ -236,5 +228,5 @@
     }
     catch (err) { el.innerHTML = '<p class="petit" style="color:#b00020">' + escHtml(err.message) + '</p>'; }
   };
-  window.__alertesValidees = { synthese: function () { var p = plage(), ev = evenementsSemaine(p); return { texte: paragrapheSemaine(p, ev), items: ev.items }; }, carte: carte, feuille: feuille, filtrees: filtrees, etat: etat, estAnimal: estAnimal };
+  window.__alertesValidees = { synthese: function () { var p = plage(), ev = evenementsSemaine(p); return { texte: texteSemaine(p, ev), items: ev.items }; }, carte: carte, feuille: feuille, filtrees: filtrees, etat: etat, estAnimal: estAnimal };
 })();

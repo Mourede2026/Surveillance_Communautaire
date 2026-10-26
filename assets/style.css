@@ -556,3 +556,9 @@ table.rs-part th { width: 52%; text-align: left; }
 .av-synthese-puces { margin: 4px 0 8px 20px; padding: 0; }
 .av-synthese-pied { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .av-synthese-bilan { margin: 6px 0; font-weight: 600; }
+
+/* ---- Bouton « Son » de l'alarme (barre du haut) ---- */
+.btn-son-alerte { border: 1px solid var(--line); background: var(--card); color: inherit; border-radius: 999px; padding: 4px 10px; font-size: .78rem; cursor: pointer; white-space: nowrap; }
+.btn-son-alerte[aria-pressed="false"] { opacity: .75; }
+.btn-son-flottant { position: fixed; left: 10px; bottom: 10px; z-index: 900; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+@media (max-width: 640px) { .btn-son-alerte { font-size: .7rem; padding: 3px 8px; } }

@@ -255,3 +255,11 @@ En tête du bloc « Alertes validées » du tableau de bord (ASCQ, PF, RCSE, Dé
 - 6 décès >= 5 ans : Djidja (3), Agouna (2), Setto (1)
 
 puis une ligne « Bilan » (personnes touchées dont décès, animaux touchés dont morts). Les alertes animales (« 5 animaux touchés (rage), dont 2 morts : Abomey (5) ») figurent entre les alertes et les décès. Les arrondissements sont triés par nombre de cas décroissant. **Aucun nom d'auteur** (ni notificateur ni ASCQ), pas de village ; la date retenue est celle de la validation. Bouton « 📋 Copier le texte » pour le coller dans un bulletin ou un message. Le périmètre de chacun est respecté. Cache : `sivec-v36`.
+
+## Alarme sonore et notifications en direct (tous les niveaux)
+`assets/alerte-sonore.js` est chargé sur toutes les pages d'espace (RC, ASCQ, PF, RCSE, Département, National) :
+- **🚨 Sirène** (deux tons alternés d'environ 3,5 s, plus vibration sur téléphone) dès qu'un relais communautaire notifie une **alerte** ou un **décès** : l'ASCQ et tous les niveaux au-dessus la reçoivent (la notification est déjà envoyée à toute la chaîne hiérarchique par le serveur).
+- **🔔 Carillon** pour les autres nouvelles notifications : activité publiée ou modifiée (la cible la reçoit, le badge « Activités » se met à jour), séance planifiée, sensibilisation, validation, correction…
+- Un message s'affiche à chaque nouvelle notification ; si l'onglet est en arrière-plan et que l'utilisateur a autorisé les notifications du navigateur, une notification système est aussi affichée.
+- Bouton **« 🔔 Son »** dans la barre du haut : « Touchez pour activer le son » (les navigateurs exigent un premier geste), « Son activé », « Son coupé » ; le choix est mémorisé sur l'appareil. Couper le son n'empêche pas les messages.
+- Fonctionnement : sondage de `listNotifications` toutes les 20 secondes tant que la page est ouverte (et au retour sur l'onglet / du réseau) ; les notifications déjà présentes à l'ouverture ne sonnent pas. **Limite** : une application statique (GitHub Pages + Apps Script) ne peut pas faire de « push » serveur : l'alarme sonne uniquement si l'application est ouverte (même en arrière-plan), pas si elle est fermée. Cache : `sivec-v37`.

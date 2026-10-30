@@ -1,8 +1,9 @@
 /**
  * Alerte sonore et notifications en direct — pour TOUS les comptes (RC, ASCQ, PF, RCSE, Département, National).
  *
- *   • 🚨 SIRÈNE (alarme) + vibration : dès qu'un relais communautaire notifie une ALERTE ou un DÉCÈS,
- *     tous ses supérieurs (ASCQ, PF, RCSE, Département, National) l'entendent.
+ *   • 🚨 SIRÈNE (alarme) + vibration : dès qu'un relais communautaire notifie une ALERTE ou un DÉCÈS, son ASCQ
+ *     l'entend ; PF, RCSE, Département et National l'entendent quand l'ASCQ a VALIDÉ l'événement (alerte
+ *     infection validée) — sauf si le National désactive la validation par l'ASCQ (alors tous l'entendent tout de suite).
  *   • 🔔 CARILLON discret : nouvelle activité publiée ou modifiée (la cible la reçoit), séance planifiée,
  *     sensibilisation, validation, correction… Chaque nouvelle notification affiche aussi un message.
  *   • Notification du navigateur quand l'onglet est en arrière-plan (si l'utilisateur l'a autorisée).
@@ -23,7 +24,7 @@
   var CLE = 'sivec_son_alerte';
   var etat = { demarre: false, ctx: null, vus: null, bouton: null, minuteur: null };
 
-  var URGENT = { ALERTE: '🚨', DECES: '⚰️' };
+  var URGENT = { ALERTE: '🚨', ALERTE_VALIDEE: '🚨', DECES: '⚰️' };   // ALERTE_VALIDEE : alerte validée par l'ASCQ, reçue par les niveaux supérieurs
   function estUrgent(n) { return !!URGENT[n.Type]; }
   function sonActive() { try { return localStorage.getItem(CLE) !== '0'; } catch (e) { return true; } }
   function memoriserSon(v) { try { localStorage.setItem(CLE, v ? '1' : '0'); } catch (e) { /* ignoré */ } }
@@ -96,7 +97,7 @@
     var actif = sonActive();
     if (urgentes.length) {
       if (actif) jouerSirene();
-      var nbA = urgentes.filter(function (n) { return n.Type === 'ALERTE'; }).length, nbD = urgentes.length - nbA, titre;
+      var nbA = urgentes.filter(function (n) { return n.Type !== 'DECES'; }).length, nbD = urgentes.length - nbA, titre;
       if (urgentes.length === 1) titre = URGENT[urgentes[0].Type] + ' ' + court(urgentes[0].Message);
       else titre = '🚨 ' + (nbA ? nbA + ' nouvelle' + (nbA > 1 ? 's' : '') + ' alerte' + (nbA > 1 ? 's' : '') : '') + (nbA && nbD ? ' et ' : '') +
         (nbD ? nbD + ' nouveau' + (nbD > 1 ? 'x' : '') + ' décès' : '') + ' notifié' + (urgentes.length > 1 ? 's' : '') + ' par des RC.';

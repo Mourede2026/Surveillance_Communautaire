@@ -7,6 +7,11 @@
  *   • ASCQ, PF, RCSE, Département, National (saisie:false) : consultent les sensibilisations des RC de leur
  *     hiérarchie (filtres, totaux hommes/femmes, photos, répartition des effectifs, export CSV).
  *
+ *
+ * Approbation : une sensibilisation enregistrée par un RC est « En attente » ; elle ne remonte aux niveaux
+ * supérieurs à l'ASCQ (PF, RCSE, Département, National) qu'une fois « Approuvée » par l'ASCQ, qui peut aussi la
+ * « Rejeter » avec un motif (le RC est prévenu). Le compte National peut désactiver cette étape (paramètre).
+ *
  * Dépend de api.js (Api, toast, escHtml).
  * initSensibilisations({ containerId, user, saisie })
  */
@@ -83,7 +88,7 @@
     const auj = aujourdhui();
     const photos = []; // data URLs redimensionnées
     zone.innerHTML = `<form id="formSens">
-      <p class="petit" style="margin:0 0 12px">Chaque sensibilisation communautaire que vous réalisez doit être prouvée ici : indiquez <strong>combien de personnes</strong> ont été sensibilisées (adultes et enfants, par sexe — pas besoin des noms) et joignez la <strong>photo de la séance</strong>. Vos supérieurs (ASCQ, point focal, coordination) la voient immédiatement.</p>
+      <p class="petit" style="margin:0 0 12px">Chaque sensibilisation communautaire que vous réalisez doit être prouvée ici : indiquez <strong>combien de personnes</strong> ont été sensibilisées (adultes et enfants, par sexe — pas besoin des noms) et joignez la <strong>photo de la séance</strong>. Votre <strong>ASCQ</strong> la voit immédiatement et doit l'<strong>approuver</strong> avant qu'elle soit transmise aux autres niveaux (point focal, coordination…).</p>
       <div class="grid grid-2">
         <div class="field"><label>Date de la sensibilisation</label><input type="date" name="date" value="${auj}" max="${auj}" required></div>
         <div class="field"><label>Thème</label><input name="theme" list="sensThemes" required maxlength="160" placeholder="Ex : Rage : morsures et vaccination des animaux"><datalist id="sensThemes">${THEMES.map(t => `<option value="${esc(t)}">`).join('')}</datalist></div>
@@ -142,7 +147,7 @@
           date: fd.get('date'), theme: fd.get('theme'), lieu: fd.get('lieu'), commentaires: fd.get('commentaires'),
           adultesHommes: vals[0], adultesFemmes: vals[1], enfantsGarcons: vals[2], enfantsFilles: vals[3], photos: photos.slice()
         });
-        toast(r.queued ? 'Pas de réseau : la preuve est gardée sur ce téléphone et sera envoyée automatiquement.' : 'Preuve de sensibilisation enregistrée. Merci !');
+        toast(r.queued ? 'Pas de réseau : la preuve est gardée sur ce téléphone et sera envoyée automatiquement.' : (r.sensibilisation && r.sensibilisation.Statut === 'En attente' ? 'Preuve enregistrée. Elle sera visible des autres niveaux après approbation de votre ASCQ.' : 'Preuve de sensibilisation enregistrée. Merci !'));
         dessinerFormulaire();
       } catch (err) { toast(err.message, true); btn.disabled = false; }
     });
@@ -151,23 +156,59 @@
   // ---------------------------------------------------------------------
   // Liste (historique du RC, ou lecture par les niveaux supérieurs)
   // ---------------------------------------------------------------------
+  var BADGES = { 'En attente': '<span class="badge badge-late">⏳ En attente d\'approbation</span>', 'Approuvée': '<span class="badge badge-done">✔ Approuvée</span>', 'Rejetée': '<span class="badge badge-cancel">✖ Rejetée</span>' };
+  function badgeStatut(s) { return BADGES[s.Statut] || ''; }
+
+  // Paramètre national : validation par l'ASCQ avant que les travaux des RC (alertes, décès, sensibilisations)
+  // remontent aux niveaux supérieurs. Bloc réutilisable (aussi affiché sur le tableau de bord du National).
+  function blocParametre(el, actif) {
+    var ancien = el.querySelector('#blocParamValidation'); if (ancien) ancien.remove();
+    var z = document.createElement('div'); z.className = 'card'; z.id = 'blocParamValidation'; z.style.marginBottom = '12px';
+    z.innerHTML = '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="sensParamApprobation" style="width:auto;margin-top:3px"' + (actif ? ' checked' : '') + '> <span>Exiger la validation de l\'ASCQ avant que les travaux des relais communautaires remontent aux autres niveaux<br><span class="petit" style="font-weight:400">Activé : alertes, décès et sensibilisations notifiés par un RC ne sont visibles (ni notifiés) du point focal, de la coordination, du département et du national qu\'<strong>après validation par l\'ASCQ</strong>. Les activités et tâches demandées par un niveau supérieur ne sont pas concernées. Désactivé : tout remonte immédiatement.</span></span></label>';
+    el.insertBefore(z, el.firstChild);
+    z.querySelector('input').addEventListener('change', async function (e) {
+      try { await Api.call('setParametre', { cle: 'validationAscq', valeur: e.target.checked }); toast(e.target.checked ? 'Validation par l\'ASCQ activée.' : 'Validation par l\'ASCQ désactivée : les nouvelles notifications remontent directement.'); }
+      catch (err) { e.target.checked = !e.target.checked; toast(err.message, true); }
+    });
+  }
+  window.blocParametreValidation = blocParametre;
+
+  async function decider(s, decision, apres) {
+    var motif = '';
+    if (decision === 'rejeter') { motif = (window.prompt('Motif du rejet (le relais communautaire le verra) :') || '').trim(); if (motif.length < 3) { toast('Le motif du rejet est obligatoire.', true); return; } }
+    else if (!window.confirm('Approuver cette sensibilisation ? Elle sera alors visible des niveaux supérieurs.')) return;
+    try { await Api.call('decideSensibilisation', { id: s.ID, decision: decision, motif: motif }); toast(decision === 'rejeter' ? 'Sensibilisation rejetée. Le relais communautaire est prévenu.' : 'Sensibilisation approuvée et transmise aux niveaux supérieurs.'); apres(); }
+    catch (err) { toast(err.message, true); }
+  }
+
   async function chargerListe(zoneId, estRc) {
     const el = document.getElementById(zoneId);
     el.innerHTML = 'Chargement…';
     let r;
     try { r = await Api.call('listSensibilisations', {}); } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement : ' + esc(e.message) + '</div>'; return; }
+    const role = (ctx && ctx.user && ctx.user.Role) || '', estAscq = role === 'ASCQ', estNat = role === 'NATIONAL', avecStatut = estRc || estAscq;
     const rows = r.sensibilisations;
-    if (!rows.length) { el.innerHTML = '<div class="empty-state">' + (estRc ? 'Vous n\'avez encore enregistré aucune sensibilisation.' : 'Aucune sensibilisation enregistrée pour le moment par les relais communautaires de votre périmètre.') + '</div>'; return; }
-    el.innerHTML = `<div class="grid grid-4" id="sensStats" style="margin-bottom:12px"></div>
+    const rechargeur = () => chargerListe(zoneId, estRc);
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty-state">' + (estRc ? 'Vous n\'avez encore enregistré aucune sensibilisation.' : 'Aucune sensibilisation ' + (estAscq ? '' : 'approuvée ') + 'pour le moment dans votre périmètre.') + '</div>';
+      if (estNat) await blocParametre(el, r.approbationActive);
+      return;
+    }
+    el.innerHTML = `${estAscq && r.nbEnAttente ? `<div class="card" style="border-left:5px solid #C2410C;margin-bottom:12px"><strong>⏳ ${r.nbEnAttente} sensibilisation(s) en attente de votre approbation.</strong> Elles ne sont visibles des niveaux supérieurs qu'après votre approbation.</div>` : ''}
+      ${estRc ? '<div class="petit" style="margin-bottom:8px">Une sensibilisation « En attente » est visible de votre ASCQ ; elle est transmise aux autres niveaux une fois approuvée.</div>' : ''}
+      <div class="grid grid-4" id="sensStats" style="margin-bottom:12px"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <input id="sensRech" placeholder="${estRc ? 'Rechercher (thème, lieu)' : 'Rechercher (RC, village, thème)'}" style="flex:1;min-width:180px">
+        ${avecStatut ? `<select id="sensStatut"><option value="">Tous les statuts</option><option value="En attente">En attente</option><option value="Approuvée">Approuvées</option><option value="Rejetée">Rejetées</option></select>` : ''}
         <label class="petit">Du <input type="date" id="sensDu"></label><label class="petit">au <input type="date" id="sensAu"></label>
         <button type="button" class="btn-secondary btn-mini" id="sensExport">⬇ Statistiques (CSV)</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Date</th>${estRc ? '' : '<th>Relais communautaire</th><th>Village</th>'}<th>Thème</th><th>Personnes</th><th>Preuves</th><th></th></tr></thead><tbody id="sensCorps"></tbody></table></div>`;
+      <div class="table-wrap"><table><thead><tr><th>Date</th>${estRc ? '' : '<th>Relais communautaire</th><th>Village</th>'}<th>Thème</th><th>Personnes</th><th>Preuves</th>${avecStatut ? '<th>Statut</th>' : ''}<th></th></tr></thead><tbody id="sensCorps"></tbody></table></div>`;
+    if (estAscq && r.nbEnAttente) el.querySelector('#sensStatut').value = 'En attente';
     const corps = el.querySelector('#sensCorps');
     function filtrer() {
       const t = el.querySelector('#sensRech').value.trim().toLowerCase(), du = el.querySelector('#sensDu').value, au = el.querySelector('#sensAu').value;
-      return rows.filter(s => (!du || s.Date >= du) && (!au || s.Date <= au) && (!t || (s.Theme + ' ' + s.Lieu + ' ' + s.RcNom + ' ' + s.VillageNom).toLowerCase().includes(t)));
+      const st = avecStatut ? el.querySelector('#sensStatut').value : '';
+      return rows.filter(s => (!du || s.Date >= du) && (!au || s.Date <= au) && (!st || s.Statut === st) && (!t || (s.Theme + ' ' + s.Lieu + ' ' + s.RcNom + ' ' + s.VillageNom).toLowerCase().includes(t)));
     }
     function montrer() {
       const v = filtrer();
@@ -176,28 +217,36 @@
       el.querySelector('#sensStats').innerHTML = [[v.length, 'Séances'], [adH + adF + enG + enF, 'Personnes sensibilisées'], [adH + adF, 'Adultes (' + adH + ' H · ' + adF + ' F)'], [enG + enF, 'Enfants (' + enG + ' G · ' + enF + ' F)']].map(x => `<div class="stat-card"><div class="n">${x[0]}</div><div class="l">${x[1]}</div></div>`).join('');
       corps.innerHTML = v.length ? v.map(s => {
         const ph = jsonArr(s.PhotosUrls);
+        const decisions = estAscq && s.Statut !== 'Approuvée' ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap"><button type="button" class="btn-mini" data-appr="${esc(s.ID)}">✔ Approuver</button>${s.Statut === 'En attente' ? `<button type="button" class="btn-danger btn-mini" data-rej="${esc(s.ID)}">✖ Rejeter</button>` : ''}</div>` : '';
         return `<tr><td>${dFr(s.Date)}${s.HorsLigne ? '<div class="petit">hors connexion</div>' : ''}</td>${estRc ? '' : `<td>${esc(s.RcNom)}</td><td>${esc(s.VillageNom)}</td>`}<td><strong>${esc(s.Theme)}</strong>${s.Lieu ? '<div class="petit">' + esc(s.Lieu) + '</div>' : ''}</td>
           <td>${esc(s.NbParticipants)}<div class="petit">Adultes ${esc(s.NbAdultesH)} H · ${esc(s.NbAdultesF)} F<br>Enfants ${esc(s.NbEnfantsG)} G · ${esc(s.NbEnfantsF)} F</div></td>
           <td>${ph.length ? `<a href="${esc(ph[0])}" target="_blank" rel="noopener"><img class="sens-mini" src="${esc(miniature(ph[0]))}" alt="Photo" loading="lazy"></a>${ph.length > 1 ? '<div class="petit">+' + (ph.length - 1) + ' photo(s)</div>' : ''}` : '—'}</td>
+          ${avecStatut ? `<td>${badgeStatut(s)}${s.Statut === 'Rejetée' && s.MotifRejet ? '<div class="petit">Motif : ' + esc(s.MotifRejet) + '</div>' : ''}${decisions}</td>` : ''}
           <td><button type="button" class="btn-secondary btn-mini" data-sens="${esc(s.ID)}">Détail</button></td></tr>`;
-      }).join('') : `<tr><td colspan="${estRc ? 5 : 7}" class="petit">Aucune sensibilisation ne correspond.</td></tr>`;
+      }).join('') : `<tr><td colspan="${(estRc ? 5 : 7) + (avecStatut ? 1 : 0)}" class="petit">Aucune sensibilisation ne correspond.</td></tr>`;
     }
-    ['#sensRech', '#sensDu', '#sensAu'].forEach(sel => el.querySelector(sel).addEventListener('input', montrer));
-    corps.addEventListener('click', e => { const b = e.target.closest('[data-sens]'); if (b) detail(rows.find(x => x.ID === b.dataset.sens), estRc); });
+    ['#sensRech', '#sensDu', '#sensAu', '#sensStatut'].forEach(sel => { const n = el.querySelector(sel); if (n) { n.addEventListener('input', montrer); n.addEventListener('change', montrer); } });
+    corps.addEventListener('click', e => {
+      const b = e.target.closest('[data-sens]'); if (b) { detail(rows.find(x => x.ID === b.dataset.sens), estRc, estAscq, rechargeur); return; }
+      const ap = e.target.closest('[data-appr]'); if (ap) { decider(rows.find(x => x.ID === ap.dataset.appr), 'approuver', rechargeur); return; }
+      const rj = e.target.closest('[data-rej]'); if (rj) decider(rows.find(x => x.ID === rj.dataset.rej), 'rejeter', rechargeur);
+    });
     el.querySelector('#sensExport').onclick = () => {
-      const l = [['Date', 'Relais communautaire', 'Village', 'Thème', 'Lieu', 'Adultes hommes', 'Adultes femmes', 'Enfants garçons', 'Enfants filles', 'Total']];
-      filtrer().forEach(s => l.push([s.Date, s.RcNom, s.VillageNom, s.Theme, s.Lieu, s.NbAdultesH, s.NbAdultesF, s.NbEnfantsG, s.NbEnfantsF, s.NbParticipants]));
+      const l = [['Date', 'Relais communautaire', 'Village', 'Thème', 'Lieu', 'Adultes hommes', 'Adultes femmes', 'Enfants garçons', 'Enfants filles', 'Total', 'Statut']];
+      filtrer().forEach(s => l.push([s.Date, s.RcNom, s.VillageNom, s.Theme, s.Lieu, s.NbAdultesH, s.NbAdultesF, s.NbEnfantsG, s.NbEnfantsF, s.NbParticipants, s.Statut]));
       telecharger('sensibilisations_statistiques.csv', csv(l));
     };
     montrer();
+    if (estNat) await blocParametre(el, r.approbationActive);
   }
 
-  function detail(s, estRc) {
+  function detail(s, estRc, estAscq, apres) {
     const ph = jsonArr(s.PhotosUrls), pers = jsonArr(s.Participants); // pers : anciennes saisies nominatives, le cas échéant
     const ov = document.createElement('div'); ov.className = 'modal-overlay';
     ov.innerHTML = `<div class="modal-box" style="width:760px;max-height:92vh;overflow:auto">
       <h3 style="margin-top:0">📣 ${esc(s.Theme)}</h3>
       <div class="petit" style="margin-bottom:10px">${dFr(s.Date)}${s.Lieu ? ' · ' + esc(s.Lieu) : ''}${estRc ? '' : ' · ' + esc(s.RcNom) + (s.VillageNom ? ' (' + esc(s.VillageNom) + ')' : '')} · ${esc(s.NbParticipants)} personne(s) sensibilisée(s)</div>
+      ${(estRc || estAscq) ? `<div style="margin-bottom:8px">${badgeStatut(s)}${s.Statut === 'Rejetée' && s.MotifRejet ? ' <span class="petit">Motif : ' + esc(s.MotifRejet) + '</span>' : ''}${s.ApprouveParNom && estAscq ? ' <span class="petit">· décision de ' + esc(s.ApprouveParNom) + '</span>' : ''}</div>` : ''}
       ${s.Commentaires ? `<p style="margin:0 0 10px">${esc(s.Commentaires)}</p>` : ''}
       <div class="fiche-photos">${ph.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(miniature(u))}" alt="Photo ${i + 1}"></a>`).join('') || '<span class="petit">Aucune photo.</span>'}</div>
       <h4 class="sous-titre">Personnes sensibilisées</h4>
@@ -206,10 +255,13 @@
         <tr><th style="text-align:left">Enfants</th><td>${esc(s.NbEnfantsG)}</td><td>${esc(s.NbEnfantsF)}</td><td>${Number(s.NbEnfantsG || 0) + Number(s.NbEnfantsF || 0)}</td></tr>
         <tr><th style="text-align:left">Total</th><td>${Number(s.NbAdultesH || 0) + Number(s.NbEnfantsG || 0)}</td><td>${Number(s.NbAdultesF || 0) + Number(s.NbEnfantsF || 0)}</td><td><strong>${esc(s.NbParticipants)}</strong></td></tr></tbody></table></div>
       ${pers.length ? `<h4 class="sous-titre">Liste nominative (ancienne saisie)</h4><div class="petit">${pers.map(p => esc(p.nom) + ' (' + (p.sexe === 'F' ? 'F' : 'M') + ', ' + esc(p.age) + ' ans)').join(' · ')}</div>` : ''}
-      <div style="margin-top:14px;text-align:right"><button type="button" class="btn-secondary" id="sensFerme">Fermer</button></div></div>`;
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">${estAscq && s.Statut !== 'Approuvée' ? `<button type="button" id="sensApprouver">✔ Approuver</button>${s.Statut === 'En attente' ? '<button type="button" class="btn-danger" id="sensRejeter">✖ Rejeter</button>' : ''}` : ''}<button type="button" class="btn-secondary" id="sensFerme">Fermer</button></div></div>`;
     document.body.appendChild(ov);
     const fermer = () => ov.remove();
     ov.querySelector('#sensFerme').onclick = fermer;
+    const ba = ov.querySelector('#sensApprouver'), br = ov.querySelector('#sensRejeter');
+    if (ba) ba.onclick = () => decider(s, 'approuver', () => { fermer(); apres(); });
+    if (br) br.onclick = () => decider(s, 'rejeter', () => { fermer(); apres(); });
     ov.addEventListener('click', e => { if (e.target === ov) fermer(); });
   }
 })();

@@ -182,6 +182,7 @@
     var plus = document.getElementById('avPlus'); if (plus) plus.onclick = function () { etat.vues += PAGE; dessiner(); };
     document.getElementById('avExcel').onclick = exporter;
     lierSynthese();
+    if (etat.paramValidation !== undefined && typeof window.blocParametreValidation === 'function') window.blocParametreValidation(el, etat.paramValidation);
   }
 
   function feuille(liste) {
@@ -224,6 +225,7 @@
         etat.idx = etat.idxCourant;
       } catch (e) { etat.cal = []; etat.idx = -1; }
       etat.debut = lundi(new Date());
+      try { if (typeof Session !== 'undefined' && Session.getUser() && Session.getUser().Role === 'NATIONAL') etat.paramValidation = (await Api.call('getParametres', {})).parametres.validationAscq; } catch (e) { /* ignoré */ }
       dessiner();
     }
     catch (err) { el.innerHTML = '<p class="petit" style="color:#b00020">' + escHtml(err.message) + '</p>'; }

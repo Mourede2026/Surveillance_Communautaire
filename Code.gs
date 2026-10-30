@@ -62,7 +62,8 @@ const SHEETS = {
   ACTIVITES_SUIVI: 'ActivitesSuivi',
   TACHES_CAS: 'TachesCas',
   TACHES_SUIVIS: 'TachesSuivis',
-  SENSIBILISATIONS: 'Sensibilisations'
+  SENSIBILISATIONS: 'Sensibilisations',
+  PARAMETRES: 'Parametres'
 };
 
 const ROLES = {
@@ -152,7 +153,10 @@ const COLS = {
   TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId'],
   // Preuves de sensibilisation communautaire envoyées par les RC (photo + liste nominative sexe/âge).
   Sensibilisations: ['ID','RcId','RcNom','ArrondissementId','VillageId','VillageNom','GrappeNom','Date','Theme','Lieu',
-    'Participants','NbParticipants','NbHommes','NbFemmes','NbAdultesH','NbAdultesF','NbEnfantsG','NbEnfantsF','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe']
+    'Participants','NbParticipants','NbHommes','NbFemmes','NbAdultesH','NbAdultesF','NbEnfantsG','NbEnfantsF','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe',
+    'Statut','ApprouveParId','ApprouveParNom','DateDecision','MotifRejet'],
+  // Paramètres de l'application (clé = ID) : ex. validationAscq = 1 / 0.
+  Parametres: ['ID','Valeur','ModifieLe','ModifiePar']
 };
 
 // ============================================================
@@ -238,6 +242,9 @@ function doPost(e) {
       listTacheCas: () => listTacheCas_(user, payload),
       submitSensibilisation: () => avecVerrou_(() => submitSensibilisation_(user, payload)),
       listSensibilisations: () => listSensibilisations_(user, payload),
+      decideSensibilisation: () => decideSensibilisation_(user, payload),
+      getParametres: () => getParametres_(user),
+      setParametre: () => setParametre_(user, payload),
       submitPlanningSuivi: () => submitPlanningSuivi_(user, payload),
       updatePlanningSuivi: () => updatePlanningSuivi_(user, payload),
       listPlanningsSuivis: () => ({ ok: true, plannings: listPlanningsSuivis_(user) }),
@@ -1375,7 +1382,7 @@ function submitAlerte_(actor, p) {
     Signes: Array.isArray(p.signes) ? p.signes.join('|') : (p.signes || '')
   });
   appendRow_(SHEETS.ALERTES, obj);
-  cascadeNotify_(actor, 'ALERTE', obj.ID, `Nouvelle alerte (${p.typeAlerte || ''}) notifiée par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}${mentionHorsLigne_(trace)}`);
+  notifierSelonValidation_(actor, 'ALERTE', obj.ID, `Nouvelle alerte (${p.typeAlerte || ''}) notifiée par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}${mentionHorsLigne_(trace)}`);
   return { ok: true, alerte: obj };
 }
 
@@ -1388,11 +1395,20 @@ function submitDeces_(actor, p) {
     DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe, Statut: 'Nouveau', InvestigationId: ''
   });
   appendRow_(SHEETS.DECES, obj);
-  cascadeNotify_(actor, 'DECES', obj.ID, `Nouveau décès communautaire notifié par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}${mentionHorsLigne_(trace)}`);
+  notifierSelonValidation_(actor, 'DECES', obj.ID, `Nouveau décès communautaire notifié par ${obj.NotificateurNom} - Village: ${p.villageNom || actor.VillageNom || ''}${mentionHorsLigne_(trace)}`);
   return { ok: true, deces: obj };
 }
 
 // Notifie l'ASCQ superviseur direct + toute la chaîne au-dessus (PF, RCSE, NATIONAL)
+// Notification d'un travail d'un RC : avec la validation ASCQ active, seul l'ASCQ du RC est prévenu ; les niveaux supérieurs
+// le seront quand l'ASCQ aura validé (voir submitInvestigation_, confirmerDeces_, decideSensibilisation_).
+// Sans ASCQ dans la chaîne (ou paramètre désactivé), toute la chaîne est prévenue comme avant.
+function notifierSelonValidation_(rcUser, type, refId, message) {
+  const chaine = chainAbove_(rcUser).filter(u => u.Role !== ROLES.RC && u.ID !== rcUser.ID);
+  const ascq = chaine.find(u => u.Role === ROLES.ASCQ) || null;
+  if (ascq && validationAscqActive_()) notifierComptes_([ascq], type, refId, message);
+  else cascadeNotify_(rcUser, type, refId, message);
+}
 function cascadeNotify_(rcUser, type, refId, message) {
   const chain = chainAbove_(rcUser); // [ASCQ, PF, RCSE, ...]
   // Garde-fou : la chaîne remonte uniquement vers les superviseurs (jamais le RC lui-même,
@@ -1457,7 +1473,7 @@ function confirmerDeces_(actor, p) {
   const village = avecNomVillage_([d])[0].VillageNom;
   const msg = `Décès de ${d.Nom || 'personne non nommée'} (village ${village}) ${confirme ? 'confirmé' : 'non confirmé'} par ${nomAscq}` + (commentaire ? ' - ' + commentaire : '');
   const resumeDeces = confirme ? resumeAlerteValidee_('DECES', null, Object.assign({}, d, { ConfirmeParNom: nomAscq, DateConfirmation: nowStr_(), CommentaireConfirmation: commentaire }), contexteGeo_()) : null;
-  chainAbove_(actor).forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, resumeDeces
+  (confirme || !validationAscqActive_() ? chainAbove_(actor) : []).forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, resumeDeces
     ? { ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'ALERTE_VALIDEE', RefId: d.ID, Message: messageAlerteValidee_(resumeDeces), Lu: false, DateCreation: nowStr_() }
     : { ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_() }));
   if (d.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, {
@@ -1604,7 +1620,8 @@ function submitInvestigation_(actor, p) {
       ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'ALERTE_VALIDEE', RefId: obj.ID,
       Message: messageAlerteValidee_(resume), Lu: false, DateCreation: nowStr_()
     }));
-  } else {
+  } else if (!(validationAscqActive_() && !valide)) {
+    // Événement non avéré : avec la validation ASCQ active, rien ne remonte (l'ASCQ n'a pas validé d'événement).
     chain.forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, {
       ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'INVESTIGATION', RefId: obj.ID,
       Message: `Investigation complétée par ${obj.ASCQNom} sur ${refType} ${p.refId}` + (valide ? '' : ' — événement non avéré'), Lu: false, DateCreation: nowStr_()
@@ -1901,8 +1918,8 @@ function lignesDuPerimetre_(actor, cat) {
   const ids = rows => new Set(rows.map(r => String(r.ID)));
   const desc = descendantsComptes_(actor);
   switch (cat) {
-    case 'alertes': return { [SHEETS.ALERTES]: ids(listScoped_(SHEETS.ALERTES, actor)), [SHEETS.INVESTIGATIONS]: ids(listScoped_(SHEETS.INVESTIGATIONS, actor)) };
-    case 'deces': return { [SHEETS.DECES]: ids(listScoped_(SHEETS.DECES, actor)) };
+    case 'alertes': return { [SHEETS.ALERTES]: ids(listScopedBrut_(SHEETS.ALERTES, actor)), [SHEETS.INVESTIGATIONS]: ids(listScopedBrut_(SHEETS.INVESTIGATIONS, actor)) };
+    case 'deces': return { [SHEETS.DECES]: ids(listScopedBrut_(SHEETS.DECES, actor)) };
     case 'rapports': {
       const moi = new Set([String(actor.ID)].concat(desc.map(u => String(u.ID))));
       return { [SHEETS.RAPPORTS]: ids(readSheet_(SHEETS.RAPPORTS).filter(r => moi.has(String(r.CompteId)))) };
@@ -2488,21 +2505,33 @@ function submitSensibilisation_(actor, p) {
     Participants: '', NbParticipants: total, NbHommes: adH + enG, NbFemmes: adF + enF,
     NbAdultesH: adH, NbAdultesF: adF, NbEnfantsG: enG, NbEnfantsF: enF,
     PhotosUrls: JSON.stringify(urls), Commentaires: String(p.commentaires || '').trim().slice(0, 1000),
-    DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe
+    DateSaisie: trace.DateSaisie, ClientId: trace.ClientId, HorsLigne: trace.HorsLigne, SynchroniseLe: trace.SynchroniseLe,
+    Statut: 'Approuvée', ApprouveParId: '', ApprouveParNom: '', DateDecision: '', MotifRejet: ''
   };
+  // Approbation par l'ASCQ (paramètre national, activé par défaut) : tant qu'elle n'est pas donnée, seuls le RC et son ASCQ voient
+  // la sensibilisation ; PF, RCSE, Département et National la reçoivent uniquement après approbation.
+  const chaine = chainAbove_(actor).filter(u => u.Role !== ROLES.RC);
+  const ascq = chaine.find(u => u.Role === ROLES.ASCQ) || null;
+  const aApprouver = !!ascq && parametreBool_('validationAscq', true);
+  if (aApprouver) rec.Statut = 'En attente';
   appendRow_(SHEETS.SENSIBILISATIONS, rec);
-  cascadeNotify_(actor, 'SENSIBILISATION', rec.ID, `Sensibilisation « ${theme} » réalisée par ${rec.RcNom} le ${date.split('-').reverse().join('/')} : ${total} personne(s) sensibilisée(s) (adultes : ${adH + adF}, enfants : ${enG + enF})${rec.VillageNom ? ' - Village: ' + rec.VillageNom : ''}${mentionHorsLigne_(trace)}`);
+  const resume = `Sensibilisation « ${theme} » réalisée par ${rec.RcNom} le ${date.split('-').reverse().join('/')} : ${total} personne(s) sensibilisée(s) (adultes : ${adH + adF}, enfants : ${enG + enF})${rec.VillageNom ? ' - Village: ' + rec.VillageNom : ''}${mentionHorsLigne_(trace)}`;
+  if (aApprouver) notifierComptes_([ascq], 'SENSIBILISATION_A_APPROUVER', rec.ID, 'À approuver — ' + resume);
+  else cascadeNotify_(actor, 'SENSIBILISATION', rec.ID, resume);
   return { ok: true, sensibilisation: rec };
 }
 
 function listSensibilisations_(actor, p) {
   let rows = readSheet_(SHEETS.SENSIBILISATIONS);
+  const statutDe = r => r.Statut || 'Approuvée'; // anciennes saisies : approuvées
   if (actor.Role === ROLES.RC) rows = rows.filter(r => r.RcId === actor.ID);
-  else if (actor.Role !== ROLES.NATIONAL) {
+  else {
     const ok = {};
-    readSheet_(SHEETS.USERS).forEach(u => { if (u.Role === ROLES.RC && isSupervisorOf_(actor, u)) ok[u.ID] = true; });
-    rows = rows.filter(r => ok[r.RcId]);
+    if (actor.Role !== ROLES.NATIONAL) readSheet_(SHEETS.USERS).forEach(u => { if (u.Role === ROLES.RC && isSupervisorOf_(actor, u)) ok[u.ID] = true; });
+    // L'ASCQ voit tout (y compris en attente / rejetées) pour décider ; les autres niveaux ne voient que les sensibilisations approuvées.
+    rows = rows.filter(r => (actor.Role === ROLES.NATIONAL || ok[r.RcId]) && (actor.Role === ROLES.ASCQ || statutDe(r) === 'Approuvée'));
   }
+  rows = rows.map(r => Object.assign({}, r, { Statut: statutDe(r) }));
   // Anciennes saisies nominatives (si elles existent) : effectifs déduits des âges (enfant = moins de 18 ans).
   const effectifs = r => {
     const saisi = [r.NbAdultesH, r.NbAdultesF, r.NbEnfantsG, r.NbEnfantsF].some(v => v !== '' && v !== undefined && v !== null);
@@ -2512,7 +2541,57 @@ function listSensibilisations_(actor, p) {
     return o;
   };
   const sorted = rows.map(r => Object.assign({}, r, { Date: dateIso_(r.Date) }, effectifs(r))).sort((a, b) => (b.Date + b.ID).localeCompare(a.Date + a.ID));
-  return { ok: true, sensibilisations: sorted.slice(0, 1000), total: sorted.length };
+  return { ok: true, sensibilisations: sorted.slice(0, 1000), total: sorted.length, nbEnAttente: sorted.filter(r => r.Statut === 'En attente').length, approbationActive: parametreBool_('validationAscq', true) };
+}
+
+// Décision de l'ASCQ : approuver (la sensibilisation remonte alors aux niveaux supérieurs) ou rejeter (motif obligatoire, le RC est prévenu).
+function decideSensibilisation_(actor, p) {
+  if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul l\'ASCQ du relais communautaire peut approuver ou rejeter une sensibilisation.' };
+  const s = readSheet_(SHEETS.SENSIBILISATIONS).find(x => x.ID === p.id);
+  if (!s) return { ok: false, error: 'Sensibilisation introuvable.' };
+  const rc = readSheet_(SHEETS.USERS).find(u => u.ID === s.RcId);
+  if (!rc || !isSupervisorOf_(actor, rc)) return { ok: false, error: 'Cette sensibilisation ne concerne pas un relais communautaire de votre périmètre.' };
+  const statut = s.Statut || 'Approuvée';
+  if (statut === 'Approuvée') return { ok: false, error: 'Cette sensibilisation est déjà approuvée.' };
+  const decision = p.decision === 'rejeter' ? 'Rejetée' : (p.decision === 'approuver' ? 'Approuvée' : '');
+  if (!decision) return { ok: false, error: 'Décision invalide.' };
+  const motif = String(p.motif || '').trim().slice(0, 500);
+  if (decision === 'Rejetée' && motif.length < 3) return { ok: false, error: 'Indiquez le motif du rejet (le relais communautaire le verra).' };
+  const nom = actor.Prenom + ' ' + actor.Nom;
+  updateRowById_(SHEETS.SENSIBILISATIONS, s.ID, { Statut: decision, ApprouveParId: actor.ID, ApprouveParNom: nom, DateDecision: nowStr_(), MotifRejet: decision === 'Rejetée' ? motif : '' });
+  const total = Number(s.NbParticipants) || 0, date = dateIso_(s.Date).split('-').reverse().join('/');
+  notifierComptes_([rc], 'SENSIBILISATION_DECISION', s.ID, decision === 'Approuvée'
+    ? `Votre sensibilisation « ${s.Theme} » du ${date} a été approuvée par votre ASCQ ${nom}.`
+    : `Votre sensibilisation « ${s.Theme} » du ${date} a été rejetée par votre ASCQ ${nom} — motif : ${motif}. Vous pouvez l'enregistrer à nouveau après correction.`);
+  if (decision === 'Approuvée') {
+    const apresAscq = chainAbove_(rc).filter(u => u.Role !== ROLES.RC && u.ID !== actor.ID && RANG_ROLE_[u.Role] > RANG_ROLE_[ROLES.ASCQ]);
+    notifierComptes_(apresAscq, 'SENSIBILISATION', s.ID, `Sensibilisation « ${s.Theme} » réalisée par ${s.RcNom} le ${date} (approuvée par l'ASCQ) : ${total} personne(s) sensibilisée(s) (adultes : ${(Number(s.NbAdultesH) || 0) + (Number(s.NbAdultesF) || 0)}, enfants : ${(Number(s.NbEnfantsG) || 0) + (Number(s.NbEnfantsF) || 0)})${s.VillageNom ? ' - Village: ' + s.VillageNom : ''}`);
+  }
+  return { ok: true, statut: decision };
+}
+
+function notifierComptes_(comptes, type, refId, message) {
+  comptes.filter(Boolean).forEach(u => appendRow_(SHEETS.NOTIFICATIONS, { ID: newId_('NOTIF'), DestinataireId: u.ID, Type: type, RefId: refId, Message: message, Lu: false, DateCreation: nowStr_() }));
+}
+
+// ---- Paramètres de l'application (modifiables par le National)
+const PARAMETRES_AUTORISES_ = { validationAscq: true };
+function parametreBool_(cle, defaut) {
+  const r = readSheet_(SHEETS.PARAMETRES).find(x => x.ID === cle);
+  if (!r || r.Valeur === '' || r.Valeur === undefined) return defaut;
+  return String(r.Valeur) === '1' || String(r.Valeur).toLowerCase() === 'true';
+}
+function getParametres_(actor) {
+  return { ok: true, parametres: { validationAscq: parametreBool_('validationAscq', true) } };
+}
+function setParametre_(actor, p) {
+  if (actor.Role !== ROLES.NATIONAL) return { ok: false, error: 'Seul le compte national peut modifier les paramètres.' };
+  if (!PARAMETRES_AUTORISES_[p.cle]) return { ok: false, error: 'Paramètre inconnu.' };
+  const valeur = p.valeur ? '1' : '0';
+  const ex = readSheet_(SHEETS.PARAMETRES).find(x => x.ID === p.cle);
+  const maj = { Valeur: valeur, ModifieLe: nowStr_(), ModifiePar: actor.Prenom + ' ' + actor.Nom };
+  if (ex) updateRowById_(SHEETS.PARAMETRES, p.cle, maj); else appendRow_(SHEETS.PARAMETRES, Object.assign({ ID: p.cle }, maj));
+  return { ok: true, parametres: { validationAscq: parametreBool_('validationAscq', true) } };
 }
 
 // ============================================================
@@ -2843,7 +2922,18 @@ function avecNomVillage_(rows) {
   return rows.map(r => Object.assign({}, r, { VillageNom: r.VillageNom || noms[r.VillageId] || '' }));
 }
 
+// Validation par l'ASCQ avant remontée : PF, RCSE, Département et National ne voient une alerte ou un décès notifié
+// par un RC qu'une fois VALIDÉ par l'ASCQ (alerte investiguée et avérée ; décès confirmé ou investigué et avéré).
+// Désactivable par le National (paramètre validationAscq). L'ASCQ et le RC concerné voient tout leur périmètre.
+function validationAscqActive_() { return parametreBool_('validationAscq', true); }
 function listScoped_(sheetName, actor) {
+  const rows = listScopedBrut_(sheetName, actor);
+  if (!(RANG_ROLE_[actor.Role] > RANG_ROLE_[ROLES.ASCQ]) || (sheetName !== SHEETS.ALERTES && sheetName !== SHEETS.DECES) || !validationAscqActive_()) return rows;
+  const invs = {}; readSheet_(SHEETS.INVESTIGATIONS).forEach(i => { invs[i.ID] = i; });
+  const avere = r => { const inv = r.InvestigationId ? invs[r.InvestigationId] : null; return !!inv && String(inv.EvenementAvere || '') !== 'Non'; };
+  return rows.filter(r => sheetName === SHEETS.ALERTES ? (r.Statut === 'Investigué' && avere(r)) : (r.Statut === 'Confirmé' || (r.Statut === 'Investigué' && avere(r))));
+}
+function listScopedBrut_(sheetName, actor) {
   const rows = readSheet_(sheetName);
   if (actor.Role === ROLES.NATIONAL) return rows;
   if (actor.Role === ROLES.RC) return rows.filter(r => r.NotificateurId === actor.ID);

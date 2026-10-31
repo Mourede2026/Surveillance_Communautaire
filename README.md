@@ -286,7 +286,11 @@ Dans Activités › *🗂️ Données collectées*, le **demandeur** de la tâch
 - **Demandeur** : le détail de l'activité affiche, par compte, le nombre de renseignements et la date du dernier ; l'onglet **🗂️ Données collectées** (ou « 📋 Voir / supprimer les renseignements ») liste toutes les lignes (compte, lieu, date, nombre, note), avec export CSV et **suppression ligne par ligne ou par sélection** (le compte concerné est notifié). Supprimer l'activité supprime ses renseignements.
 - Nouvelle feuille `ActivitesRealisations`, nouvelle colonne `EnContinu` (créées automatiquement) ; actions `renseignerActivite`, `listRealisations`, `supprimerRealisations`. Cache : `sivec-v41`.
 
-## Plusieurs suivis par jour, suppression réservée au demandeur, photos dans le rapport de séance
-- **Suivi de cas : plusieurs fois par jour** — chaque suivi **s'ajoute** (il ne remplace plus le précédent) avec un **moment** : Matin, Midi, Soir ou Autre (heure précise). Chaque suivi renseigne les mêmes **variables clés** du questionnaire de suivi. Le demandeur règle dans le questionnaire le nombre de **« Suivis attendus par jour »** (1 à 6 ; « 3 » = matin, midi et soir, modifiable ensuite) : une journée n'est « complète » que lorsque ce nombre est atteint ; sinon elle reste « à compléter ». Garde-fou : 6 suivis maximum par cas et par jour. Le dossier du cas et l'export CSV affichent le moment de chaque suivi.
-- **Le relais communautaire ne peut plus rien supprimer ni remplacer** de ce qu'il a saisi : ni ses suivis, ni ses renseignements d'activité en continu (le serveur refuse). **Seul le demandeur de l'activité (et le National) peut supprimer**, ligne par ligne : renseignements (case par ligne / sélection), cas, et désormais **chaque ligne de suivi** (🗑 dans le dossier du cas) ; le relais est notifié. Action serveur : `tacheSupprimerSuivis`. Nouvelles colonnes `Moment`, `Heure` (feuille des suivis).
-- **Rapport de séance (suivi groupé)** : la section **« 5. Photos de la séance »** affiche les photos de la séance en grand (2 par ligne, légendes « Photo 1 / N »), **à la suite du rapport et avant la liste de présence** (écran, impression/PDF). Les photos Google Drive sont converties en images directes ; l'export Excel liste leurs liens. Cache : `sivec-v42`.
+## Fiche de notification des maladies (RCSE)
+
+Onglet **📋 Fiche de notification** du compte RCSE : saisie indépendante de la fiche officielle
+« 1_BJ_FORMULAIRE GENERIQUE DE NOTIFICATION DES MALADIES SOUS SURVEILLANCE » (cases à cocher + champs).
+Chaque fiche enregistrée alimente la liste des cas remplis (voir / imprimer sur la fiche officielle /
+modifier / supprimer, ou tout imprimer d'un coup). Chaque RCSE ne voit que ses propres fiches.
+Nouvelle feuille `FichesNotification` (créée automatiquement). **Après mise à jour de Code.gs, redéployez
+une nouvelle version de l'application web.**

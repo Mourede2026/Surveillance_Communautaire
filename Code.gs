@@ -64,7 +64,8 @@ const SHEETS = {
   TACHES_SUIVIS: 'TachesSuivis',
   SENSIBILISATIONS: 'Sensibilisations',
   PARAMETRES: 'Parametres',
-  REALISATIONS: 'ActivitesRealisations'
+  REALISATIONS: 'ActivitesRealisations',
+  FICHES_NOTIF: 'FichesNotification'
 };
 
 const ROLES = {
@@ -151,13 +152,18 @@ const COLS = {
   // pendant N jours avec un questionnaire de suivi défini par le niveau supérieur, directement dans la plateforme.
   TachesCas: ['ID','ActiviteId','RcId','RcNom','ArrondissementId','VillageId','VillageNom','Reponses',
     'DateEnregistrement','DateFinSuivi','Statut','Issue','DateCloture','DateCreation','ClientId','HorsLigne'],
-  TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId','Moment','Heure'],
+  TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId'],
   // Preuves de sensibilisation communautaire envoyées par les RC (photo + liste nominative sexe/âge).
   Sensibilisations: ['ID','RcId','RcNom','ArrondissementId','VillageId','VillageNom','GrappeNom','Date','Theme','Lieu',
     'Participants','NbParticipants','NbHommes','NbFemmes','NbAdultesH','NbAdultesF','NbEnfantsG','NbEnfantsF','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe',
     'Statut','ApprouveParId','ApprouveParNom','DateDecision','MotifRejet'],
   // Activités « en continu » : le destinataire les renseigne autant de fois que nécessaire (une ligne par réalisation).
   ActivitesRealisations: ['ID','ActiviteId','UserId','UserNom','Date','Nombre','Note','DateSaisie','ClientId'],
+  // Fiche générique de notification des maladies sous surveillance (« 1_BJ_FORMULAIRE GENERIQUE... »),
+  // remplie de façon indépendante par le RCSE. Donnees = JSON complet de la fiche (cases cochées + champs) ;
+  // les autres colonnes sont un résumé pour la liste des cas.
+  FichesNotification: ['ID','CreeParId','CreeParNom','ZoneSanitaire','Annee','SemaineEpi','Maladie','NomPatient',
+    'Sexe','Age','Village','Evolution','Classification','Donnees','DateSaisie','DateModification','ClientId'],
   // Paramètres de l'application (clé = ID) : ex. validationAscq = 1 / 0.
   Parametres: ['ID','Valeur','ModifieLe','ModifiePar']
 };
@@ -247,10 +253,12 @@ function doPost(e) {
       tacheSaisirSuivi: () => avecVerrou_(() => tacheSaisirSuivi_(user, payload)),
       listTacheCas: () => listTacheCas_(user, payload),
       tacheSupprimerCas: () => avecVerrou_(() => tacheSupprimerCas_(user, payload)),
-      tacheSupprimerSuivis: () => avecVerrou_(() => tacheSupprimerSuivis_(user, payload)),
       submitSensibilisation: () => avecVerrou_(() => submitSensibilisation_(user, payload)),
       listSensibilisations: () => listSensibilisations_(user, payload),
       decideSensibilisation: () => decideSensibilisation_(user, payload),
+      saveFicheNotif: () => avecVerrou_(() => saveFicheNotif_(user, payload)),
+      listFichesNotif: () => listFichesNotif_(user),
+      deleteFicheNotif: () => avecVerrou_(() => deleteFicheNotif_(user, payload)),
       getParametres: () => getParametres_(user),
       setParametre: () => setParametre_(user, payload),
       submitPlanningSuivi: () => submitPlanningSuivi_(user, payload),
@@ -2183,9 +2191,8 @@ function updateActivite_(actor, p) {
   } else if (p.questionnaire !== undefined && estTache_(r.a)) {
     const ancien = questionnaireDe_(r.a);
     let q; try { q = fusionnerQuestionnaire_(ancien, p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
-    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours, f: ancien.suivisParJour });
-    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours, f: q.suivisParJour }) !== avant) {
-      if (q.suivisParJour !== ancien.suivisParJour) modifs.push('suivis par jour');
+    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours });
+    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours }) !== avant) {
       ch.Questionnaire = JSON.stringify(q);
       if (q.dureeJours !== ancien.dureeJours) { modifs.push('durée du suivi'); prolongation = q.dureeJours; }
       if (JSON.stringify(q.champsCas) !== JSON.stringify(ancien.champsCas) || JSON.stringify(q.champsSuivi) !== JSON.stringify(ancien.champsSuivi)) modifs.push('questionnaire');
@@ -2242,16 +2249,14 @@ function listRealisations_(actor, p) {
   rows = rows.map(x => Object.assign({}, x, { Date: dateIso_(x.Date) })).sort((x, y) => (y.Date + y.ID).localeCompare(x.Date + x.ID));
   return { ok: true, realisations: rows, activite: { id: a.ID, titre: a.Titre }, enTantQueDemandeur: a.CreeParId === actor.ID || actor.Role === ROLES.NATIONAL };
 }
-// Seul le demandeur de l'activité (ou le National) peut supprimer des renseignements : le destinataire ne peut pas effacer
-// ce qu'il a saisi (sinon il pourrait saisir et retirer à sa guise).
+// Le destinataire peut retirer ses propres lignes (erreur de saisie) ; le demandeur peut retirer n'importe quelle ligne de son activité.
 function supprimerRealisations_(actor, p) {
   const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === p.activiteId);
   if (!a) return { ok: false, error: 'Activité introuvable.' };
   const demandeur = a.CreeParId === actor.ID || actor.Role === ROLES.NATIONAL;
-  if (!demandeur) return { ok: false, error: 'Seul le demandeur de l\'activité peut supprimer des renseignements.' };
   const ids = (Array.isArray(p.ids) ? p.ids : []).map(String).slice(0, 2000);
   if (!ids.length) return { ok: false, error: 'Sélectionnez au moins une ligne.' };
-  const rows = readSheet_(SHEETS.REALISATIONS).filter(x => x.ActiviteId === a.ID && ids.indexOf(String(x.ID)) !== -1 && demandeur);
+  const rows = readSheet_(SHEETS.REALISATIONS).filter(x => x.ActiviteId === a.ID && ids.indexOf(String(x.ID)) !== -1 && (demandeur || x.UserId === actor.ID));
   if (!rows.length) return { ok: false, error: 'Aucune ligne supprimable parmi la sélection.' };
   deleteRowsWhereIn_(SHEETS.REALISATIONS, 'ID', new Set(rows.map(x => String(x.ID))));
   if (demandeur) {
@@ -2334,8 +2339,7 @@ function nettoyerQuestionnaire_(q) {
   if (!champsSuivi.length) throw new Error('Ajoutez au moins une question dans le « Questionnaire de suivi ».');
   const duree = Math.floor(Number(q.dureeJours));
   if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
-  const spj = Math.max(1, Math.min(6, Math.floor(Number(q.suivisParJour)) || 1));
-  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, suivisParJour: spj, seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
+  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
 }
 
 // Modification d'un questionnaire déjà publié : les questions existantes (id connu) gardent leur identifiant,
@@ -2369,13 +2373,12 @@ function fusionnerQuestionnaire_(ancien, nouveau) {
   const duree = Math.floor(Number(nouveau.dureeJours === undefined ? ancien.dureeJours : nouveau.dureeJours));
   if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
   out.dureeJours = duree;
-  out.suivisParJour = Math.max(1, Math.min(6, Math.floor(Number(nouveau.suivisParJour === undefined ? ancien.suivisParJour : nouveau.suivisParJour)) || 1));
   return out;
 }
 
 function questionnaireDe_(a) {
-  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, suivisParJour: Math.max(1, Math.min(6, Number(q.suivisParJour) || 1)), seq: q.seq || {} }; }
-  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, suivisParJour: 1, seq: {} }; }
+  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, seq: q.seq || {} }; }
+  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, seq: {} }; }
 }
 
 // Valide et normalise les réponses d'un RC par rapport à la liste de questions.
@@ -2414,30 +2417,28 @@ function etatCas_(c, aujourdhui) {
 }
 
 // Pour chaque cas : jours de suivi attendus (1..durée, jusqu'à aujourd'hui), faits, manquants.
-function enrichirCas_(c, suivisDuCas, aujourdhui, spj) {
-  spj = Math.max(1, Number(spj) || 1);   // nombre de suivis attendus par jour (matin, midi, soir…)
+function enrichirCas_(c, suivisDuCas, aujourdhui) {
   const enreg = dateIso_(c.DateEnregistrement), fin = dateIso_(c.DateFinSuivi);
   const duree = joursEntre_(enreg, fin);
   const dernierJourAttendu = aujourdhui < fin ? aujourdhui : fin;
   const attendus = [];
   for (let j = 1; j <= duree; j++) { const jour = ajouterJours_(enreg, j); if (jour <= dernierJourAttendu) attendus.push(jour); }
-  const parJour = {};
-  suivisDuCas.forEach(s => { const j = dateIso_(s.Jour); parJour[j] = (parJour[j] || 0) + 1; });
-  const manquants = attendus.filter(j => (parJour[j] || 0) < spj);
-  const faits = attendus.reduce((t, j) => t + Math.min(parJour[j] || 0, spj), 0);
+  const jours = {};
+  suivisDuCas.forEach(s => { jours[dateIso_(s.Jour)] = true; });
+  const manquants = attendus.filter(j => !jours[j]);
   const etat = etatCas_(c, aujourdhui);
-  const ordreMoment = { 'Matin': '1', 'Midi': '2', 'Soir': '3' };
   return {
     ID: c.ID, ActiviteId: c.ActiviteId, RcId: c.RcId, RcNom: c.RcNom, VillageNom: c.VillageNom, ArrondissementId: c.ArrondissementId,
     Reponses: (function () { try { return JSON.parse(c.Reponses || '{}'); } catch (e) { return {}; } })(),
     DateEnregistrement: enreg, DateFinSuivi: fin, DureeJours: duree, Etat: etat, Issue: c.Issue || '', DateCloture: dateIso_(c.DateCloture),
-    HorsLigne: c.HorsLigne || '', SuivisParJour: spj,
-    Suivis: suivisDuCas.map(s => ({ ID: s.ID, Jour: dateIso_(s.Jour), Moment: s.Moment || '', Heure: s.Heure || '', DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
-      .sort((x, y) => (x.Jour + (x.Heure || ordreMoment[x.Moment] || '9') + String(x.DateSaisie)).localeCompare(y.Jour + (y.Heure || ordreMoment[y.Moment] || '9') + String(y.DateSaisie))),
-    NbAttendus: attendus.length * spj, NbTotalAttendus: duree * spj, NbFaits: faits, JoursManquants: manquants, ParJour: parJour,
+    HorsLigne: c.HorsLigne || '',
+    Suivis: suivisDuCas.map(s => ({ Jour: dateIso_(s.Jour), DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
+      .sort((x, y) => x.Jour.localeCompare(y.Jour)),
+    NbAttendus: attendus.length, NbFaits: attendus.length - manquants.length, JoursManquants: manquants,
     SuiviDu: etat === 'En suivi' && manquants.indexOf(aujourdhui) !== -1
   };
 }
+
 function activitesAvecCasEnSuivi_(rcId) {
   const auj = aujourdhuiIso_(), set = new Set();
   readSheet_(SHEETS.TACHES_CAS).forEach(c => { if (c.RcId === rcId && etatCas_(c, auj) === 'En suivi') set.add(c.ActiviteId); });
@@ -2448,9 +2449,8 @@ function activitesAvecCasEnSuivi_(rcId) {
 function statsTachesDuRc_(rcId) {
   const auj = aujourdhuiIso_(), out = {};
   const suivis = readSheet_(SHEETS.TACHES_SUIVIS).filter(s => s.RcId === rcId);
-  const acts = {}; readSheet_(SHEETS.ACTIVITES).forEach(a => { if (estTache_(a)) acts[a.ID] = questionnaireDe_(a).suivisParJour; });
   readSheet_(SHEETS.TACHES_CAS).filter(c => c.RcId === rcId).forEach(c => {
-    const e = enrichirCas_(c, suivis.filter(s => s.CasId === c.ID), auj, acts[c.ActiviteId]);
+    const e = enrichirCas_(c, suivis.filter(s => s.CasId === c.ID), auj);
     const o = out[c.ActiviteId] || (out[c.ActiviteId] = { nbCas: 0, enSuivi: 0, dus: 0 });
     o.nbCas++; if (e.Etat === 'En suivi') { o.enSuivi++; if (e.JoursManquants.length) o.dus++; }
   });
@@ -2480,10 +2480,6 @@ function tacheEnregistrerCas_(actor, p) {
   return { ok: true, cas: rec };
 }
 
-const MOMENTS_SUIVI_ = ['Matin', 'Midi', 'Soir', 'Autre'];
-const MAX_SUIVIS_PAR_JOUR_ = 6;
-// Plusieurs suivis par jour sont possibles (matin, midi, soir, autre heure) : chaque envoi AJOUTE une ligne ; le RC ne peut ni
-// remplacer ni supprimer ce qu'il a saisi (seul le demandeur de la tâche peut supprimer des lignes).
 function tacheSaisirSuivi_(actor, p) {
   if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut saisir le suivi d\'un cas.' };
   const c = readSheet_(SHEETS.TACHES_CAS).find(x => x.ID === p.casId && x.RcId === actor.ID);
@@ -2491,43 +2487,23 @@ function tacheSaisirSuivi_(actor, p) {
   const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === c.ActiviteId);
   if (!a || a.Statut !== 'Active') return { ok: false, error: 'Cette tâche a été archivée ou supprimée par son demandeur.' };
   if (c.Statut === 'Clôturé') return { ok: false, error: 'Le suivi de ce cas est clôturé.' };
-  const clientId = String(p.clientId || '');
-  const suivisCas = readSheet_(SHEETS.TACHES_SUIVIS).filter(s => s.CasId === c.ID);
-  if (clientId && suivisCas.some(s => s.ClientId === clientId)) return { ok: true, doublon: true };
   const auj = aujourdhuiIso_();
   const jour = p.jour ? dateIso_(p.jour) : auj;
   if (jour > auj) return { ok: false, error: 'Le suivi ne peut pas être saisi pour une date future.' };
   if (jour < dateIso_(c.DateEnregistrement)) return { ok: false, error: 'La date du suivi précède le recensement du cas.' };
   if (jour > dateIso_(c.DateFinSuivi)) return { ok: false, error: 'La période de suivi de ce cas est terminée (fin le ' + dateIso_(c.DateFinSuivi).split('-').reverse().join('/') + ').' };
-  const moment = p.moment ? String(p.moment) : '';
-  if (moment && MOMENTS_SUIVI_.indexOf(moment) === -1) return { ok: false, error: 'Moment du suivi invalide.' };
-  const heure = /^\d{1,2}:\d{2}$/.test(String(p.heure || '')) ? String(p.heure).padStart(5, '0') : '';
-  if (suivisCas.filter(s => dateIso_(s.Jour) === jour).length >= MAX_SUIVIS_PAR_JOUR_) return { ok: false, error: 'Maximum ' + MAX_SUIVIS_PAR_JOUR_ + ' suivis par jour pour un même cas.' };
   const q = questionnaireDe_(a);
   const reponses = nettoyerReponses_(q.champsSuivi, p.reponses);
+  const existant = readSheet_(SHEETS.TACHES_SUIVIS).find(s => s.CasId === c.ID && dateIso_(s.Jour) === jour);
   const saisie = dateSaisieClient_(p);
-  appendRow_(SHEETS.TACHES_SUIVIS, { ID: newId_('SUV'), CasId: c.ID, ActiviteId: c.ActiviteId, RcId: actor.ID, Jour: jour, Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: clientId, Moment: moment, Heure: heure });
+  if (existant) updateRowById_(SHEETS.TACHES_SUIVIS, existant.ID, { Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_() });
+  else appendRow_(SHEETS.TACHES_SUIVIS, { ID: newId_('SUV'), CasId: c.ID, ActiviteId: c.ActiviteId, RcId: actor.ID, Jour: jour, Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: String(p.clientId || '') });
   if (p.cloturer) {
     const issue = ISSUES_CAS_.indexOf(p.issue) !== -1 ? p.issue : '';
-    if (!issue) return { ok: false, error: 'Choisissez l\'issue du cas pour clôturer son suivi (le suivi est enregistré).' };
+    if (!issue) return { ok: false, error: 'Choisissez l\'issue du cas pour clôturer son suivi (le suivi du jour est enregistré).' };
     updateRowById_(SHEETS.TACHES_CAS, c.ID, { Statut: 'Clôturé', Issue: issue, DateCloture: auj });
   }
-  return { ok: true };
-}
-
-// Le demandeur (ou le National) supprime des lignes de suivi précises ; le RC concerné est prévenu.
-function tacheSupprimerSuivis_(actor, p) {
-  const r = activiteDuCreateur_(actor, p.activiteId); if (r.err) return { ok: false, error: r.err.replace('la modifier', 'supprimer ses données') };
-  if (!estTache_(r.a)) return { ok: false, error: 'Cette activité n\'a pas de suivis.' };
-  const ids = (Array.isArray(p.ids) ? p.ids : []).map(String).slice(0, 2000);
-  if (!ids.length) return { ok: false, error: 'Sélectionnez au moins un suivi à supprimer.' };
-  const lignes = readSheet_(SHEETS.TACHES_SUIVIS).filter(x => x.ActiviteId === r.a.ID && ids.indexOf(String(x.ID)) !== -1);
-  if (!lignes.length) return { ok: false, error: 'Aucun des suivis sélectionnés n\'existe plus.' };
-  deleteRowsWhereIn_(SHEETS.TACHES_SUIVIS, 'ID', new Set(lignes.map(x => String(x.ID))));
-  const parRc = {}; lignes.forEach(x => { parRc[x.RcId] = (parRc[x.RcId] || 0) + 1; });
-  const users = readSheet_(SHEETS.USERS);
-  Object.keys(parRc).forEach(id => { const u = users.find(z => z.ID === id); if (u) notifierComptes_([u], 'ACTIVITE', r.a.ID, `${parRc[id]} de vos suivis sur la tâche « ${r.a.Titre} » ont été supprimés par ${r.a.CreeParNom}.`); });
-  return { ok: true, supprimes: lignes.length };
+  return { ok: true, remplace: !!existant };
 }
 
 // Lecture des cas : le RC voit les siens ; le demandeur (et le National) voit ceux des RC de sa hiérarchie.
@@ -2554,8 +2530,7 @@ function listTacheCas_(actor, p) {
   const suivis = readSheet_(SHEETS.TACHES_SUIVIS);
   const parCas = {};
   suivis.forEach(s => { (parCas[s.CasId] = parCas[s.CasId] || []).push(s); });
-  const spjDe = {}; activites.forEach(a => { spjDe[a.ID] = questionnaireDe_(a).suivisParJour; });
-  const cas = casListe.map(c => enrichirCas_(c, parCas[c.ID] || [], auj, spjDe[c.ActiviteId]))
+  const cas = casListe.map(c => enrichirCas_(c, parCas[c.ID] || [], auj))
     .sort((x, y) => (y.DateEnregistrement + y.ID).localeCompare(x.DateEnregistrement + x.ID));
   // Questionnaires nécessaires pour afficher les réponses (étiquettes des questions).
   const actIds = new Set(cas.map(c => c.ActiviteId));
@@ -4018,4 +3993,77 @@ function runMigrerVersNational_() {
   } catch (err) {
     ui.alert('Erreur pendant la migration : ' + (err && err.message ? err.message : err));
   }
+}
+
+
+// ============================================================
+// FICHE GÉNÉRIQUE DE NOTIFICATION DES MALADIES SOUS SURVEILLANCE (niveau RCSE)
+// ============================================================
+// Le RCSE remplit la fiche officielle « 1_BJ_FORMULAIRE GENERIQUE DE NOTIFICATION DES MALADIES SOUS
+// SURVEILLANCE » de façon indépendante (hors alertes/décès communautaires). Chaque RCSE ne voit et ne gère
+// que les fiches qu'il a lui-même saisies.
+
+function ficheNotifTexte_(v, n) { return coupe_(v, n || 200); }
+
+// Nettoie la fiche reçue : seules les clés attendues sont conservées, chaque valeur est bornée en taille
+// (texte, nombre ou liste de textes) avant d'être stockée en JSON dans la colonne Donnees.
+function ficheNotifNettoyer_(brut) {
+  const out = {};
+  const src = (brut && typeof brut === 'object') ? brut : {};
+  Object.keys(src).slice(0, 120).forEach(k => {
+    if (!/^[A-Za-z0-9_]{1,40}$/.test(k)) return;
+    const v = src[k];
+    if (Array.isArray(v)) out[k] = v.slice(0, 40).map(x => ficheNotifTexte_(x, 80));
+    else if (typeof v === 'boolean') out[k] = v;
+    else out[k] = ficheNotifTexte_(v, 300);
+  });
+  return out;
+}
+
+function saveFicheNotif_(actor, p) {
+  if (actor.Role !== ROLES.RCSE) return { ok: false, error: 'Seul un compte RCSE peut remplir la fiche de notification.' };
+  const d = ficheNotifNettoyer_(p.donnees);
+  const nom = ficheNotifTexte_(d.nomPatient, 120);
+  if (nom.length < 2) return { ok: false, error: 'Indiquez le nom du patient.' };
+  if (!d.maladie) return { ok: false, error: 'Cochez la maladie notifiée (ou « Autre à préciser »).' };
+  if (d.maladie === 'Autre' && !ficheNotifTexte_(d.maladieAutre, 120)) return { ok: false, error: 'Précisez la maladie dans « Autre à préciser ».' };
+  const maladie = d.maladie === 'Autre' ? ficheNotifTexte_(d.maladieAutre, 120) : ficheNotifTexte_(d.maladie, 80);
+  const age = [d.ageAns ? d.ageAns + ' an(s)' : '', d.ageMois ? d.ageMois + ' mois' : '', d.ageJours ? d.ageJours + ' j' : ''].filter(Boolean).join(' ');
+  const resume = {
+    ZoneSanitaire: ficheNotifTexte_(d.zoneSanitaire, 120), Annee: ficheNotifTexte_(d.annee, 6), SemaineEpi: ficheNotifTexte_(d.semaine, 6),
+    Maladie: maladie, NomPatient: nom, Sexe: ficheNotifTexte_(d.sexe, 2), Age: age,
+    Village: ficheNotifTexte_(d.village, 120), Evolution: ficheNotifTexte_(d.evolution, 20), Classification: ficheNotifTexte_(d.classification, 60)
+  };
+  const json = JSON.stringify(d);
+  if (json.length > 40000) return { ok: false, error: 'La fiche est trop volumineuse.' };
+  if (p.id) {
+    const f = readSheet_(SHEETS.FICHES_NOTIF).find(x => x.ID === p.id);
+    if (!f || f.CreeParId !== actor.ID) return { ok: false, error: 'Fiche introuvable ou non modifiable par ce compte.' };
+    updateRowById_(SHEETS.FICHES_NOTIF, f.ID, Object.assign({}, resume, { Donnees: json, DateModification: nowStr_() }));
+    return { ok: true, id: f.ID };
+  }
+  const clientId = String(p.clientId || '').slice(0, 60);
+  if (clientId) {
+    const deja = readSheet_(SHEETS.FICHES_NOTIF).find(r => r.ClientId === clientId && r.CreeParId === actor.ID);
+    if (deja) return { ok: true, id: deja.ID, doublon: true };
+  }
+  const rec = Object.assign({ ID: newId_('FNOT'), CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom, Donnees: json,
+    DateSaisie: nowStr_(), DateModification: '', ClientId: clientId }, resume);
+  appendRow_(SHEETS.FICHES_NOTIF, rec);
+  return { ok: true, id: rec.ID };
+}
+
+function listFichesNotif_(actor) {
+  if (actor.Role !== ROLES.RCSE) return { ok: false, error: 'Réservé aux comptes RCSE.' };
+  const fiches = readSheet_(SHEETS.FICHES_NOTIF).filter(f => f.CreeParId === actor.ID)
+    .sort((a, b) => String(b.DateSaisie).localeCompare(String(a.DateSaisie)));
+  return { ok: true, fiches: fiches };
+}
+
+function deleteFicheNotif_(actor, p) {
+  if (actor.Role !== ROLES.RCSE) return { ok: false, error: 'Réservé aux comptes RCSE.' };
+  const f = readSheet_(SHEETS.FICHES_NOTIF).find(x => x.ID === p.id);
+  if (!f || f.CreeParId !== actor.ID) return { ok: false, error: 'Fiche introuvable ou non supprimable par ce compte.' };
+  deleteRowById_(SHEETS.FICHES_NOTIF, f.ID);
+  return { ok: true };
 }

@@ -49,6 +49,11 @@
     return (cache[id] = { id: id, icone: m.icon || '', titre: m.title, sections: sections });
   }
 
+  // Les photos stockées dans Google Drive ont une URL « page de visionnage » : on utilise l'image directe (miniature grand format).
+  function urlImage(u) {
+    var m = /drive\.google\.com\/file\/d\/([^/?#]+)/.exec(u || '');
+    return m ? 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w1200' : u;
+  }
   function listeNoms(a) { return (a || []).length ? a.join(', ') : '—'; }
 
   function themesHtml(r) {
@@ -69,7 +74,7 @@
   function documentHtml(d) {
     var r = d.rapport; if (!r) return '';
     var h = d.header || {};
-    var photos = (r.photos || []).map(function (u, i) { return '<a href="' + escHtml(u) + '" target="_blank" rel="noopener"><img class="rs-photo" alt="Photo ' + (i + 1) + '" src="' + escHtml(u) + '"></a>'; }).join('');
+    var photos = (r.photos || []).map(function (u, i) { return '<figure class="rs-fig"><a href="' + escHtml(u) + '" target="_blank" rel="noopener"><img class="rs-photo" alt="Photo de la séance ' + (i + 1) + '" src="' + escHtml(urlImage(u)) + '"></a><figcaption>Photo ' + (i + 1) + ' / ' + (r.photos || []).length + '</figcaption></figure>'; }).join('');
     var docs = (r.documents || []).map(function (x) { return '<div><a href="' + escHtml(x.url) + '" target="_blank" rel="noopener">📄 ' + escHtml(x.nom) + '</a></div>'; }).join('');
     return '<div class="rs-doc">' +
       '<div class="lp-haut"><div class="lp-rep">RÉPUBLIQUE DU BÉNIN<br>MINISTÈRE DE LA SANTÉ</div><div class="lp-marque"><img class="lp-logo" alt="" src="assets/icons/icon-192.png"><b>SIVEC</b></div></div>' +
@@ -87,7 +92,8 @@
       ((r.rcAbsents || []).length ? '<tr><th>Relais communautaires absents</th><td>' + escHtml(listeNoms(r.rcAbsents)) + '</td></tr>' : '') +
       '<tr><th>Autres acteurs et superviseurs présents</th><td>' + escHtml(r.nbAutres) + '</td></tr></tbody></table>' +
       '<h4 class="rs-h">4. Observations</h4><p class="rs-p">' + (r.commentaires ? escHtml(r.commentaires).replace(/\n/g, '<br>') : '—') + '</p>' +
-      ((photos || docs) ? '<h4 class="rs-h">5. Pièces jointes</h4><div class="rs-photos">' + photos + '</div>' + docs : '') +
+      (photos ? '<h4 class="rs-h">5. Photos de la séance</h4><div class="rs-photos">' + photos + '</div>' : '') +
+      (docs ? '<h4 class="rs-h">' + (photos ? '6' : '5') + '. Documents joints</h4>' + docs : '') +
       '<div class="lp-pied">Rapport déposé' + (r.dateDepot ? ' le ' + escHtml(fmtDate(r.dateDepot)) : '') + ' par ' + escHtml(r.ascq || '—') + '. Il est verrouillé : il ne peut plus être modifié. La liste de présence suit ce rapport.</div></div>';
   }
 
@@ -109,6 +115,7 @@
         s.points.forEach(function (p, k) { l.push([(!s.texte && k === 0) ? s.titre : '', '• ' + p]); });
       });
     });
+    (r.photos || []).forEach(function (u, i) { if (i === 0) l.push([], [{ v: 'PHOTOS DE LA SÉANCE (liens)', s: 'h' }, { v: '', s: 'h' }]); l.push(['Photo ' + (i + 1), u]); });
     l.push([], [{ v: 'PARTICIPATION', s: 'h' }, { v: '', s: 'h' }],
       ['Participants (liste de présence)', r.nbParticipants], ['Relais communautaires présents', r.nbRcPresents],
       ['Relais communautaires absents', (r.rcAbsents || []).join(', ')], ['Autres acteurs et superviseurs', r.nbAutres],

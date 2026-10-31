@@ -31,7 +31,7 @@
   window.majBadgeActivites_ = async function (navId, libelle) {
     try {
       const d = await Api.call('listActivites', {});
-      const aFaire = d.recues.filter(a => a.MonStatut !== 'Fait' || a.NbSuivisDus > 0).length;
+      const aFaire = d.recues.filter(a => (a.MonStatut !== 'Fait' && a.EnContinu !== 'Oui') || a.NbSuivisDus > 0).length;
       const el = document.getElementById(navId);
       if (el) el.textContent = (libelle || '🔗 Activités') + (aFaire ? ' (' + aFaire + ')' : '');
     } catch (e) { /* facultatif */ }
@@ -44,8 +44,8 @@
     el.innerHTML = 'Chargement…';
     try { await charger(); } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement : ' + escHtml(e.message) + '</div>'; return; }
     const peutGerer = opts.gerer && donnees.peutCreer;
-    const aFaire = donnees.recues.filter(a => a.MonStatut !== 'Fait' || a.NbSuivisDus > 0).length;
-    const aDonnees = peutGerer && donnees.creees.some(a => a.Type === TACHE);
+    const aFaire = donnees.recues.filter(a => (a.MonStatut !== 'Fait' && a.EnContinu !== 'Oui') || a.NbSuivisDus > 0).length;
+    const aDonnees = peutGerer && donnees.creees.some(a => a.Type === TACHE || a.EnContinu === 'Oui');
     el.innerHTML = `${(opts.recevoir && peutGerer) || aDonnees ? `<div class="sub-tabs">
         ${opts.recevoir ? `<button type="button" data-act-sub="recues" class="active">📥 Reçues${aFaire ? ' (' + aFaire + ' à faire)' : ''}</button>` : ''}
         <button type="button" data-act-sub="gerer" class="${opts.recevoir ? '' : 'active'}">📤 Demander une activité</button>
@@ -69,6 +69,7 @@
   // ---------------- activités reçues ----------------
   function badgeRecu(a) {
     if (a.Type === TACHE && a.NbSuivisDus > 0) return `<span class="badge badge-late">${a.NbSuivisDus} cas à suivre</span>`;
+    if (a.EnContinu === 'Oui') return `<span class="badge badge-new">🔁 En continu · ${a.NbRealisations || 0} renseignement(s)</span>`;
     if (a.MonStatut === 'Fait') return '<span class="badge badge-done">✔ Fait</span>';
     const retard = a.DateLimite && String(a.DateLimite) < aujourdhui();
     if (retard) return '<span class="badge badge-late">En retard</span>';
@@ -97,13 +98,18 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           ${a.Type === TACHE ? `<button type="button" data-tache="${escHtml(a.ID)}">🗂️ Ouvrir la tâche${a.NbCas ? ' (' + a.NbCas + ' cas)' : ''}</button>` : ''}
           ${a.Lien ? `<a class="btn-lien" href="${escHtml(lienSur(a.Lien))}" target="_blank" rel="noopener noreferrer" data-ouvrir="${escHtml(a.ID)}">Ouvrir le lien ↗</a>` : ''}
-          ${a.MonStatut === 'Fait' ? `<button class="btn-secondary" data-statut="Ouvert" data-id="${escHtml(a.ID)}">Annuler « fait »</button>` : `<button data-statut="Fait" data-id="${escHtml(a.ID)}">✔ J'ai terminé</button>`}
+          ${a.EnContinu === 'Oui' ? `<button type="button" data-renseigner="${escHtml(a.ID)}">➕ Renseigner</button><button type="button" class="btn-secondary" data-mesreal="${escHtml(a.ID)}">📋 Mes renseignements (${a.NbRealisations || 0})</button>${a.DerniereRealisation ? '<span class="petit">dernier : ' + fmtDate(a.DerniereRealisation) + '</span>' : ''}`
+            : (a.MonStatut === 'Fait' ? `<button class="btn-secondary" data-statut="Ouvert" data-id="${escHtml(a.ID)}">Annuler « fait »</button>` : `<button data-statut="Fait" data-id="${escHtml(a.ID)}">✔ J'ai terminé</button>`)}
         </div></div>`).join('') : '<div class="empty-state">Rien dans cette catégorie.</div>';
     }
     document.getElementById('actFiltre').addEventListener('change', montrer);
     zone.addEventListener('click', async e => {
       const tb = e.target.closest('[data-tache]');
       if (tb) { const act = liste.find(x => x.ID === tb.dataset.tache); if (act) window.Taches.ouvrirRc(act, () => { rafraichir(); if (typeof ctx.onChange === 'function') ctx.onChange(); }); return; }
+      const rn = e.target.closest('[data-renseigner]');
+      if (rn) { formRenseigner(liste.find(x => x.ID === rn.dataset.renseigner)); return; }
+      const mr = e.target.closest('[data-mesreal]');
+      if (mr) { const act = liste.find(x => x.ID === mr.dataset.mesreal); ouvrirRealisations(act.ID, act.Titre); return; }
       const o = e.target.closest('[data-ouvrir]');
       if (o) { Api.call('marquerActivite', { id: o.dataset.ouvrir, statut: 'Ouvert' }).catch(() => {}); return; } // le lien s'ouvre normalement
       const b = e.target.closest('[data-statut]'); if (!b) return;
@@ -112,6 +118,70 @@
       catch (err) { toast(err.message, true); b.disabled = false; }
     });
     montrer();
+  }
+
+  // ---------------- activités en continu : renseigner plusieurs fois ----------------
+  function modalSimple(html, largeur) {
+    const ov = document.createElement('div'); ov.className = 'modal-overlay';
+    ov.innerHTML = `<div class="modal-box" style="width:${largeur || 640}px;max-height:92vh;overflow:auto">${html}</div>`;
+    document.body.appendChild(ov);
+    const fermer = () => ov.remove();
+    ov.addEventListener('click', e => { if (e.target === ov) fermer(); });
+    return { ov, fermer, box: ov.firstElementChild };
+  }
+  function formRenseigner(a) {
+    const m = modalSimple(`<h3 style="margin-top:0">➕ Renseigner : ${escHtml(a.Titre)}</h3>
+      <p class="petit">Activité en continu : vous pouvez la renseigner autant de fois que nécessaire (une ligne par réalisation).</p>
+      <form id="formRenseigner"><div class="grid grid-2">
+        <div class="field"><label>Date de la réalisation</label><input type="date" name="date" value="${aujourdhui()}" max="${aujourdhui()}" required></div>
+        <div class="field"><label>Nombre (facultatif)</label><input type="number" name="nombre" min="0" step="1" inputmode="numeric" placeholder="Ex : personnes touchées"></div></div>
+        <div class="field"><label>Note (facultatif)</label><textarea name="note" rows="3" maxlength="600" placeholder="Ce qui a été fait, lieu, remarques…"></textarea></div>
+        <div style="display:flex;gap:8px"><button type="submit" class="btn-block">Enregistrer</button><button type="button" class="btn-secondary btn-block" id="renFermer">Fermer</button></div></form>`);
+    m.box.querySelector('#renFermer').onclick = () => { m.fermer(); };
+    m.box.querySelector('#formRenseigner').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target), btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
+      try {
+        const r = await Api.call('renseignerActivite', { activiteId: a.ID, date: fd.get('date'), nombre: fd.get('nombre'), note: fd.get('note') });
+        toast(r.queued ? 'Pas de réseau : le renseignement est gardé sur ce téléphone et sera envoyé automatiquement.' : 'Renseignement enregistré. Vous pouvez en ajouter d\'autres.');
+        m.fermer(); if (!r.queued) { rafraichir(); if (typeof ctx.onChange === 'function') ctx.onChange(); }
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
+    });
+  }
+  const cvs = l => '\ufeff' + l.map(r => r.map(x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  // Tableau des renseignements d'une activité en continu (le destinataire voit les siens ; le demandeur voit tous ceux de ses destinataires).
+  async function rendreRealisations(el, activiteId, apres) {
+    el.innerHTML = 'Chargement…';
+    let r; try { r = await Api.call('listRealisations', { activiteId }); } catch (e) { el.innerHTML = '<div class="empty-state">' + escHtml(e.message) + '</div>'; return; }
+    const rows = r.realisations, dem = r.enTantQueDemandeur;
+    if (!rows.length) { el.innerHTML = '<div class="empty-state">Aucun renseignement pour le moment.</div>'; return; }
+    const total = rows.reduce((t, x) => t + (Number(x.Nombre) || 0), 0), personnes = new Set(rows.map(x => x.UserId)).size;
+    el.innerHTML = `<div class="petit" style="margin-bottom:8px"><strong>${rows.length}</strong> renseignement(s)${dem ? ' par <strong>' + personnes + '</strong> compte(s)' : ''}${total ? ' · total « nombre » : <strong>' + total + '</strong>' : ''}</div>
+      ${dem ? '' : '<div class="petit" style="margin-bottom:8px">Vos renseignements ne peuvent plus être modifiés ni supprimés : seul le demandeur de l\'activité peut en supprimer.</div>'}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${dem ? '<button type="button" class="btn-danger btn-mini" id="rlSuppr" disabled>🗑 Supprimer la sélection (0)</button>' : ''}<button type="button" class="btn-secondary btn-mini" id="rlCsv">⬇ CSV</button></div>
+      <div class="table-wrap" style="max-height:340px;overflow:auto"><table><thead><tr>${dem ? '<th><input type="checkbox" id="rlTout" style="width:auto"></th>' : ''}<th>Date</th>${dem ? '<th>Compte</th><th>Lieu</th>' : ''}<th>Nombre</th><th>Note</th>${dem ? '<th></th>' : ''}</tr></thead><tbody>
+      ${rows.map(x => `<tr>${dem ? `<td><input type="checkbox" class="rl-sel" data-id="${escHtml(x.ID)}" style="width:auto"></td>` : ''}<td>${fmtDate(x.Date)}</td>${dem ? `<td>${escHtml(x.UserNom)}</td><td>${escHtml(x.Lieu || '')}</td>` : ''}<td>${escHtml(x.Nombre)}</td><td>${escHtml(x.Note)}</td>${dem ? `<td><button type="button" class="btn-danger btn-mini" data-del="${escHtml(x.ID)}" title="Supprimer cette ligne">🗑</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+    const sel = () => Array.from(el.querySelectorAll('.rl-sel:checked')).map(c => c.dataset.id);
+    const maj = () => { const n = sel().length, b = el.querySelector('#rlSuppr'); b.disabled = !n; b.textContent = '🗑 Supprimer la sélection (' + n + ')'; };
+    async function supprimer(ids) {
+      if (!ids.length || !confirm('Supprimer définitivement ' + ids.length + ' ligne(s) ?')) return;
+      try { await Api.call('supprimerRealisations', { activiteId, ids }); toast('Supprimé.'); await rendreRealisations(el, activiteId, apres); if (typeof apres === 'function') apres(); } catch (err) { toast(err.message, true); }
+    }
+    if (dem) {
+      el.querySelectorAll('.rl-sel').forEach(c => c.addEventListener('change', maj));
+      el.querySelector('#rlTout').addEventListener('change', e => { el.querySelectorAll('.rl-sel').forEach(c => { c.checked = e.target.checked; }); maj(); });
+      el.querySelector('#rlSuppr').onclick = () => supprimer(sel());
+    }
+    el.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => supprimer([b.dataset.del])));
+    el.querySelector('#rlCsv').onclick = () => {
+      const l = [['Date'].concat(dem ? ['Compte', 'Lieu'] : []).concat(['Nombre', 'Note'])].concat(rows.map(x => [x.Date].concat(dem ? [x.UserNom, x.Lieu || ''] : []).concat([x.Nombre, x.Note])));
+      const url = URL.createObjectURL(new Blob([cvs(l)], { type: 'text/csv;charset=utf-8' })), a = document.createElement('a'); a.href = url; a.download = 'renseignements_activite.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    };
+  }
+  function ouvrirRealisations(activiteId, titre) {
+    const m = modalSimple(`<h3 style="margin-top:0">📋 ${escHtml(titre)}</h3><div id="rlZone"></div><div style="margin-top:12px;text-align:right"><button type="button" class="btn-secondary" id="rlFerme">Fermer</button></div>`, 760);
+    m.box.querySelector('#rlFerme').onclick = () => { m.fermer(); rafraichir(); };
+    rendreRealisations(m.box.querySelector('#rlZone'), activiteId, () => {});
   }
 
   // ---------------- gestion (niveau supérieur) ----------------
@@ -132,6 +202,7 @@
           <div class="field" id="actChampLien"><label>Lien (https://…)</label><input name="lien" type="url" placeholder="https://forms.gle/… ou lien de formation / test"></div>
           <div class="field"><label id="actLibEcheance">Échéance (facultative)</label><input name="dateLimite" type="date" min="${aujourdhui()}"></div>
         </div>
+        <label class="q-req" style="display:flex;gap:8px;align-items:flex-start;margin:4px 0 10px"><input type="checkbox" name="enContinu" style="width:auto;margin-top:3px"> <span><strong>Activité en continu</strong> — les destinataires la renseignent <strong>autant de fois que nécessaire</strong> (date, nombre, note) ; pas de bouton « J'ai terminé » avant l'échéance.</span></label>
         <div id="actBlocTache" style="display:none"><div class="petit" style="margin:0 0 10px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ <strong>Tâche de recensement et suivi</strong> : les relais communautaires de votre hiérarchie recensent chaque cas avec les informations clés ci-dessous, puis le suivent chaque jour avec le questionnaire de suivi. L'échéance ci-dessus (facultative) est la <strong>date limite de recensement de nouveaux cas</strong> ; sans date, le recensement reste ouvert. Le suivi des cas déjà recensés se poursuit jusqu'à la fin de sa durée. Vous pourrez modifier la tâche et son questionnaire après l'envoi.</div><div id="actConstructeur"></div></div>
         <div class="field"><label>Consignes / commentaire (optionnel)</label><textarea name="description" placeholder="Explications, public concerné, comment remplir…"></textarea></div>
         <fieldset id="actCiblesBloc"><legend>Niveaux destinataires</legend><div class="checks">${roles.map(r => `<label><input type="checkbox" name="cibles" value="${r}"> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>
@@ -157,7 +228,7 @@
       if (estT) { try { questionnaire = constructeur.lire(); } catch (err) { toast(err.message, true); return; } }
       const btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const r = await Api.call('createActivite', { type, titre: fd.get('titre'), lien: estT ? '' : fd.get('lien'), dateLimite: fd.get('dateLimite'), description: fd.get('description'), cibleRoles: cibles, questionnaire });
+        const r = await Api.call('createActivite', { type, titre: fd.get('titre'), lien: estT ? '' : fd.get('lien'), dateLimite: fd.get('dateLimite'), description: fd.get('description'), cibleRoles: cibles, questionnaire, enContinu: fd.get('enContinu') === 'on' });
         toast(`Activité publiée pour ${r.nbCibles} compte(s). Ils sont notifiés.`);
         e.target.reset(); await rafraichir();
         const sub = document.querySelector('[data-act-sub=gerer]'); if (sub) sub.click();
@@ -179,11 +250,15 @@
 
   function dessinerDonnees() {
     const el = document.getElementById('actDonnees');
-    const taches = donnees.creees.filter(a => a.Type === TACHE);
-    el.innerHTML = `<div class="card"><h2>🗂️ Données collectées par les tâches</h2>
-      <div class="field" style="max-width:520px"><label>Tâche</label><select id="actDonneesChoix">${taches.map(a => `<option value="${escHtml(a.ID)}">${escHtml(a.Titre)} (${a.NbCas || 0} cas)</option>`).join('')}</select></div>
+    const taches = donnees.creees.filter(a => a.Type === TACHE || a.EnContinu === 'Oui');
+    el.innerHTML = `<div class="card"><h2>🗂️ Données collectées</h2>
+      <div class="field" style="max-width:520px"><label>Tâche ou activité en continu</label><select id="actDonneesChoix">${taches.map(a => `<option value="${escHtml(a.ID)}" data-type="${a.Type === TACHE ? 'tache' : 'continu'}">${escHtml(a.Titre)} (${a.Type === TACHE ? (a.NbCas || 0) + ' cas' : (a.NbRealisations || 0) + ' renseignement(s)'})</option>`).join('')}</select></div>
       <div id="actDonneesCorps"></div></div>`;
-    const charger = () => window.Taches.rendreDonnees(document.getElementById('actDonneesCorps'), { activiteId: document.getElementById('actDonneesChoix').value });
+    const charger = () => {
+      const sel = document.getElementById('actDonneesChoix'), zone = document.getElementById('actDonneesCorps');
+      if (sel.selectedOptions[0] && sel.selectedOptions[0].dataset.type === 'continu') rendreRealisations(zone, sel.value);
+      else window.Taches.rendreDonnees(zone, { activiteId: sel.value });
+    };
     document.getElementById('actDonneesChoix').addEventListener('change', charger);
     document.querySelector('[data-act-sub=donnees]').addEventListener('click', charger);
   }
@@ -193,7 +268,8 @@
     try { d = await Api.call('getActiviteDetail', { id }); } catch (e) { toast(e.message, true); return; }
     const a = d.activite;
     const ov = document.createElement('div'); ov.className = 'modal-overlay';
-    const stat = { 'Fait': '<span class="badge badge-done">✔ Fait</span>', 'Ouvert': '<span class="badge badge-new">En cours</span>', 'Non ouvert': '<span class="badge badge-late">Non ouvert</span>' };
+    const stat = { 'Fait': '<span class="badge badge-done">✔ Fait</span>', 'Ouvert': '<span class="badge badge-new">En cours</span>', 'Non ouvert': '<span class="badge badge-late">Non ouvert</span>', 'En continu': '<span class="badge badge-new">🔁 En continu</span>' };
+    const continu = a.EnContinu === 'Oui', nbReal = d.cibles.reduce((t, c) => t + (c.nb || 0), 0), actifs = d.cibles.filter(c => c.nb > 0).length;
     const faits = d.cibles.filter(c => c.statut === 'Fait').length;
     ov.innerHTML = `<div class="modal-box" style="width:760px;max-height:92vh;overflow:auto">
       <h3 style="margin-top:0">${ICONES[a.Type] || '🔗'} ${escHtml(a.Titre)} ${a.Statut === 'Archivée' ? '<span class="badge badge-cancel">Archivée</span>' : ''}</h3>
@@ -204,6 +280,7 @@
           <div class="field" id="actModifChampLien"><label>Lien</label><input name="lien" type="url" value="${escHtml(a.Lien)}"></div>
           <div class="field"><label>Échéance (facultative — videz le champ pour la supprimer)</label><input name="dateLimite" type="date" value="${escHtml(a.DateLimite || '')}"></div>
         </div>
+        <label class="q-req" style="display:flex;gap:8px;align-items:flex-start;margin:4px 0 10px"><input type="checkbox" name="enContinu" ${a.EnContinu === 'Oui' ? 'checked' : ''} style="width:auto;margin-top:3px"> <span><strong>Activité en continu</strong> — renseignée plusieurs fois par les destinataires, sans « J'ai terminé ».</span></label>
         <div class="field"><label>Consignes</label><textarea name="description">${escHtml(a.Description)}</textarea></div>
         ${`<fieldset id="actModifCibles" style="${a.Type === TACHE ? 'display:none' : ''}"><legend>Niveaux destinataires</legend><div class="checks">${rolesCibles().map(r => `<label><input type="checkbox" name="cibles" value="${r}" ${jsonArr(a.CibleRoles).includes(r) ? 'checked' : ''}> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>`}
         <div id="actModifQuestionnaire" style="${a.Type === TACHE ? '' : 'display:none'}"><h4 class="sous-titre" style="margin-top:12px">Questionnaire de la tâche</h4><div class="petit" style="margin-bottom:8px">Tout est modifiable comme à la création : questions, types, choix, ordre, durée du suivi. Les réponses déjà collectées sont conservées (une question retirée n'est plus affichée).</div><div id="actModifConstructeur"></div></div>
@@ -215,8 +292,8 @@
       <h4 class="sous-titre" style="margin-top:16px">💬 Commentaires (visibles par les destinataires)</h4>
       <div>${jsonArr(a.Commentaires).map(x => `<div class="act-com"><span class="petit">${fmtDate(x.date)} · ${escHtml(x.auteur)}</span><br>${escHtml(x.texte).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="petit">Aucun commentaire.</div>'}</div>
       <div style="display:flex;gap:8px;margin-top:8px"><textarea id="actNouvCom" rows="2" placeholder="Ajouter un commentaire ou une précision…" style="flex:1"></textarea><button id="actEnvoyerCom" class="btn-mini">Publier</button></div>
-      <h4 class="sous-titre" style="margin-top:16px">Avancement : ${faits}/${d.cibles.length} ont terminé</h4>
-      <div class="table-wrap" style="max-height:260px;overflow:auto"><table><thead><tr><th>Compte</th><th>Niveau</th><th>Lieu</th><th>Statut</th></tr></thead><tbody>${d.cibles.map(c => `<tr><td>${escHtml(c.nom)}<div class="petit">${escHtml(c.telephone)}</div></td><td>${LIB_ROLE_COURT[c.role] || ''}</td><td>${escHtml(c.lieu)}</td><td>${stat[c.statut] || ''}${c.date ? `<div class="petit">${fmtDate(c.date)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>
+      <h4 class="sous-titre" style="margin-top:16px">${continu ? `Activité en continu : ${nbReal} renseignement(s), ${actifs}/${d.cibles.length} compte(s) actif(s) <button type="button" class="btn-mini" id="actVoirReal" style="margin-left:6px">📋 Voir / supprimer les renseignements</button>` : `Avancement : ${faits}/${d.cibles.length} ont terminé`}</h4>
+      <div class="table-wrap" style="max-height:260px;overflow:auto"><table><thead><tr><th>Compte</th><th>Niveau</th><th>Lieu</th><th>Statut</th></tr></thead><tbody>${d.cibles.map(c => `<tr><td>${escHtml(c.nom)}<div class="petit">${escHtml(c.telephone)}</div></td><td>${LIB_ROLE_COURT[c.role] || ''}</td><td>${escHtml(c.lieu)}</td><td>${continu ? `${c.nb ? '🔁 ' + c.nb + ' renseignement(s)<div class="petit">dernier : ' + fmtDate(c.derniere) + '</div>' : '<span class="badge badge-late">Aucun</span>'}` : (stat[c.statut] || '') + (c.date ? `<div class="petit">${fmtDate(c.date)}</div>` : '')}</td></tr>`).join('')}</tbody></table></div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn-secondary" id="actArchiver">${a.Statut === 'Archivée' ? 'Réactiver' : 'Archiver (masquer aux destinataires)'}</button>
         <button class="btn-danger" id="actSupprimer">Supprimer</button><button class="btn-secondary" id="actFermer" style="margin-left:auto">Fermer</button></div></div>`;
@@ -238,7 +315,7 @@
     ov.querySelector('#formModifAct').addEventListener('submit', e => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const f = { titre: fd.get('titre'), lien: fd.get('lien'), dateLimite: fd.get('dateLimite') || '', description: fd.get('description') };
+      const f = { titre: fd.get('titre'), lien: fd.get('lien'), dateLimite: fd.get('dateLimite') || '', description: fd.get('description'), enContinu: fd.get('enContinu') === 'on' };
       f.type = typeModif(fd);
       if (f.type !== TACHE) { f.cibleRoles = fd.getAll('cibles'); if (!f.cibleRoles.length) { toast('Cochez au moins un niveau destinataire.', true); return; } }
       else {
@@ -252,6 +329,7 @@
       if (a.Type === TACHE && f.type !== TACHE && !confirm('Transformer cette tâche en activité classique ? Le questionnaire sera supprimé (possible seulement si aucun cas n\'a été recensé).')) return;
       appel('updateActivite', f, 'Modifications enregistrées. Les destinataires sont prévenus.');
     });
+    const vr = ov.querySelector('#actVoirReal'); if (vr) vr.onclick = () => { fermer(); ouvrirRealisations(id, a.Titre); };
     const vd = ov.querySelector('#actVoirDonnees');
     if (vd) vd.onclick = () => { fermer(); const sub = document.querySelector('[data-act-sub=donnees]'); if (sub) { sub.click(); const ch = document.getElementById('actDonneesChoix'); if (ch) { ch.value = id; ch.dispatchEvent(new Event('change')); } } };
     ov.querySelector('#actEnvoyerCom').onclick = () => { const t = ov.querySelector('#actNouvCom').value.trim(); if (!t) return; appel('commenterActivite', { texte: t }, 'Commentaire publié (les destinataires sont notifiés).'); };

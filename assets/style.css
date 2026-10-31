@@ -562,3 +562,10 @@ table.rs-part th { width: 52%; text-align: left; }
 .btn-son-alerte[aria-pressed="false"] { opacity: .75; }
 .btn-son-flottant { position: fixed; left: 10px; bottom: 10px; z-index: 900; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 @media (max-width: 640px) { .btn-son-alerte { font-size: .7rem; padding: 3px 8px; } }
+
+/* ---- Photos de la séance dans le rapport (avant la liste de présence) ---- */
+.rs-photos { gap: 10px; }
+.rs-fig { margin: 0; flex: 1 1 46%; max-width: 49%; break-inside: avoid; page-break-inside: avoid; text-align: center; }
+.rs-fig .rs-photo { width: 100%; height: auto; max-height: 360px; object-fit: contain; border: 1px solid #999; border-radius: 4px; background: #fafafa; }
+.rs-fig figcaption { font-size: .75rem; color: #555; margin-top: 2px; }
+@media (max-width: 640px) { .rs-fig { max-width: 100%; flex-basis: 100%; } }

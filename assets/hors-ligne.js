@@ -185,7 +185,7 @@
     if (it.action === 'submitCollecte') return '📝 Questionnaire rempli — ' + (p.lieu || 'sans lieu précisé');
     if (it.action === 'saveFicheNotif') { var d = p.donnees || {}; return '📋 Fiche de notification — ' + (d.nomPatient || 'sans nom') + (d.maladie ? ' · ' + (d.maladie === 'Autre' ? (d.maladieAutre || 'autre') : d.maladie) : ''); }
     if (it.action === 'tacheEnregistrerCas') return '🗂️ Cas recensé — ' + (p.date || 'aujourd\'hui');
-    if (it.action === 'tacheSaisirSuivi') return '📝 Suivi de cas — ' + (p.jour || 'aujourd\'hui');
+    if (it.action === 'tacheSaisirSuivi') return '📝 Suivi de cas — ' + (p.jour || 'aujourd\'hui') + (p.seance > 1 ? ' (séance ' + p.seance + ')' : '');
     return '🚨 Alerte — ' + (p.typeAlerte || 'événement') + (p.villageNom ? ' · ' + p.villageNom : '');
   }
   function esc(v) { return global.escHtml ? global.escHtml(v) : String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }

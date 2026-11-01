@@ -153,7 +153,7 @@ const COLS = {
   // pendant N jours avec un questionnaire de suivi défini par le niveau supérieur, directement dans la plateforme.
   TachesCas: ['ID','ActiviteId','RcId','RcNom','ArrondissementId','VillageId','VillageNom','Reponses',
     'DateEnregistrement','DateFinSuivi','Statut','Issue','DateCloture','DateCreation','ClientId','HorsLigne'],
-  TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId'],
+  TachesSuivis: ['ID','CasId','ActiviteId','RcId','Jour','Reponses','DateSaisie','ClientId','Seance','Latitude','Longitude','Precision','DateGps'],
   // Preuves de sensibilisation communautaire envoyées par les RC (photo + liste nominative sexe/âge).
   Sensibilisations: ['ID','RcId','RcNom','ArrondissementId','VillageId','VillageNom','GrappeNom','Date','Theme','Lieu',
     'Participants','NbParticipants','NbHommes','NbFemmes','NbAdultesH','NbAdultesF','NbEnfantsG','NbEnfantsF','PhotosUrls','Commentaires','DateSaisie','ClientId','HorsLigne','SynchroniseLe',
@@ -2296,10 +2296,12 @@ function updateActivite_(actor, p) {
   } else if (p.questionnaire !== undefined && estTache_(r.a)) {
     const ancien = questionnaireDe_(r.a);
     let q; try { q = fusionnerQuestionnaire_(ancien, p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
-    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours });
-    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours }) !== avant) {
+    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours, s: ancien.suivisParJour, g: ancien.gpsSuivi });
+    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours, s: q.suivisParJour, g: q.gpsSuivi }) !== avant) {
       ch.Questionnaire = JSON.stringify(q);
       if (q.dureeJours !== ancien.dureeJours) { modifs.push('durée du suivi'); prolongation = q.dureeJours; }
+      if (q.suivisParJour !== ancien.suivisParJour) modifs.push('nombre de suivis par jour');
+      if (q.gpsSuivi !== ancien.gpsSuivi) modifs.push('position GPS du suivi');
       if (JSON.stringify(q.champsCas) !== JSON.stringify(ancien.champsCas) || JSON.stringify(q.champsSuivi) !== JSON.stringify(ancien.champsSuivi)) modifs.push('questionnaire');
     }
   }
@@ -2468,6 +2470,21 @@ function nettoyerChamps_(arr, libelleListe) {
   return out;
 }
 
+// Nombre de séances de suivi attendues par jour pour chaque cas (1 à 10 ; 1 = comportement historique).
+function nombreSuivisParJour_(v, defaut) {
+  if (v === undefined || v === null || v === '') return defaut;
+  const n = Math.floor(Number(v));
+  if (!isFinite(n) || n < 1 || n > 10) throw new Error('Le nombre de suivis par jour doit être compris entre 1 et 10.');
+  return n;
+}
+
+// Position GPS à chaque suivi : 'non' (désactivée) | 'facultatif' (défaut) | 'obligatoire'.
+function modeGpsSuivi_(v, defaut) {
+  if (v === undefined || v === null || v === '') return defaut;
+  if (['non', 'facultatif', 'obligatoire'].indexOf(v) === -1) throw new Error('Option GPS du suivi invalide.');
+  return v;
+}
+
 function nettoyerQuestionnaire_(q) {
   q = q || {};
   const champsCas = nettoyerChamps_(q.champsCas, 'Informations du cas');
@@ -2476,7 +2493,8 @@ function nettoyerQuestionnaire_(q) {
   if (!champsSuivi.length) throw new Error('Ajoutez au moins une question dans le « Questionnaire de suivi ».');
   const duree = Math.floor(Number(q.dureeJours));
   if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
-  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
+  const spj = nombreSuivisParJour_(q.suivisParJour, 1);
+  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, suivisParJour: spj, gpsSuivi: modeGpsSuivi_(q.gpsSuivi, 'facultatif'), seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
 }
 
 // Modification d'un questionnaire déjà publié : les questions existantes (id connu) gardent leur identifiant,
@@ -2510,12 +2528,14 @@ function fusionnerQuestionnaire_(ancien, nouveau) {
   const duree = Math.floor(Number(nouveau.dureeJours === undefined ? ancien.dureeJours : nouveau.dureeJours));
   if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
   out.dureeJours = duree;
+  out.suivisParJour = nombreSuivisParJour_(nouveau.suivisParJour, ancien.suivisParJour || 1);
+  out.gpsSuivi = modeGpsSuivi_(nouveau.gpsSuivi, ancien.gpsSuivi || 'facultatif');
   return out;
 }
 
 function questionnaireDe_(a) {
-  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, seq: q.seq || {} }; }
-  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, seq: {} }; }
+  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, suivisParJour: Math.min(10, Math.max(1, Math.floor(Number(q.suivisParJour)) || 1)), gpsSuivi: ['non', 'obligatoire'].indexOf(q.gpsSuivi) !== -1 ? q.gpsSuivi : 'facultatif', seq: q.seq || {} }; }
+  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, suivisParJour: 1, gpsSuivi: 'facultatif', seq: {} }; }
 }
 
 // Valide et normalise les réponses d'un RC par rapport à la liste de questions.
@@ -2554,24 +2574,28 @@ function etatCas_(c, aujourdhui) {
 }
 
 // Pour chaque cas : jours de suivi attendus (1..durée, jusqu'à aujourd'hui), faits, manquants.
-function enrichirCas_(c, suivisDuCas, aujourdhui) {
+function enrichirCas_(c, suivisDuCas, aujourdhui, suivisParJour) {
+  const spj = Math.max(1, Math.floor(Number(suivisParJour)) || 1);
   const enreg = dateIso_(c.DateEnregistrement), fin = dateIso_(c.DateFinSuivi);
   const duree = joursEntre_(enreg, fin);
   const dernierJourAttendu = aujourdhui < fin ? aujourdhui : fin;
+  // Un « suivi attendu » = un jour × une séance (suivisParJour séances par jour ; 1 par défaut).
   const attendus = [];
-  for (let j = 1; j <= duree; j++) { const jour = ajouterJours_(enreg, j); if (jour <= dernierJourAttendu) attendus.push(jour); }
-  const jours = {};
-  suivisDuCas.forEach(s => { jours[dateIso_(s.Jour)] = true; });
-  const manquants = attendus.filter(j => !jours[j]);
+  for (let j = 1; j <= duree; j++) { const jour = ajouterJours_(enreg, j); if (jour <= dernierJourAttendu) for (let k = 1; k <= spj; k++) attendus.push({ Jour: jour, Seance: k }); }
+  const faits = {};
+  suivisDuCas.forEach(s => { faits[dateIso_(s.Jour) + '|' + (Number(s.Seance) || 1)] = true; });
+  const manquantsDetail = attendus.filter(a => !faits[a.Jour + '|' + a.Seance]);
+  const manquants = manquantsDetail.map(a => a.Jour).filter((j, i, t) => t.indexOf(j) === i);
   const etat = etatCas_(c, aujourdhui);
   return {
     ID: c.ID, ActiviteId: c.ActiviteId, RcId: c.RcId, RcNom: c.RcNom, VillageNom: c.VillageNom, ArrondissementId: c.ArrondissementId,
     Reponses: (function () { try { return JSON.parse(c.Reponses || '{}'); } catch (e) { return {}; } })(),
     DateEnregistrement: enreg, DateFinSuivi: fin, DureeJours: duree, Etat: etat, Issue: c.Issue || '', DateCloture: dateIso_(c.DateCloture),
     HorsLigne: c.HorsLigne || '',
-    Suivis: suivisDuCas.map(s => ({ ID: s.ID, Jour: dateIso_(s.Jour), DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
-      .sort((x, y) => x.Jour.localeCompare(y.Jour)),
-    NbAttendus: attendus.length, NbFaits: attendus.length - manquants.length, JoursManquants: manquants,
+    SuivisParJour: spj, NbTotal: duree * spj,
+    Suivis: suivisDuCas.map(s => ({ ID: s.ID, Jour: dateIso_(s.Jour), Seance: Number(s.Seance) || 1, Latitude: s.Latitude === '' || s.Latitude == null ? '' : Number(s.Latitude), Longitude: s.Longitude === '' || s.Longitude == null ? '' : Number(s.Longitude), Precision: s.Precision === '' || s.Precision == null ? '' : Number(s.Precision), DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
+      .sort((x, y) => (x.Jour + x.Seance).localeCompare(y.Jour + y.Seance)),
+    NbAttendus: attendus.length, NbFaits: attendus.length - manquantsDetail.length, JoursManquants: manquants, SeancesManquantes: manquantsDetail,
     SuiviDu: etat === 'En suivi' && manquants.indexOf(aujourdhui) !== -1
   };
 }
@@ -2586,8 +2610,9 @@ function activitesAvecCasEnSuivi_(rcId) {
 function statsTachesDuRc_(rcId) {
   const auj = aujourdhuiIso_(), out = {};
   const suivis = readSheet_(SHEETS.TACHES_SUIVIS).filter(s => s.RcId === rcId);
+  const spjDe = {}; readSheet_(SHEETS.ACTIVITES).filter(a => estTache_(a)).forEach(a => { spjDe[a.ID] = questionnaireDe_(a).suivisParJour; });
   readSheet_(SHEETS.TACHES_CAS).filter(c => c.RcId === rcId).forEach(c => {
-    const e = enrichirCas_(c, suivis.filter(s => s.CasId === c.ID), auj);
+    const e = enrichirCas_(c, suivis.filter(s => s.CasId === c.ID), auj, spjDe[c.ActiviteId]);
     const o = out[c.ActiviteId] || (out[c.ActiviteId] = { nbCas: 0, enSuivi: 0, dus: 0 });
     o.nbCas++; if (e.Etat === 'En suivi') { o.enSuivi++; if (e.JoursManquants.length) o.dus++; }
   });
@@ -2630,11 +2655,21 @@ function tacheSaisirSuivi_(actor, p) {
   if (jour < dateIso_(c.DateEnregistrement)) return { ok: false, error: 'La date du suivi précède le recensement du cas.' };
   if (jour > dateIso_(c.DateFinSuivi)) return { ok: false, error: 'La période de suivi de ce cas est terminée (fin le ' + dateIso_(c.DateFinSuivi).split('-').reverse().join('/') + ').' };
   const q = questionnaireDe_(a);
+  const seance = p.seance === undefined || p.seance === null || p.seance === '' ? 1 : Math.floor(Number(p.seance));
+  if (!isFinite(seance) || seance < 1 || seance > q.suivisParJour) return { ok: false, error: q.suivisParJour > 1 ? 'Séance invalide : cette tâche prévoit ' + q.suivisParJour + ' suivis par jour.' : 'Cette tâche prévoit un seul suivi par jour.' };
   const reponses = nettoyerReponses_(q.champsSuivi, p.reponses);
-  const existant = readSheet_(SHEETS.TACHES_SUIVIS).find(s => s.CasId === c.ID && dateIso_(s.Jour) === jour);
+  // Position GPS prise par le RC à ce suivi (propre à chaque séance).
+  let gps = null;
+  if (q.gpsSuivi !== 'non' && p.gps && p.gps.lat !== undefined && p.gps.lat !== null && p.gps.lat !== '') {
+    const la = Number(p.gps.lat), lo = Number(p.gps.lon), pr = p.gps.precision === undefined || p.gps.precision === null || p.gps.precision === '' ? '' : Math.round(Number(p.gps.precision));
+    if (!isFinite(la) || !isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) return { ok: false, error: 'Coordonnées GPS invalides.' };
+    gps = { Latitude: Math.round(la * 1e6) / 1e6, Longitude: Math.round(lo * 1e6) / 1e6, Precision: isFinite(pr) ? pr : '', DateGps: dateSaisieClient_(p) || nowStr_() };
+  }
+  const existant = readSheet_(SHEETS.TACHES_SUIVIS).find(s => s.CasId === c.ID && dateIso_(s.Jour) === jour && (Number(s.Seance) || 1) === seance);
+  if (q.gpsSuivi === 'obligatoire' && !gps && !(existant && existant.Latitude !== '' && existant.Latitude != null)) return { ok: false, error: 'La position GPS est obligatoire pour ce suivi : prenez-la avant d\'enregistrer.' };
   const saisie = dateSaisieClient_(p);
-  if (existant) updateRowById_(SHEETS.TACHES_SUIVIS, existant.ID, { Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_() });
-  else appendRow_(SHEETS.TACHES_SUIVIS, { ID: newId_('SUV'), CasId: c.ID, ActiviteId: c.ActiviteId, RcId: actor.ID, Jour: jour, Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: String(p.clientId || '') });
+  if (existant) updateRowById_(SHEETS.TACHES_SUIVIS, existant.ID, Object.assign({ Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_() }, gps || {}));
+  else appendRow_(SHEETS.TACHES_SUIVIS, Object.assign({ ID: newId_('SUV'), CasId: c.ID, ActiviteId: c.ActiviteId, RcId: actor.ID, Jour: jour, Seance: seance, Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: String(p.clientId || '') }, gps || {}));
   if (p.cloturer) {
     const issue = ISSUES_CAS_.indexOf(p.issue) !== -1 ? p.issue : '';
     if (!issue) return { ok: false, error: 'Choisissez l\'issue du cas pour clôturer son suivi (le suivi du jour est enregistré).' };
@@ -2667,7 +2702,8 @@ function listTacheCas_(actor, p) {
   const suivis = readSheet_(SHEETS.TACHES_SUIVIS);
   const parCas = {};
   suivis.forEach(s => { (parCas[s.CasId] = parCas[s.CasId] || []).push(s); });
-  const cas = casListe.map(c => enrichirCas_(c, parCas[c.ID] || [], auj))
+  const spjDe = {}; activites.forEach(a => { spjDe[a.ID] = questionnaireDe_(a).suivisParJour; });
+  const cas = casListe.map(c => enrichirCas_(c, parCas[c.ID] || [], auj, spjDe[c.ActiviteId]))
     .sort((x, y) => (y.DateEnregistrement + y.ID).localeCompare(x.DateEnregistrement + x.ID));
   // Questionnaires nécessaires pour afficher les réponses (étiquettes des questions).
   const actIds = new Set(cas.map(c => c.ActiviteId));

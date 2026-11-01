@@ -308,3 +308,17 @@ une nouvelle version de l'application web.**
   `assets/api.js` expose maintenant `window.Api` / `window.Session`, indispensables à `assets/hors-ligne.js`.
 - **Suppression par le demandeur** : en plus des cas, le demandeur d'une tâche peut supprimer un suivi journalier précis
   (dossier du cas) ; il peut supprimer toute réponse de questionnaire et tout renseignement « en continu » de sa hiérarchie.
+
+## Tâches : plusieurs suivis par jour (séances)
+- **Création / modification** d'une tâche (recensement et suivi) : nouveau champ **« Nombre de suivis par jour »** (1 à 10, 1 par défaut) à côté de la durée du suivi. Modifiable à tout moment ; les destinataires sont notifiés (« nombre de suivis par jour »).
+- **RC** : dans « Saisir le suivi », après le jour, une liste **Séance du jour (k/N)** apparaît quand N > 1 ; la première séance non saisie est présélectionnée, ressaisir une séance la remplace. Hors connexion : la séance est envoyée avec le suivi (`seance`).
+- **Suivis attendus** = durée × séances par jour : barre de progression, badge « N suivi(s) à saisir », dossier du cas (« Jour 2 — … · séance 1/2 », suivis manquants détaillés) et tableau des données collectées (x/total) en tiennent compte.
+- **Exports CSV** : colonne `Séance` ajoutée aux suivis journaliers ; « Suivis attendus » = durée × séances par jour.
+- **Compatibilité** : les tâches existantes restent à 1 suivi par jour ; les anciens suivis (sans séance) comptent comme séance 1. Nouvelle colonne `Seance` dans la feuille `TachesSuivis` (créée automatiquement). Action `tacheSaisirSuivi` : paramètre facultatif `seance`.
+- Après mise à jour : redéployez `Code.gs` (nouvelle version) et publiez le front-end ; augmentez la version du cache de l'application.
+
+## Tâches : position GPS à chaque suivi
+- **Création / modification** d'une tâche : option **« Position GPS à chaque suivi »** — *Facultative* (par défaut, y compris pour les tâches existantes), *Obligatoire* ou *Désactivée*.
+- **RC** : dans « Saisir le suivi », bouton **📍 Prendre ma position** (latitude, longitude, précision en mètres). La position est propre à **chaque séance** : elle est réinitialisée quand on change de jour ou de séance ; une position déjà enregistrée est rappelée et remplaçable. Si l'option est *Obligatoire*, l'enregistrement est refusé (aussi côté serveur) sans position. Le GPS fonctionne sans réseau : la position est envoyée avec le suivi par la file hors connexion.
+- **Demandeur / National** : dossier du cas (lien vers la carte OpenStreetMap pour chaque suivi) et export CSV des suivis (colonnes `Latitude`, `Longitude`, `Précision GPS (m)`).
+- Nouvelles colonnes `Latitude`, `Longitude`, `Precision`, `DateGps` dans `TachesSuivis` (créées automatiquement). Paramètre `gps {lat, lon, precision}` de `tacheSaisirSuivi`. Redéployez `Code.gs`, publiez le front-end et augmentez la version du cache.

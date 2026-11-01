@@ -294,3 +294,17 @@ Chaque fiche enregistrée alimente la liste des cas remplis (voir / imprimer sur
 modifier / supprimer, ou tout imprimer d'un coup). Chaque RCSE ne voit que ses propres fiches.
 Nouvelle feuille `FichesNotification` (créée automatiquement). **Après mise à jour de Code.gs, redéployez
 une nouvelle version de l'application web.**
+
+## Activités : zone ciblée, questionnaire intégré, hors connexion
+
+- **Zone ciblée** : en demandant une activité, le demandeur peut choisir la/les commune(s) et arrondissement(s)
+  concernés (dans son périmètre). Seuls les comptes de cette zone la reçoivent ; sans choix, toute sa hiérarchie.
+  Modifiable ensuite (🗂 « Voir / Modifier »). Nouvelles colonnes `CibleCommunes`, `CibleArrondissements`, `CibleGeoLibelle` (feuille `Activites`).
+- **Collecte de données avec questionnaire** : le demandeur rédige un questionnaire simple (texte court/long, nombre,
+  date, oui/non, choix unique, choix multiples) ; les destinataires le remplissent autant de fois que nécessaire.
+  Réponses dans la feuille `CollecteReponses` ; consultation, export CSV et suppression dans « Données collectées ».
+- **Hors connexion** : les saisies (questionnaires, fiches de notification, cas et suivis de tâches, alertes, décès,
+  sensibilisations, renseignements en continu) sont gardées sur l'appareil puis envoyées automatiquement au retour du réseau.
+  `assets/api.js` expose maintenant `window.Api` / `window.Session`, indispensables à `assets/hors-ligne.js`.
+- **Suppression par le demandeur** : en plus des cas, le demandeur d'une tâche peut supprimer un suivi journalier précis
+  (dossier du cas) ; il peut supprimer toute réponse de questionnaire et tout renseignement « en continu » de sa hiérarchie.

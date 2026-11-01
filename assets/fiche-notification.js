@@ -24,7 +24,7 @@
   const CLASSIF = ['Suspect', 'Probable', 'Confirmé par le laboratoire', 'Confirmé par lien épidémiologique', 'Confirmé cliniquement'];
   const PRELEV = ['Sang', 'Selles', 'LCR'];
 
-  let ctx = null, fiches = [], editId = null, semaineCourante = null;
+  let ctx = null, fiches = [], enAttente = [], editId = null, semaineCourante = null;
 
   // ---------------- utilitaires ----------------
   const E = escHtml;
@@ -251,13 +251,38 @@
   }
 
   // ---------------- liste des cas remplis ----------------
+  // Fiches saisies sans connexion : gardées sur l'appareil, envoyées automatiquement au retour du réseau.
+  async function chargerEnAttente() {
+    try {
+      const file = await window.HorsLigne.enAttente();
+      enAttente = file.filter(i => i.action === 'saveFicheNotif' && i.payload && i.payload.donnees).map(i => {
+        const d = i.payload.donnees, age = [d.ageAns ? d.ageAns + ' an(s)' : '', d.ageMois ? d.ageMois + ' mois' : '', d.ageJours ? d.ageJours + ' j' : ''].filter(Boolean).join(' ');
+        const dt = new Date(i.creeLe), p2 = n => String(n).padStart(2, '0');
+        return { ID: 'att:' + i.id, _attente: true, _refus: i.statut === 'erreur' ? i.erreur : '', _modif: !!i.payload.id, _itemId: i.id, Donnees: JSON.stringify(d),
+          Maladie: d.maladie === 'Autre' ? (d.maladieAutre || 'Autre') : (d.maladie || ''), NomPatient: d.nomPatient || '', Sexe: d.sexe || '', Age: age, Village: d.village || '',
+          SemaineEpi: d.semaine || '', Annee: d.annee || '', Evolution: d.evolution || '', Classification: d.classification || '',
+          DateSaisie: dt.getFullYear() + '-' + p2(dt.getMonth() + 1) + '-' + p2(dt.getDate()) + ' ' + p2(dt.getHours()) + ':' + p2(dt.getMinutes()) + ':00' };
+      });
+    } catch (e) { enAttente = []; }
+  }
+  const toutes = () => enAttente.concat(fiches);
+
   function dessinerListe() {
     const z = document.getElementById('fnListe');
-    document.getElementById('fnCompteur').textContent = fiches.length ? '(' + fiches.length + ')' : '';
-    if (!fiches.length) { z.innerHTML = '<div class="empty-state">Aucune fiche remplie pour le moment.</div>'; return; }
-    let h = `<div class="no-print" style="margin-bottom:10px"><button type="button" class="btn-secondary" id="fnImprTout" style="font-size:.8rem;padding:6px 12px">🖨️ Imprimer toutes les fiches (${fiches.length})</button></div>
+    const total = toutes();
+    document.getElementById('fnCompteur').textContent = total.length ? '(' + total.length + ')' : '';
+    if (!total.length) { z.innerHTML = '<div class="empty-state">Aucune fiche remplie pour le moment.</div>'; return; }
+    let h = `<div class="no-print" style="margin-bottom:10px"><button type="button" class="btn-secondary" id="fnImprTout" style="font-size:.8rem;padding:6px 12px">🖨️ Imprimer toutes les fiches (${total.length})</button></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Maladie</th><th>Patient</th><th>Sexe / Âge</th><th>Village</th><th>Sem.</th><th>Évolution</th><th>Classification</th><th></th></tr></thead><tbody>`;
-    fiches.forEach(f => {
+    total.forEach(f => {
+      if (f._attente) {
+        h += `<tr style="background:var(--tint-2)"><td>${E(fmtDate(f.DateSaisie))}<div class="petit">${f._refus ? '⚠ refusée : ' + E(f._refus) : '⏳ en attente d\'envoi' + (f._modif ? ' (modification)' : '')}</div></td><td><strong>${E(f.Maladie)}</strong></td><td>${E(f.NomPatient)}</td><td>${E(f.Sexe)}${f.Age ? ' · ' + E(f.Age) : ''}</td>
+        <td>${E(f.Village)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
+        <td style="white-space:nowrap"><button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
+          <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>
+          <button type="button" class="btn-danger" data-fn="retirer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px" title="Retirer de la file d'envoi">✖</button></td></tr>`;
+        return;
+      }
       h += `<tr><td>${E(fmtDate(f.DateSaisie))}</td><td><strong>${E(f.Maladie)}</strong></td><td>${E(f.NomPatient)}</td><td>${E(f.Sexe)}${f.Age ? ' · ' + E(f.Age) : ''}</td>
         <td>${E(f.Village)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
         <td style="white-space:nowrap"><button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
@@ -266,12 +291,16 @@
           <button type="button" class="btn-danger" data-fn="supprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🗑️</button></td></tr>`;
     });
     z.innerHTML = h + '</tbody></table></div>';
-    document.getElementById('fnImprTout').onclick = () => imprimer(fiches);
+    document.getElementById('fnImprTout').onclick = () => imprimer(toutes());
     z.querySelectorAll('[data-fn]').forEach(b => b.addEventListener('click', () => actionLigne(b.dataset.fn, b.dataset.id)));
   }
 
   async function actionLigne(action, id) {
-    const f = fiches.find(x => x.ID === id); if (!f) return;
+    const f = toutes().find(x => x.ID === id); if (!f) return;
+    if (action === 'retirer') {
+      if (!confirm('Retirer cette fiche de la file d\'envoi ? Elle ne sera PAS transmise au serveur.')) return;
+      await window.HorsLigne._Stock.fileSupprimer(f._itemId); window.HorsLigne.majBandeau(); await charger(); return;
+    }
     if (action === 'imprimer') imprimer([f]);
     else if (action === 'modifier') modifierFiche(id);
     else if (action === 'voir') apercu(f);
@@ -297,8 +326,9 @@
   }
 
   async function charger() {
+    await chargerEnAttente();
     try { const r = await Api.call('listFichesNotif', {}); fiches = r.fiches || []; }
-    catch (e) { document.getElementById('fnListe').innerHTML = '<div class="empty-state">Erreur de chargement : ' + E(e.message) + '</div>'; return; }
+    catch (e) { fiches = []; if (!enAttente.length) { document.getElementById('fnListe').innerHTML = '<div class="empty-state">' + E(e.horsLigne ? 'Hors connexion : la liste des fiches déjà envoyées sera disponible après une ouverture avec connexion. Vous pouvez néanmoins saisir de nouvelles fiches.' : 'Erreur de chargement : ' + e.message) + '</div>'; return; } }
     dessinerListe();
   }
 
@@ -343,8 +373,8 @@
       if (!d.maladie) { toast('Cochez la maladie notifiée.', true); return; }
       const btn = document.getElementById('fnSave'); btn.disabled = true;
       try {
-        await Api.call('saveFicheNotif', { id: editId || '', clientId: editId ? '' : clientId(), donnees: d });
-        toast(editId ? 'Fiche modifiée.' : 'Fiche enregistrée.');
+        const r = await Api.call('saveFicheNotif', { id: editId || '', clientId: editId ? '' : clientId(), donnees: d });
+        toast(r.queued ? 'Pas de réseau : la fiche est gardée sur cet appareil et sera envoyée automatiquement (elle apparaît dans la liste, en attente).' : (editId ? 'Fiche modifiée.' : 'Fiche enregistrée.'));
         nouvelleFiche();
         await charger();
         document.getElementById('fnListe').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -352,5 +382,6 @@
       btn.disabled = false;
     });
     charger();
+    if (!window.__fnEcoute) { window.__fnEcoute = true; ['sivec:sync', 'sivec:file'].forEach(ev => window.addEventListener(ev, () => { if (document.getElementById('fnListe')) charger(); })); }
   };
 })();

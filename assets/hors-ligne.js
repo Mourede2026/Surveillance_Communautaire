@@ -16,7 +16,7 @@
  */
 (function (global) {
   'use strict';
-  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation', renseignerActivite: 'Activité' };
+  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation', renseignerActivite: 'Activité', submitCollecte: 'Collecte', saveFicheNotif: 'Fiche' };
   var ACTIONS_PUBLIQUES = { login: 1, logout: 1, ping: 1 };
   var CACHE_MAX = 400;
   var DB_NOM = 'sivec-hors-ligne';
@@ -150,7 +150,7 @@
           it.statut = 'erreur'; it.erreur = (e && e.message) || 'Refusé par le serveur.'; await Stock.fileMaj(it); refuses++;
         }
       }
-      if (envoyes && typeof global.toast === 'function') global.toast(envoyes + ' notification(s) enregistrée(s) hors connexion envoyée(s) au serveur.');
+      if (envoyes && typeof global.toast === 'function') global.toast(envoyes + ' saisie(s) enregistrée(s) hors connexion envoyée(s) au serveur.');
       if (refuses && typeof global.toast === 'function') global.toast(refuses + ' envoi(s) refusé(s) par le serveur : voir « Envois en attente ».', true);
     } finally { etat.enCours = false; majBandeau(); aviser('sivec:file'); }
     if (envoyes) aviser('sivec:sync', { envoyes: envoyes });
@@ -182,6 +182,8 @@
     if (it.action === 'submitDeces') return '🕯️ Décès — ' + (p.nom || 'sans nom') + (p.villageNom ? ' · ' + p.villageNom : '');
     if (it.action === 'renseignerActivite') return '🔁 Activité en continu — ' + (p.date || 'aujourd\'hui');
     if (it.action === 'submitSensibilisation') return '📣 Sensibilisation — ' + (p.theme || 'sans thème') + ' · ' + ((Number(p.adultesHommes) || 0) + (Number(p.adultesFemmes) || 0) + (Number(p.enfantsGarcons) || 0) + (Number(p.enfantsFilles) || 0)) + ' personne(s)';
+    if (it.action === 'submitCollecte') return '📝 Questionnaire rempli — ' + (p.lieu || 'sans lieu précisé');
+    if (it.action === 'saveFicheNotif') { var d = p.donnees || {}; return '📋 Fiche de notification — ' + (d.nomPatient || 'sans nom') + (d.maladie ? ' · ' + (d.maladie === 'Autre' ? (d.maladieAutre || 'autre') : d.maladie) : ''); }
     if (it.action === 'tacheEnregistrerCas') return '🗂️ Cas recensé — ' + (p.date || 'aujourd\'hui');
     if (it.action === 'tacheSaisirSuivi') return '📝 Suivi de cas — ' + (p.jour || 'aujourd\'hui');
     return '🚨 Alerte — ' + (p.typeAlerte || 'événement') + (p.villageNom ? ' · ' + p.villageNom : '');
@@ -198,7 +200,7 @@
     if (!enLigne()) {
       classe = 'hl-hors';
       html = estRc ? '🔌 <b>Hors connexion</b> — vous pouvez continuer à notifier : les envois partiront dès que le réseau revient.' + (nbAttente ? ' <b>' + nbAttente + ' en attente.</b>' : '')
-        : '🔌 <b>Hors connexion</b> — consultation des données déjà chargées sur cet appareil' + (etat.derniereDonnee ? ' (mises à jour le ' + dateFr(etat.derniereDonnee) + ')' : '') + '.';
+        : '🔌 <b>Hors connexion</b> — vous pouvez continuer à saisir (fiches de notification, questionnaires, cas et suivis…) : l\'envoi se fera à la reconnexion. Consultation des données déjà chargées sur cet appareil' + (etat.derniereDonnee ? ' (mises à jour le ' + dateFr(etat.derniereDonnee) + ')' : '') + '.' + (nbAttente ? ' <b>' + nbAttente + ' en attente.</b>' : '');
     } else if (etat.erreurSession && nbAttente) {
       classe = 'hl-att';
       html = '🔑 Session expirée : <a href="index.html">reconnectez-vous</a> pour envoyer vos <b>' + nbAttente + '</b> notification(s) en attente (rien n\'est perdu).';

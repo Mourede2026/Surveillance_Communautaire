@@ -6,6 +6,9 @@
  *   • Les comptes ASCQ, PF, RCSE, DEPARTEMENT, NATIONAL peuvent en créer pour les niveaux en dessous
  *     d'eux, suivre l'avancement compte par compte, commenter, modifier, archiver, supprimer.
  *   • Le RC ne peut pas en créer ; un niveau bas ne peut jamais en demander à un niveau haut.
+ *   • Zone ciblée : le demandeur peut limiter une activité à certaines communes / arrondissements de son périmètre.
+ *   • Type « Collecte de données » : lien externe ET/OU questionnaire simple rédigé dans la plateforme (voir collecte.js),
+ *     rempli même hors connexion ; le demandeur consulte et peut supprimer les réponses.
  *   • Type « Tâche (recensement et suivi) » : le demandeur rédige un questionnaire dans la plateforme ; le RC recense
  *     des cas et les suit chaque jour (voir taches.js) ; les données sont consultées dans « Données collectées ».
  * Dépend de api.js (Api, toast, fmtDate, escHtml).
@@ -23,7 +26,54 @@
   const jsonArr = v => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
   const lienSur = u => /^https?:\/\//i.test(u || '') ? u : '#';
 
-  let ctx = null, donnees = null;
+  let ctx = null, donnees = null, geoCache = null;
+
+  // ---------------- zone ciblée : communes / arrondissements concernés ----------------
+  // Le demandeur choisit, dans SON périmètre, la ou les communes (et éventuellement les arrondissements) concernés ;
+  // sans choix, l'activité concerne toute sa hiérarchie. Les comptes hors de la zone ne la reçoivent pas.
+  async function chargerGeo() {
+    if (geoCache) return geoCache;
+    const u = ctx.user;
+    const [{ geo }, { perimetres }] = await Promise.all([Api.call('listGeo', {}), Api.call('listPerimetres', {})]);
+    const mes = perimetres.filter(p => p.UserId === u.ID);
+    let comIds;
+    if (u.Role === 'NATIONAL') comIds = new Set(geo.communes.map(c => c.ID));
+    else if (u.Role === 'DEPARTEMENT') comIds = new Set(geo.communes.filter(c => c.DepartementId === u.DepartementId).map(c => c.ID));
+    else {
+      comIds = new Set(mes.filter(p => p.TypeCible === 'Commune').map(p => p.CibleId));
+      if (u.CommuneId) comIds.add(u.CommuneId);
+      mes.filter(p => p.TypeCible === 'Arrondissement').forEach(p => { const a = geo.arrondissements.find(x => x.ID === p.CibleId); if (a) comIds.add(a.CommuneId); });
+      if (u.ArrondissementId) { const a = geo.arrondissements.find(x => x.ID === u.ArrondissementId); if (a) comIds.add(a.CommuneId); }
+    }
+    const communes = geo.communes.filter(c => comIds.has(c.ID)).sort((a, b) => a.Nom.localeCompare(b.Nom));
+    let arrs = geo.arrondissements.filter(a => comIds.has(a.CommuneId));
+    if (u.Role === 'ASCQ') { const ok = new Set(mes.filter(p => p.TypeCible === 'Arrondissement').map(p => p.CibleId)); if (u.ArrondissementId) ok.add(u.ArrondissementId); arrs = arrs.filter(a => ok.has(a.ID)); }
+    geoCache = { communes, arrondissements: arrs.sort((a, b) => a.Nom.localeCompare(b.Nom)) };
+    return geoCache;
+  }
+  // Remplit `conteneur` avec le sélecteur ; renvoie { lire() -> { cibleCommunes, cibleArrondissements } }.
+  async function selecteurZone(conteneur, initial) {
+    conteneur.innerHTML = '<div class="petit">Chargement de la zone…</div>';
+    let g; try { g = await chargerGeo(); } catch (e) { conteneur.innerHTML = '<div class="petit">Zone indisponible : ' + escHtml(e.message) + '</div>'; return { lire: () => ({}) }; }
+    const selC = new Set(initial && initial.communes || []), selA = new Set(initial && initial.arrondissements || []);
+    if (!g.communes.length) { conteneur.innerHTML = '<div class="petit">Aucune commune dans votre périmètre.</div>'; return { lire: () => ({}) }; }
+    function dessiner() {
+      const arrVis = g.arrondissements.filter(a => selC.has(a.CommuneId));
+      conteneur.innerHTML = `<fieldset><legend>📍 Zone concernée <span class="petit">(facultatif — sans choix : toute votre zone)</span></legend>
+        <div class="petit" style="margin-bottom:6px">Commune(s) concernée(s)</div>
+        <div class="checks" style="max-height:150px;overflow:auto">${g.communes.map(c => `<label><input type="checkbox" data-zc="${escHtml(c.ID)}" ${selC.has(c.ID) ? 'checked' : ''}> ${escHtml(c.Nom)}</label>`).join('')}</div>
+        ${arrVis.length ? `<div class="petit" style="margin:8px 0 6px">Arrondissement(s) concerné(s) <span class="petit">(facultatif — sans choix : toute la commune)</span></div>
+        <div class="checks" style="max-height:170px;overflow:auto">${arrVis.map(a => `<label><input type="checkbox" data-za="${escHtml(a.ID)}" ${selA.has(a.ID) ? 'checked' : ''}> ${escHtml(a.Nom)} <span class="petit">(${escHtml(a.CommuneNom || '')})</span></label>`).join('')}</div>` : (selC.size ? '<div class="petit" style="margin-top:6px">Aucun arrondissement enregistré pour la commune choisie.</div>' : '')}
+      </fieldset>`;
+    }
+    conteneur.addEventListener('change', e => {
+      const c = e.target.closest('[data-zc]'), a = e.target.closest('[data-za]');
+      if (c) { c.checked ? selC.add(c.dataset.zc) : selC.delete(c.dataset.zc); [...selA].forEach(id => { const ar = g.arrondissements.find(x => x.ID === id); if (!ar || !selC.has(ar.CommuneId)) selA.delete(id); }); dessiner(); }
+      else if (a) { a.checked ? selA.add(a.dataset.za) : selA.delete(a.dataset.za); }
+    });
+    dessiner();
+    return { lire: () => ({ cibleCommunes: [...selC], cibleArrondissements: [...selA] }) };
+  }
 
   async function charger() { donnees = await Api.call('listActivites', {}); return donnees; }
 
@@ -45,7 +95,7 @@
     try { await charger(); } catch (e) { el.innerHTML = '<div class="empty-state">Erreur de chargement : ' + escHtml(e.message) + '</div>'; return; }
     const peutGerer = opts.gerer && donnees.peutCreer;
     const aFaire = donnees.recues.filter(a => (a.MonStatut !== 'Fait' && a.EnContinu !== 'Oui') || a.NbSuivisDus > 0).length;
-    const aDonnees = peutGerer && donnees.creees.some(a => a.Type === TACHE || a.EnContinu === 'Oui');
+    const aDonnees = peutGerer && donnees.creees.some(a => a.Type === TACHE || a.EnContinu === 'Oui' || (window.Collectes && window.Collectes.estQuestionnaire(a)));
     el.innerHTML = `${(opts.recevoir && peutGerer) || aDonnees ? `<div class="sub-tabs">
         ${opts.recevoir ? `<button type="button" data-act-sub="recues" class="active">📥 Reçues${aFaire ? ' (' + aFaire + ' à faire)' : ''}</button>` : ''}
         <button type="button" data-act-sub="gerer" class="${opts.recevoir ? '' : 'active'}">📤 Demander une activité</button>
@@ -94,8 +144,10 @@
           <strong>${ICONES[a.Type] || '🔗'} ${escHtml(a.Titre)}</strong>${badgeRecu(a)}</div>
         <div class="petit" style="margin:4px 0 8px">${escHtml(a.Type)} · demandé par ${escHtml(a.CreeParNom)} (${LIB_ROLE_COURT[a.CreeParRole] || ''}) le ${fmtDate(a.DateCreation)}${a.DateLimite ? (a.Type === TACHE ? ' · <strong>recensement jusqu\'au ' + fmtDate(a.DateLimite) + '</strong>' : ' · <strong>à faire avant le ' + fmtDate(a.DateLimite) + '</strong>') : ''}</div>
         ${a.Description ? `<p style="margin:0 0 10px">${escHtml(a.Description).replace(/\n/g, '<br>')}</p>` : ''}
+        ${a.CibleGeoLibelle ? `<div class="petit" style="margin:0 0 8px">📍 ${escHtml(a.CibleGeoLibelle)}</div>` : ''}
         ${commentairesHtml(a)}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          ${window.Collectes && window.Collectes.estQuestionnaire(a) ? `<button type="button" data-qremplir="${escHtml(a.ID)}">📝 Remplir le questionnaire</button><button type="button" class="btn-secondary" data-qmes="${escHtml(a.ID)}">📋 Mes réponses (${a.NbReponses || 0})</button>` : ''}
           ${a.Type === TACHE ? `<button type="button" data-tache="${escHtml(a.ID)}">🗂️ Ouvrir la tâche${a.NbCas ? ' (' + a.NbCas + ' cas)' : ''}</button>` : ''}
           ${a.Lien ? `<a class="btn-lien" href="${escHtml(lienSur(a.Lien))}" target="_blank" rel="noopener noreferrer" data-ouvrir="${escHtml(a.ID)}">Ouvrir le lien ↗</a>` : ''}
           ${a.EnContinu === 'Oui' ? `<button type="button" data-renseigner="${escHtml(a.ID)}">➕ Renseigner</button><button type="button" class="btn-secondary" data-mesreal="${escHtml(a.ID)}">📋 Mes renseignements (${a.NbRealisations || 0})</button>${a.DerniereRealisation ? '<span class="petit">dernier : ' + fmtDate(a.DerniereRealisation) + '</span>' : ''}`
@@ -106,6 +158,10 @@
     zone.addEventListener('click', async e => {
       const tb = e.target.closest('[data-tache]');
       if (tb) { const act = liste.find(x => x.ID === tb.dataset.tache); if (act) window.Taches.ouvrirRc(act, () => { rafraichir(); if (typeof ctx.onChange === 'function') ctx.onChange(); }); return; }
+      const qr = e.target.closest('[data-qremplir]');
+      if (qr) { const act = liste.find(x => x.ID === qr.dataset.qremplir); if (act) window.Collectes.remplir(act, () => { rafraichir(); if (typeof ctx.onChange === 'function') ctx.onChange(); }); return; }
+      const qm = e.target.closest('[data-qmes]');
+      if (qm) { const act = liste.find(x => x.ID === qm.dataset.qmes); if (act) window.Collectes.mesReponses(act, () => rafraichir()); return; }
       const rn = e.target.closest('[data-renseigner]');
       if (rn) { formRenseigner(liste.find(x => x.ID === rn.dataset.renseigner)); return; }
       const mr = e.target.closest('[data-mesreal]');
@@ -157,21 +213,18 @@
     if (!rows.length) { el.innerHTML = '<div class="empty-state">Aucun renseignement pour le moment.</div>'; return; }
     const total = rows.reduce((t, x) => t + (Number(x.Nombre) || 0), 0), personnes = new Set(rows.map(x => x.UserId)).size;
     el.innerHTML = `<div class="petit" style="margin-bottom:8px"><strong>${rows.length}</strong> renseignement(s)${dem ? ' par <strong>' + personnes + '</strong> compte(s)' : ''}${total ? ' · total « nombre » : <strong>' + total + '</strong>' : ''}</div>
-      ${dem ? '' : '<div class="petit" style="margin-bottom:8px">Vos renseignements ne peuvent plus être modifiés ni supprimés : seul le demandeur de l\'activité peut en supprimer.</div>'}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${dem ? '<button type="button" class="btn-danger btn-mini" id="rlSuppr" disabled>🗑 Supprimer la sélection (0)</button>' : ''}<button type="button" class="btn-secondary btn-mini" id="rlCsv">⬇ CSV</button></div>
-      <div class="table-wrap" style="max-height:340px;overflow:auto"><table><thead><tr>${dem ? '<th><input type="checkbox" id="rlTout" style="width:auto"></th>' : ''}<th>Date</th>${dem ? '<th>Compte</th><th>Lieu</th>' : ''}<th>Nombre</th><th>Note</th>${dem ? '<th></th>' : ''}</tr></thead><tbody>
-      ${rows.map(x => `<tr>${dem ? `<td><input type="checkbox" class="rl-sel" data-id="${escHtml(x.ID)}" style="width:auto"></td>` : ''}<td>${fmtDate(x.Date)}</td>${dem ? `<td>${escHtml(x.UserNom)}</td><td>${escHtml(x.Lieu || '')}</td>` : ''}<td>${escHtml(x.Nombre)}</td><td>${escHtml(x.Note)}</td>${dem ? `<td><button type="button" class="btn-danger btn-mini" data-del="${escHtml(x.ID)}" title="Supprimer cette ligne">🗑</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><button type="button" class="btn-danger btn-mini" id="rlSuppr" disabled>🗑 Supprimer la sélection (0)</button><button type="button" class="btn-secondary btn-mini" id="rlCsv">⬇ CSV</button></div>
+      <div class="table-wrap" style="max-height:340px;overflow:auto"><table><thead><tr><th><input type="checkbox" id="rlTout" style="width:auto"></th><th>Date</th>${dem ? '<th>Compte</th><th>Lieu</th>' : ''}<th>Nombre</th><th>Note</th><th></th></tr></thead><tbody>
+      ${rows.map(x => `<tr><td><input type="checkbox" class="rl-sel" data-id="${escHtml(x.ID)}" style="width:auto"></td><td>${fmtDate(x.Date)}</td>${dem ? `<td>${escHtml(x.UserNom)}</td><td>${escHtml(x.Lieu || '')}</td>` : ''}<td>${escHtml(x.Nombre)}</td><td>${escHtml(x.Note)}</td><td><button type="button" class="btn-danger btn-mini" data-del="${escHtml(x.ID)}" title="Supprimer cette ligne">🗑</button></td></tr>`).join('')}</tbody></table></div>`;
     const sel = () => Array.from(el.querySelectorAll('.rl-sel:checked')).map(c => c.dataset.id);
     const maj = () => { const n = sel().length, b = el.querySelector('#rlSuppr'); b.disabled = !n; b.textContent = '🗑 Supprimer la sélection (' + n + ')'; };
     async function supprimer(ids) {
       if (!ids.length || !confirm('Supprimer définitivement ' + ids.length + ' ligne(s) ?')) return;
       try { await Api.call('supprimerRealisations', { activiteId, ids }); toast('Supprimé.'); await rendreRealisations(el, activiteId, apres); if (typeof apres === 'function') apres(); } catch (err) { toast(err.message, true); }
     }
-    if (dem) {
-      el.querySelectorAll('.rl-sel').forEach(c => c.addEventListener('change', maj));
-      el.querySelector('#rlTout').addEventListener('change', e => { el.querySelectorAll('.rl-sel').forEach(c => { c.checked = e.target.checked; }); maj(); });
-      el.querySelector('#rlSuppr').onclick = () => supprimer(sel());
-    }
+    el.querySelectorAll('.rl-sel').forEach(c => c.addEventListener('change', maj));
+    el.querySelector('#rlTout').addEventListener('change', e => { el.querySelectorAll('.rl-sel').forEach(c => { c.checked = e.target.checked; }); maj(); });
+    el.querySelector('#rlSuppr').onclick = () => supprimer(sel());
     el.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => supprimer([b.dataset.del])));
     el.querySelector('#rlCsv').onclick = () => {
       const l = [['Date'].concat(dem ? ['Compte', 'Lieu'] : []).concat(['Nombre', 'Note'])].concat(rows.map(x => [x.Date].concat(dem ? [x.UserNom, x.Lieu || ''] : []).concat([x.Nombre, x.Note])));
@@ -194,7 +247,7 @@
     const el = document.getElementById('actGerer');
     const roles = rolesCibles();
     el.innerHTML = `<div class="card"><h2>Demander une activité aux niveaux inférieurs</h2>
-      <p class="petit" style="margin:0 0 12px">Publiez le lien d'un formulaire (Google Forms, KoboCollect…), d'une formation ou d'un test. Il s'affichera, jusqu'à l'échéance incluse, dans l'espace des comptes du ou des niveaux choisis <strong>de votre hiérarchie</strong>, avec vos consignes. Vous suivrez qui l'a ouvert et qui l'a terminé.</p>
+      <p class="petit" style="margin:0 0 12px">Publiez le lien d'un formulaire (Google Forms, KoboCollect…), d'une formation ou d'un test — ou, pour une collecte de données, rédigez un questionnaire directement dans la plateforme. Vous pouvez limiter l'activité à une ou plusieurs communes / arrondissements. Il s'affichera, jusqu'à l'échéance incluse, dans l'espace des comptes du ou des niveaux choisis <strong>de votre hiérarchie</strong>, avec vos consignes. Vous suivrez qui l'a ouvert et qui l'a terminé.</p>
       <form id="formActivite">
         <div class="grid grid-2">
           <div class="field"><label>Type</label><select name="type">${TYPES.map(t => `<option>${ICONES[t]} ${escHtml(t)}</option>`).join('')}</select></div>
@@ -205,20 +258,35 @@
         <label class="q-req" style="display:flex;gap:8px;align-items:flex-start;margin:4px 0 10px"><input type="checkbox" name="enContinu" style="width:auto;margin-top:3px"> <span><strong>Activité en continu</strong> — les destinataires la renseignent <strong>autant de fois que nécessaire</strong> (date, nombre, note) ; pas de bouton « J'ai terminé » avant l'échéance.</span></label>
         <div id="actBlocTache" style="display:none"><div class="petit" style="margin:0 0 10px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ <strong>Tâche de recensement et suivi</strong> : les relais communautaires de votre hiérarchie recensent chaque cas avec les informations clés ci-dessous, puis le suivent chaque jour avec le questionnaire de suivi. L'échéance ci-dessus (facultative) est la <strong>date limite de recensement de nouveaux cas</strong> ; sans date, le recensement reste ouvert. Le suivi des cas déjà recensés se poursuit jusqu'à la fin de sa durée. Vous pourrez modifier la tâche et son questionnaire après l'envoi.</div><div id="actConstructeur"></div></div>
         <div class="field"><label>Consignes / commentaire (optionnel)</label><textarea name="description" placeholder="Explications, public concerné, comment remplir…"></textarea></div>
+        <div id="actBlocQuestionnaire" style="margin-bottom:10px"><label class="q-req" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="actAvecQ" style="width:auto;margin-top:3px"> <span><strong>Rédiger un questionnaire dans la plateforme</strong> (à la place ou en plus d'un lien) — questions ouvertes, fermées, à choix multiples, oui/non, nombre, date. Les destinataires le remplissent même <strong>sans connexion</strong> ; les réponses s'envoient dès que le réseau revient.</span></label>
+          <div id="actConstructeurSimple" style="display:none;margin-top:8px"></div></div>
         <fieldset id="actCiblesBloc"><legend>Niveaux destinataires</legend><div class="checks">${roles.map(r => `<label><input type="checkbox" name="cibles" value="${r}"> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>
+        <div id="actZone" style="margin:10px 0"></div>
         <button type="submit" class="btn-block">Publier l'activité</button>
       </form></div>
       <div class="card"><h2>Mes activités demandées</h2><div id="actCreees"></div></div>`;
     const constructeur = window.Taches.construire(document.getElementById('actConstructeur'));
+    let constructeurSimple = null;
+    const zonePromesse = selecteurZone(document.getElementById('actZone')); // chargement en parallèle de la liste ci-dessous
+    const majBlocQ = () => {
+      const estC = typeChoisi(new FormData(formAct)) === 'Collecte de données';
+      document.getElementById('actBlocQuestionnaire').style.display = estC ? '' : 'none';
+      const coche = document.getElementById('actAvecQ').checked;
+      document.getElementById('actConstructeurSimple').style.display = estC && coche ? 'block' : 'none';
+      if (estC && coche && !constructeurSimple) constructeurSimple = window.Taches.construire(document.getElementById('actConstructeurSimple'), undefined, { simple: true });
+    };
     const typeChoisi = f => TYPES.find(t => String(f.get('type')).includes(t)) || 'Autre';
     const formAct = document.getElementById('formActivite');
+    document.getElementById('actAvecQ').addEventListener('change', majBlocQ);
     formAct.querySelector('select[name=type]').addEventListener('change', () => {
+      majBlocQ();
       const estT = typeChoisi(new FormData(formAct)) === TACHE;
       document.getElementById('actBlocTache').style.display = estT ? 'block' : 'none';
       document.getElementById('actCiblesBloc').style.display = estT ? 'none' : '';
       document.getElementById('actChampLien').style.display = estT ? 'none' : '';
       document.getElementById('actLibEcheance').textContent = estT ? 'Date limite de recensement (facultative)' : 'Échéance (facultative)';
     });
+    majBlocQ();
     formAct.addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target), type = typeChoisi(fd), estT = type === TACHE;
@@ -226,9 +294,11 @@
       if (!cibles.length) { toast('Cochez au moins un niveau destinataire.', true); return; }
       let questionnaire;
       if (estT) { try { questionnaire = constructeur.lire(); } catch (err) { toast(err.message, true); return; } }
+      else if (type === 'Collecte de données' && document.getElementById('actAvecQ').checked && constructeurSimple) { try { questionnaire = constructeurSimple.lire(); } catch (err) { toast(err.message, true); return; } }
       const btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
       try {
-        const r = await Api.call('createActivite', { type, titre: fd.get('titre'), lien: estT ? '' : fd.get('lien'), dateLimite: fd.get('dateLimite'), description: fd.get('description'), cibleRoles: cibles, questionnaire, enContinu: fd.get('enContinu') === 'on' });
+        const zoneSel = await zonePromesse;
+        const r = await Api.call('createActivite', { type, titre: fd.get('titre'), lien: estT ? '' : fd.get('lien'), dateLimite: fd.get('dateLimite'), description: fd.get('description'), cibleRoles: cibles, questionnaire, enContinu: fd.get('enContinu') === 'on', ...zoneSel.lire() });
         toast(`Activité publiée pour ${r.nbCibles} compte(s). Ils sont notifiés.`);
         e.target.reset(); await rafraichir();
         const sub = document.querySelector('[data-act-sub=gerer]'); if (sub) sub.click();
@@ -240,9 +310,9 @@
     if (!liste.length) { zone.innerHTML = '<div class="empty-state">Vous n\'avez encore demandé aucune activité.</div>'; return; }
     zone.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Activité</th><th>Destinataires</th><th>Échéance</th><th>Avancement</th><th></th></tr></thead><tbody>' + liste.map(a => {
       const pct = a.NbCibles ? Math.round(100 * a.NbFaits / a.NbCibles) : 0;
-      return `<tr><td>${ICONES[a.Type] || '🔗'} <strong>${escHtml(a.Titre)}</strong>${a.Statut === 'Archivée' ? ' <span class="badge badge-cancel">Archivée</span>' : ''}${a.Echue ? ' <span class="badge badge-late">Échue (masquée aux destinataires)</span>' : ''}<div class="petit">${escHtml(a.Type)} · ${fmtDate(a.DateCreation)}</div></td>
+      return `<tr><td>${ICONES[a.Type] || '🔗'} <strong>${escHtml(a.Titre)}</strong>${a.Statut === 'Archivée' ? ' <span class="badge badge-cancel">Archivée</span>' : ''}${a.Echue ? ' <span class="badge badge-late">Échue (masquée aux destinataires)</span>' : ''}<div class="petit">${escHtml(a.Type)} · ${fmtDate(a.DateCreation)}</div>${a.CibleGeoLibelle ? `<div class="petit">📍 ${escHtml(a.CibleGeoLibelle)}</div>` : ''}</td>
         <td>${escHtml(jsonArr(a.CibleRoles).map(r => LIB_ROLE_COURT[r] || r).join(', '))} <span class="petit">(${a.NbCibles})</span></td><td>${a.DateLimite ? fmtDate(a.DateLimite) : '—'}</td>
-        <td><div class="barre"><span style="width:${pct}%"></span></div><span class="petit">${a.Type === TACHE ? (a.NbCas || 0) + ' cas recensés · ' + (a.NbCasEnSuivi || 0) + ' en suivi' : a.NbFaits + '/' + a.NbCibles + ' faits · ' + a.NbOuverts + ' en cours'}</span></td>
+        <td><div class="barre"><span style="width:${pct}%"></span></div><span class="petit">${a.Type === TACHE ? (a.NbCas || 0) + ' cas recensés · ' + (a.NbCasEnSuivi || 0) + ' en suivi' : (window.Collectes && window.Collectes.estQuestionnaire(a) ? (a.NbReponses || 0) + ' réponse(s) · ' + (a.NbRepondants || 0) + ' compte(s) · ' : '') + a.NbFaits + '/' + a.NbCibles + ' faits · ' + a.NbOuverts + ' en cours'}</span></td>
         <td><button class="btn-secondary btn-mini" data-detail="${escHtml(a.ID)}">Voir / Modifier</button></td></tr>`;
     }).join('') + '</tbody></table></div>';
     zone.addEventListener('click', e => { const b = e.target.closest('[data-detail]'); if (b) ouvrirDetail(b.dataset.detail); });
@@ -250,13 +320,16 @@
 
   function dessinerDonnees() {
     const el = document.getElementById('actDonnees');
-    const taches = donnees.creees.filter(a => a.Type === TACHE || a.EnContinu === 'Oui');
+    const estQ = a => window.Collectes && window.Collectes.estQuestionnaire(a);
+    const taches = donnees.creees.filter(a => a.Type === TACHE || a.EnContinu === 'Oui' || estQ(a));
     el.innerHTML = `<div class="card"><h2>🗂️ Données collectées</h2>
-      <div class="field" style="max-width:520px"><label>Tâche ou activité en continu</label><select id="actDonneesChoix">${taches.map(a => `<option value="${escHtml(a.ID)}" data-type="${a.Type === TACHE ? 'tache' : 'continu'}">${escHtml(a.Titre)} (${a.Type === TACHE ? (a.NbCas || 0) + ' cas' : (a.NbRealisations || 0) + ' renseignement(s)'})</option>`).join('')}</select></div>
+      <div class="field" style="max-width:520px"><label>Tâche ou activité en continu</label><select id="actDonneesChoix">${taches.map(a => `<option value="${escHtml(a.ID)}" data-type="${a.Type === TACHE ? 'tache' : (estQ(a) ? 'questionnaire' : 'continu')}">${escHtml(a.Titre)} (${a.Type === TACHE ? (a.NbCas || 0) + ' cas' : (estQ(a) ? (a.NbReponses || 0) + ' réponse(s)' : (a.NbRealisations || 0) + ' renseignement(s)')})</option>`).join('')}</select></div>
       <div id="actDonneesCorps"></div></div>`;
     const charger = () => {
       const sel = document.getElementById('actDonneesChoix'), zone = document.getElementById('actDonneesCorps');
-      if (sel.selectedOptions[0] && sel.selectedOptions[0].dataset.type === 'continu') rendreRealisations(zone, sel.value);
+      const typeSel = sel.selectedOptions[0] && sel.selectedOptions[0].dataset.type;
+      if (typeSel === 'questionnaire') window.Collectes.rendreDonnees(zone, sel.value, { onChange: () => rafraichir() });
+      else if (typeSel === 'continu') rendreRealisations(zone, sel.value);
       else window.Taches.rendreDonnees(zone, { activiteId: sel.value });
     };
     document.getElementById('actDonneesChoix').addEventListener('change', charger);
@@ -284,11 +357,15 @@
         <div class="field"><label>Consignes</label><textarea name="description">${escHtml(a.Description)}</textarea></div>
         ${`<fieldset id="actModifCibles" style="${a.Type === TACHE ? 'display:none' : ''}"><legend>Niveaux destinataires</legend><div class="checks">${rolesCibles().map(r => `<label><input type="checkbox" name="cibles" value="${r}" ${jsonArr(a.CibleRoles).includes(r) ? 'checked' : ''}> ${escHtml(LIB_ROLE[r])}</label>`).join('')}</div></fieldset>`}
         <div id="actModifQuestionnaire" style="${a.Type === TACHE ? '' : 'display:none'}"><h4 class="sous-titre" style="margin-top:12px">Questionnaire de la tâche</h4><div class="petit" style="margin-bottom:8px">Tout est modifiable comme à la création : questions, types, choix, ordre, durée du suivi. Les réponses déjà collectées sont conservées (une question retirée n'est plus affichée).</div><div id="actModifConstructeur"></div></div>
+        <div id="actModifBlocQ" style="${a.Type === 'Collecte de données' ? '' : 'display:none'};margin:10px 0"><label class="q-req" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="actModifAvecQ" ${window.Collectes && window.Collectes.estQuestionnaire(a) ? 'checked' : ''} style="width:auto;margin-top:3px"> <span><strong>Questionnaire rédigé dans la plateforme</strong> — modifiable à tout moment ; les réponses déjà collectées sont conservées. Décocher retire le questionnaire (impossible tant qu'il a des réponses).</span></label><div id="actModifConstructeurSimple" style="margin-top:8px"></div></div>
+        <div id="actModifZone" style="margin:10px 0"></div>
         <div class="petit" style="margin:6px 0">Toute modification d'une activité en cours est notifiée aux destinataires.</div>
         <button type="submit" class="btn-secondary btn-mini">Enregistrer les modifications</button>
         ${a.Lien ? ` <a href="${escHtml(lienSur(a.Lien))}" target="_blank" rel="noopener noreferrer" class="petit">Ouvrir le lien ↗</a>` : ''}
       </form>
       ${a.Type === TACHE ? (() => { const q = window.Taches.parseQuestionnaire(a); return `<div class="petit" style="margin-top:12px;padding:10px;background:var(--tint-2);border-radius:8px">🗂️ Questionnaire de la tâche : ${q.champsCas.length} question(s) d'enregistrement du cas, ${q.champsSuivi.length} question(s) de suivi quotidien, suivi pendant ${q.dureeJours} jour(s). Vous pouvez le modifier ci-dessus, comme à la création (les réponses déjà collectées sont conservées ; une nouvelle durée s'applique aussi aux cas dont le suivi n'est pas clôturé).<br><button type="button" class="btn-mini" id="actVoirDonnees" style="margin-top:6px">🗂️ Voir les données collectées</button></div>`; })() : ''}
+      ${window.Collectes && window.Collectes.estQuestionnaire(a) ? `<div class="petit" style="margin-top:12px;padding:10px;background:var(--tint-2);border-radius:8px">📝 Questionnaire intégré : ${window.Collectes.champsDe(a).length} question(s). <button type="button" class="btn-mini" id="actVoirDonnees" style="margin-left:6px">📋 Voir / supprimer les réponses</button></div>` : ''}
+      ${a.CibleGeoLibelle ? `<div class="petit" style="margin-top:8px">📍 Zone ciblée — ${escHtml(a.CibleGeoLibelle)}</div>` : ''}
       <h4 class="sous-titre" style="margin-top:16px">💬 Commentaires (visibles par les destinataires)</h4>
       <div>${jsonArr(a.Commentaires).map(x => `<div class="act-com"><span class="petit">${fmtDate(x.date)} · ${escHtml(x.auteur)}</span><br>${escHtml(x.texte).replace(/\n/g, '<br>')}</div>`).join('') || '<div class="petit">Aucun commentaire.</div>'}</div>
       <div style="display:flex;gap:8px;margin-top:8px"><textarea id="actNouvCom" rows="2" placeholder="Ajouter un commentaire ou une précision…" style="flex:1"></textarea><button id="actEnvoyerCom" class="btn-mini">Publier</button></div>
@@ -304,19 +381,33 @@
     const appel = async (action, payload, msg) => { try { await Api.call(action, Object.assign({ id }, payload)); toast(msg); fermer(); await rafraichir(); } catch (err) { toast(err.message, true); } };
     // Même formulaire qu'à la création, pré-rempli : le questionnaire existant (ou un modèle si on passe en « Tâche »).
     const constructeurModif = window.Taches.construire(ov.querySelector('#actModifConstructeur'), a.Type === TACHE ? window.Taches.parseQuestionnaire(a) : undefined);
+    const zoneModifPromesse = selecteurZone(ov.querySelector('#actModifZone'), { communes: jsonArr(a.CibleCommunes), arrondissements: jsonArr(a.CibleArrondissements) });
+    let constructeurSimpleModif = null;
+    const majModifQ = () => {
+      const coche = ov.querySelector('#actModifAvecQ').checked;
+      ov.querySelector('#actModifConstructeurSimple').style.display = coche ? 'block' : 'none';
+      if (coche && !constructeurSimpleModif) constructeurSimpleModif = window.Taches.construire(ov.querySelector('#actModifConstructeurSimple'), window.Collectes.estQuestionnaire(a) ? { champs: window.Collectes.champsDe(a) } : undefined, { simple: true });
+    };
+    ov.querySelector('#actModifAvecQ').addEventListener('change', majModifQ); majModifQ();
     const typeModif = f => TYPES.find(t => String(f.get('type')).includes(t)) || a.Type;
     ov.querySelector('#formModifAct select[name=type]').addEventListener('change', e => {
       const estT = typeModif(new FormData(ov.querySelector('#formModifAct'))) === TACHE;
       ov.querySelector('#actModifQuestionnaire').style.display = estT ? '' : 'none';
       ov.querySelector('#actModifCibles').style.display = estT ? 'none' : '';
       ov.querySelector('#actModifChampLien').style.display = estT ? 'none' : '';
+      ov.querySelector('#actModifBlocQ').style.display = typeModif(new FormData(ov.querySelector('#formModifAct'))) === 'Collecte de données' ? '' : 'none';
     });
     if (a.Type === TACHE) ov.querySelector('#actModifChampLien').style.display = 'none';
-    ov.querySelector('#formModifAct').addEventListener('submit', e => {
+    ov.querySelector('#formModifAct').addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const f = { titre: fd.get('titre'), lien: fd.get('lien'), dateLimite: fd.get('dateLimite') || '', description: fd.get('description'), enContinu: fd.get('enContinu') === 'on' };
       f.type = typeModif(fd);
+      try { Object.assign(f, (await zoneModifPromesse).lire()); } catch (err) { /* zone indisponible : inchangée */ }
+      if (f.type === 'Collecte de données') {
+        if (ov.querySelector('#actModifAvecQ').checked && constructeurSimpleModif) { try { f.questionnaire = constructeurSimpleModif.lire(); } catch (err) { toast(err.message, true); return; } }
+        else f.questionnaire = null;
+      }
       if (f.type !== TACHE) { f.cibleRoles = fd.getAll('cibles'); if (!f.cibleRoles.length) { toast('Cochez au moins un niveau destinataire.', true); return; } }
       else {
         try { f.questionnaire = constructeurModif.lire(); } catch (err) { toast(err.message, true); return; }

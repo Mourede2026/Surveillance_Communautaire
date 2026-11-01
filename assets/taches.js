@@ -21,14 +21,14 @@
   function ajouterJours(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function joursEntre(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
   function dFr(iso) { iso = String(iso || '').slice(0, 10); return iso.length === 10 ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : '—'; }
-  function parseQ(a) { try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: q.dureeJours || 7, suivisParJour: q.suivisParJour || 1 }; } catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, suivisParJour: 1 }; } }
+  function parseQ(a) { try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: q.dureeJours || 7 }; } catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7 }; } }
 
   // =====================================================================
   // 1. Constructeur de questionnaire (niveau supérieur)
   // =====================================================================
   function defaut() {
     return {
-      dureeJours: 7, suivisParJour: 1,
+      dureeJours: 7,
       champsCas: [
         { label: 'Nom et prénom du patient', type: 'texte', opts: '', obligatoire: true },
         { label: 'Sexe', type: 'choix', opts: 'Masculin\nFéminin', obligatoire: true },
@@ -45,11 +45,25 @@
     };
   }
 
-  function construire(conteneur, init) {
-    const etat = init ? JSON.parse(JSON.stringify(init)) : defaut();
+  // Questionnaire simple d'une « Collecte de données » : une seule liste de questions (pas de suivi quotidien).
+  function defautSimple() {
+    return { champs: [
+      { label: 'Nom de la structure ou de la localité', type: 'texte', opts: '', obligatoire: true },
+      { label: 'Avez-vous observé des cas suspects ?', type: 'oui_non', opts: '', obligatoire: true },
+      { label: 'Nombre de cas observés', type: 'nombre', opts: '', obligatoire: false },
+      { label: 'Signes observés', type: 'choix_multiple', opts: 'Fièvre\nÉruption cutanée\nToux\nDiarrhée', obligatoire: false },
+      { label: 'Observations', type: 'texte_long', opts: '', obligatoire: false }
+    ] };
+  }
+
+  function construire(conteneur, init, options) {
+    const simple = !!(options && options.simple);
+    const etat = init ? JSON.parse(JSON.stringify(init)) : (simple ? defautSimple() : defaut());
     // Édition d'un questionnaire publié : les questions existantes gardent leur id (donc leurs réponses) et leur type.
-    ['champsCas', 'champsSuivi'].forEach(k => etat[k].forEach(c => { if (c.opts === undefined) c.opts = (c.options || []).join('\n'); }));
-    const BLOCS = [
+    (simple ? ['champs'] : ['champsCas', 'champsSuivi']).forEach(k => (etat[k] = etat[k] || []).forEach(c => { if (c.opts === undefined) c.opts = (c.options || []).join('\n'); }));
+    const BLOCS = simple ? [
+      { cle: 'champs', titre: 'Questions du questionnaire', aide: 'Questions ouvertes (texte court ou long), fermées (Oui/Non ou choix unique), à choix multiples, nombre ou date. Le questionnaire pourra être rempli autant de fois que nécessaire, même sans connexion.' }
+    ] : [
       { cle: 'champsCas', titre: '1. Informations clés du cas à recenser', aide: 'Questions posées au relais communautaire quand il enregistre un nouveau cas (identité, âge, sexe, signes…).' },
       { cle: 'champsSuivi', titre: '2. Questionnaire de suivi quotidien', aide: 'Questions que le relais remplira chaque jour pour chaque cas recensé, pendant toute la durée du suivi.' }
     ];
@@ -73,8 +87,7 @@
       conteneur.innerHTML = BLOCS.map(b => `<div class="q-bloc"><h4 class="sous-titre">${b.titre}</h4><p class="petit" style="margin:0 0 8px">${b.aide}</p>
           <div>${etat[b.cle].map((c, i) => ligneHtml(b.cle, i, c)).join('') || '<div class="petit">Aucune question.</div>'}</div>
           <button type="button" class="btn-secondary btn-mini" data-add="${b.cle}">+ Ajouter une question</button></div>`).join('') +
-        `<div class="grid grid-2"><div class="field"><label>Durée du suivi de chaque cas (jours)</label><input type="number" min="1" max="90" class="q-duree" value="${esc(etat.dureeJours)}"><div class="petit">Un cas recensé sera suivi chaque jour pendant cette durée.</div></div>
-          <div class="field"><label>Suivis attendus par jour</label><select class="q-spj">${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}" ${Number(etat.suivisParJour || 1) === n ? 'selected' : ''}>${n}${n === 1 ? ' (une fois par jour)' : n === 3 ? ' (matin, midi et soir)' : ''}</option>`).join('')}</select><div class="petit">Le relais pourra saisir plusieurs suivis le même jour (matin, midi, soir ou autre heure), chacun avec les mêmes variables clés.</div></div></div>`;
+        (simple ? '' : `<div class="field" style="max-width:260px"><label>Durée du suivi de chaque cas (jours)</label><input type="number" min="1" max="90" class="q-duree" value="${esc(etat.dureeJours)}"><div class="petit">Un cas recensé sera suivi chaque jour pendant cette durée.</div></div>`);
     }
 
     conteneur.addEventListener('click', e => {
@@ -96,7 +109,6 @@
       else if (e.target.matches('.q-opts')) c.opts = e.target.value;
     });
     conteneur.addEventListener('change', e => {
-      if (e.target.matches('.q-spj')) { etat.suivisParJour = Number(e.target.value); return; }
       const row = e.target.closest('.q-row'); if (!row) return;
       const c = etat[row.dataset.l][Number(row.dataset.i)];
       if (e.target.matches('.q-oblig')) c.obligatoire = e.target.checked;
@@ -105,13 +117,19 @@
     dessiner();
 
     return {
-      ids() { return { champsCas: etat.champsCas.filter(c => c.id).map(c => c.id), champsSuivi: etat.champsSuivi.filter(c => c.id).map(c => c.id) }; },
+      ids() { if (simple) return { champs: etat.champs.filter(c => c.id).map(c => c.id) }; return { champsCas: etat.champsCas.filter(c => c.id).map(c => c.id), champsSuivi: etat.champsSuivi.filter(c => c.id).map(c => c.id) }; },
       lire() {
         const net = liste => liste.filter(c => c.label.trim()).map(c => ({
           id: c.id || undefined, label: c.label.trim(), type: c.type, obligatoire: !!c.obligatoire,
           options: (c.type === 'choix' || c.type === 'choix_multiple') ? String(c.opts || '').split('\n').map(x => x.trim()).filter(Boolean) : []
         }));
-        const q = { champsCas: net(etat.champsCas), champsSuivi: net(etat.champsSuivi), dureeJours: Number(etat.dureeJours), suivisParJour: Number(etat.suivisParJour) || 1 };
+        if (simple) {
+          const champs = net(etat.champs);
+          if (!champs.length) throw new Error('Ajoutez au moins une question au questionnaire.');
+          champs.forEach(c => { if ((c.type === 'choix' || c.type === 'choix_multiple') && c.options.length < 2) throw new Error(`La question « ${c.label} » doit proposer au moins 2 choix (un par ligne).`); });
+          return { champs };
+        }
+        const q = { champsCas: net(etat.champsCas), champsSuivi: net(etat.champsSuivi), dureeJours: Number(etat.dureeJours) };
         if (!q.champsCas.length) throw new Error('Ajoutez au moins une question dans « Informations clés du cas à recenser ».');
         if (!q.champsSuivi.length) throw new Error('Ajoutez au moins une question dans le « Questionnaire de suivi quotidien ».');
         [['Informations du cas', q.champsCas], ['Questionnaire de suivi', q.champsSuivi]].forEach(([n, l]) => l.forEach(c => {
@@ -235,7 +253,7 @@
         const pct = c.NbAttendus ? Math.round(100 * c.NbFaits / c.NbAttendus) : 100;
         return `<div class="card tache-cas" data-cas="${esc(c.ID)}">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><strong>${esc(resume(q.champsCas, c.Reponses, 3))}</strong>${badgeEtat(c)}</div>
-          <div class="petit" style="margin:4px 0">Recensé le ${dFr(c.DateEnregistrement)} · suivi jusqu'au ${dFr(c.DateFinSuivi)} · ${c.NbFaits}/${c.NbTotalAttendus || c.DureeJours} suivi(s) saisis (${c.Suivis.length} au total)${c.HorsLigne ? ' · saisi hors connexion' : ''}</div>
+          <div class="petit" style="margin:4px 0">Recensé le ${dFr(c.DateEnregistrement)} · suivi jusqu'au ${dFr(c.DateFinSuivi)} · ${c.NbFaits}/${c.DureeJours} jour(s) de suivi saisis${c.HorsLigne ? ' · saisi hors connexion' : ''}</div>
           <div class="barre"><span style="width:${pct}%"></span></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
             ${c.Etat === 'En suivi' ? `<button type="button" class="btn-mini" data-suivre="${esc(c.ID)}">📝 Saisir le suivi</button>` : ''}
@@ -253,23 +271,20 @@
       zone.dataset.mode = 'suivi'; formSuivi(zone, c);
     });
 
-    function momentParDefaut() { const h = new Date().getHours(); return h < 11 ? 'Matin' : (h < 15 ? 'Midi' : 'Soir'); }
     function formSuivi(zone, c) {
-      const fin = c.DateFinSuivi < auj ? c.DateFinSuivi : auj, spj = c.SuivisParJour || 1;
+      const fin = c.DateFinSuivi < auj ? c.DateFinSuivi : auj;
       const jours = []; for (let d = c.DateEnregistrement; d <= fin; d = ajouterJours(d, 1)) jours.push(d);
-      const nb = d => c.ParJour[d] || 0;
-      const defautJour = jours.includes(auj) && nb(auj) < spj ? auj : (jours.find(d => d > c.DateEnregistrement && nb(d) < spj) || jours[jours.length - 1]);
-      zone.innerHTML = `<form class="tache-form-suivi">
-        <div class="petit" style="margin-bottom:6px">Vous pouvez saisir <strong>plusieurs suivis le même jour</strong> (matin, midi, soir, autre heure). Chaque suivi est ajouté ; il ne peut plus être modifié ni supprimé par vous.${spj > 1 ? ' Attendus : <strong>' + spj + ' par jour</strong>.' : ''}</div>
-        <div class="grid grid-2"><div class="field"><label>Jour du suivi</label><select name="__jour">${jours.map(d => `<option value="${d}" ${d === defautJour ? 'selected' : ''}>Jour ${joursEntre(c.DateEnregistrement, d)} — ${dFr(d)} (${nb(d)}${spj > 1 ? '/' + spj : ''} saisi${nb(d) > 1 ? 's' : ''})</option>`).join('')}</select></div>
-        <div class="field"><label>Moment du suivi</label><select name="__moment">${['Matin', 'Midi', 'Soir', 'Autre'].map(m => `<option ${m === momentParDefaut() ? 'selected' : ''}>${m}</option>`).join('')}</select></div></div>
-        <div class="field" data-heure style="display:none"><label>Heure précise</label><input type="time" name="__heure"></div>
+      const faits = new Set(c.Suivis.map(s => s.Jour));
+      const defautJour = jours.includes(auj) && !faits.has(auj) ? auj : (jours.find(d => d > c.DateEnregistrement && !faits.has(d)) || jours[jours.length - 1]);
+      zone.innerHTML = `<form class="tache-form-suivi"><div class="field"><label>Jour du suivi</label><select name="__jour">${jours.map(d => `<option value="${d}" ${d === defautJour ? 'selected' : ''}>Jour ${joursEntre(c.DateEnregistrement, d)} — ${dFr(d)}${faits.has(d) ? ' ✔ déjà saisi (sera remplacé)' : ''}</option>`).join('')}</select></div>
         ${formulaireHtml(q.champsSuivi, 'suv_')}
         <label class="q-req" style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" name="__clot"> Clôturer le suivi de ce cas</label>
         <div class="field" data-issue style="display:none"><label>Issue du cas</label><select name="__issue"><option value="">— Choisir —</option>${ISSUES.map(i => `<option>${esc(i)}</option>`).join('')}</select></div>
-        <button type="submit" class="btn-block">Enregistrer ce suivi</button></form>`;
+        <button type="submit" class="btn-block">Enregistrer le suivi</button></form>`;
       const form = zone.querySelector('form');
-      form.querySelector('[name=__moment]').addEventListener('change', ev => { form.querySelector('[data-heure]').style.display = ev.target.value === 'Autre' ? 'block' : 'none'; });
+      const rafraichirForm = () => { const s = c.Suivis.find(x => x.Jour === form.querySelector('[name=__jour]').value); remplir(form, q.champsSuivi, 'suv_', s ? s.Reponses : {}); };
+      rafraichirForm();
+      form.querySelector('[name=__jour]').addEventListener('change', rafraichirForm);
       form.querySelector('[name=__clot]').addEventListener('change', ev => { form.querySelector('[data-issue]').style.display = ev.target.checked ? 'block' : 'none'; });
       form.addEventListener('submit', async ev => {
         ev.preventDefault();
@@ -278,8 +293,8 @@
         if (clot && !confirm('Clôturer le suivi de ce cas ? Vous ne pourrez plus saisir de suivi pour lui.')) return;
         const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
         try {
-          const r = await Api.call('tacheSaisirSuivi', { casId: c.ID, jour: form.querySelector('[name=__jour]').value, moment: form.querySelector('[name=__moment]').value, heure: form.querySelector('[name=__heure]').value, reponses: lireReponses(form, q.champsSuivi, 'suv_'), cloturer: clot, issue });
-          toast(r.queued ? 'Pas de réseau : le suivi est gardé sur ce téléphone et sera envoyé automatiquement.' : 'Suivi enregistré. Vous pouvez en ajouter un autre (autre moment de la journée).');
+          const r = await Api.call('tacheSaisirSuivi', { casId: c.ID, jour: form.querySelector('[name=__jour]').value, reponses: lireReponses(form, q.champsSuivi, 'suv_'), cloturer: clot, issue });
+          toast(r.queued ? 'Pas de réseau : le suivi est gardé sur ce téléphone et sera envoyé automatiquement.' : 'Suivi enregistré.');
           if (!r.queued) await charger();
         } catch (err) { toast(err.message, true); btn.disabled = false; }
       });
@@ -290,13 +305,12 @@
     if (cas.some(c => c.Etat === 'En suivi')) montrerOnglet('cas');
   }
 
-  function momentLibelle(s) { return s.Moment ? (s.Moment === 'Autre' && s.Heure ? s.Heure : s.Moment) : (s.Heure || ''); }
-function dossierHtml(c, q, peutSupprimer) {
+  function dossierHtml(c, q, supprimable) {
     const lignes = (champs, rep) => champs.map(ch => `<tr><th style="width:42%">${esc(ch.label)}</th><td>${esc(valeurTexte(ch, (rep || {})[ch.id]))}</td></tr>`).join('');
     return `<div class="tache-dossier"><h4 class="sous-titre">Informations du cas</h4><table><tbody>${lignes(q.champsCas, c.Reponses)}</tbody></table>
       <h4 class="sous-titre" style="margin-top:12px">Suivi jour par jour</h4>
-      ${c.Suivis.length ? c.Suivis.map(s => `<div class="act-com"><strong>Jour ${joursEntre(c.DateEnregistrement, s.Jour)} — ${dFr(s.Jour)}${momentLibelle(s) ? ' · ' + esc(momentLibelle(s)) : ''}</strong>${peutSupprimer ? ` <button type="button" class="btn-danger btn-mini" data-suppr-suivi="${esc(s.ID)}" title="Supprimer ce suivi">🗑</button>` : ''}<table><tbody>${lignes(q.champsSuivi, s.Reponses)}</tbody></table></div>`).join('') : '<div class="petit">Aucun suivi saisi pour le moment.</div>'}
-      ${c.JoursManquants.length ? `<div class="petit" style="color:#8F2A18">Jours à compléter${(c.SuivisParJour || 1) > 1 ? ' (moins de ' + c.SuivisParJour + ' suivis)' : ''} : ${c.JoursManquants.map(dFr).join(', ')}</div>` : ''}
+      ${c.Suivis.length ? c.Suivis.map(s => `<div class="act-com"><strong>Jour ${joursEntre(c.DateEnregistrement, s.Jour)} — ${dFr(s.Jour)}</strong>${supprimable && s.ID ? ` <button type="button" class="btn-danger btn-mini" data-suppr-suivi="${esc(s.ID)}" style="margin-left:6px">🗑 Supprimer ce suivi</button>` : ''}<table><tbody>${lignes(q.champsSuivi, s.Reponses)}</tbody></table></div>`).join('') : '<div class="petit">Aucun suivi saisi pour le moment.</div>'}
+      ${c.JoursManquants.length ? `<div class="petit" style="color:#8F2A18">Jours sans suivi : ${c.JoursManquants.map(dFr).join(', ')}</div>` : ''}
       ${c.Etat === 'Clôturé' ? `<div class="petit">Clôturé le ${dFr(c.DateCloture)} — issue : ${esc(c.Issue)}</div>` : ''}</div>`;
   }
 
@@ -367,13 +381,14 @@ function dossierHtml(c, q, peutSupprimer) {
         <div class="petit" style="margin-bottom:8px">${esc(c.RcNom)} · ${esc(c.VillageNom)} · recensé le ${dFr(c.DateEnregistrement)} · ${badgeEtat(c)}</div>${dossierHtml(c, q, true)}
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn-danger" id="tdSupprCas">🗑 Supprimer ce cas</button><button type="button" class="btn-secondary" id="tdFerme">Fermer</button></div>`, 760);
       m.box.querySelector('#tdFerme').onclick = m.fermer;
+      m.box.querySelector('#tdSupprCas').onclick = () => { m.fermer(); supprimer([c.ID]); };
+      // Le demandeur peut aussi retirer un seul jour de suivi (erreur de saisie) sans supprimer le cas.
       m.box.addEventListener('click', async ev => {
-        const b = ev.target.closest('[data-suppr-suivi]'); if (!b) return;
-        if (!confirm('Supprimer définitivement ce suivi ? Le relais communautaire sera prévenu.')) return;
-        try { await Api.call('tacheSupprimerSuivis', { activiteId: opts.activiteId, ids: [b.dataset.supprSuivi] }); toast('Suivi supprimé.'); m.fermer(); if (typeof opts.onChange === 'function') opts.onChange(); await rendreDonnees(el, opts); }
+        const sb = ev.target.closest('[data-suppr-suivi]'); if (!sb) return;
+        if (!confirm('Supprimer ce suivi journalier ? Le relais communautaire sera prévenu et pourra le ressaisir.')) return;
+        try { const r = await Api.call('tacheSupprimerSuivis', { activiteId: opts.activiteId, suiviIds: [sb.dataset.supprSuivi] }); toast(r.supprimes + ' suivi supprimé.'); m.fermer(); if (typeof opts.onChange === 'function') opts.onChange(); await rendreDonnees(el, opts); }
         catch (err) { toast(err.message, true); }
       });
-      m.box.querySelector('#tdSupprCas').onclick = () => { m.fermer(); supprimer([c.ID]); };
     });
     el.querySelector('#tdExpCas').onclick = () => {
       const l = [['Tâche', 'Relais communautaire', 'Village', 'Date de recensement', 'Fin du suivi', 'État', 'Issue', 'Suivis saisis', 'Suivis attendus'].concat(q.champsCas.map(c => c.label))];
@@ -381,12 +396,12 @@ function dossierHtml(c, q, peutSupprimer) {
       telecharger('cas_' + nomFichier(act.titre) + '.csv', csv(l));
     };
     el.querySelector('#tdExpSuivis').onclick = () => {
-      const l = [['Tâche', 'Cas', 'Relais communautaire', 'Village', 'Date de recensement', 'Jour', 'Date du suivi', 'Moment', 'Heure'].concat(q.champsSuivi.map(c => c.label))];
-      liste().forEach(c => c.Suivis.forEach(s => l.push([act.titre, resume(q.champsCas, c.Reponses, 2), c.RcNom, c.VillageNom, c.DateEnregistrement, 'J' + joursEntre(c.DateEnregistrement, s.Jour), s.Jour, s.Moment || '', s.Heure || ''].concat(q.champsSuivi.map(ch => valeurTexte(ch, s.Reponses[ch.id]).replace(/^—$/, ''))))));
+      const l = [['Tâche', 'Cas', 'Relais communautaire', 'Village', 'Date de recensement', 'Jour', 'Date du suivi'].concat(q.champsSuivi.map(c => c.label))];
+      liste().forEach(c => c.Suivis.forEach(s => l.push([act.titre, resume(q.champsCas, c.Reponses, 2), c.RcNom, c.VillageNom, c.DateEnregistrement, 'J' + joursEntre(c.DateEnregistrement, s.Jour), s.Jour].concat(q.champsSuivi.map(ch => valeurTexte(ch, s.Reponses[ch.id]).replace(/^—$/, ''))))));
       telecharger('suivis_' + nomFichier(act.titre) + '.csv', csv(l));
     };
     montrer();
   }
 
-  window.Taches = { construire, ouvrirRc, rendreDonnees, parseQuestionnaire: parseQ };
+  window.Taches = { construire, ouvrirRc, rendreDonnees, parseQuestionnaire: parseQ, formulaireHtml, lireReponses, valeurTexte, resume, ouvrirModal, csv, telecharger, nomFichier };
 })();

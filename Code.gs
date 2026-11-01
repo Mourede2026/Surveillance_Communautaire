@@ -65,7 +65,8 @@ const SHEETS = {
   SENSIBILISATIONS: 'Sensibilisations',
   PARAMETRES: 'Parametres',
   REALISATIONS: 'ActivitesRealisations',
-  FICHES_NOTIF: 'FichesNotification'
+  FICHES_NOTIF: 'FichesNotification',
+  COLLECTES: 'CollecteReponses'
 };
 
 const ROLES = {
@@ -146,7 +147,7 @@ const COLS = {
   // Activités (collecte de données, formation, test...) : un niveau supérieur publie un lien pour les
   // niveaux inférieurs de SA hiérarchie. Un niveau bas ne peut jamais en demander à un niveau haut.
   Activites: ['ID','Type','Titre','Description','Lien','DateLimite','CreeParId','CreeParNom','CreeParRole',
-    'CibleRoles','Statut','Commentaires','DateCreation','DateModification','Questionnaire','EnContinu'],
+    'CibleRoles','Statut','Commentaires','DateCreation','DateModification','Questionnaire','EnContinu','CibleCommunes','CibleArrondissements','CibleGeoLibelle'],
   ActivitesSuivi: ['ID','ActiviteId','UserId','UserNom','Statut','Date'],
   // Tâches « recensement et suivi » (activité de type tâche) : chaque cas recensé par un RC est suivi
   // pendant N jours avec un questionnaire de suivi défini par le niveau supérieur, directement dans la plateforme.
@@ -159,6 +160,8 @@ const COLS = {
     'Statut','ApprouveParId','ApprouveParNom','DateDecision','MotifRejet'],
   // Activités « en continu » : le destinataire les renseigne autant de fois que nécessaire (une ligne par réalisation).
   ActivitesRealisations: ['ID','ActiviteId','UserId','UserNom','Date','Nombre','Note','DateSaisie','ClientId'],
+  // Réponses au questionnaire simple d'une activité « Collecte de données » (une ligne par questionnaire rempli).
+  CollecteReponses: ['ID','ActiviteId','UserId','UserNom','Role','CommuneId','ArrondissementId','VillageNom','Lieu','Reponses','DateSaisie','ClientId','HorsLigne'],
   // Fiche générique de notification des maladies sous surveillance (« 1_BJ_FORMULAIRE GENERIQUE... »),
   // remplie de façon indépendante par le RCSE. Donnees = JSON complet de la fiche (cases cochées + champs) ;
   // les autres colonnes sont un résumé pour la liste des cas.
@@ -256,6 +259,10 @@ function doPost(e) {
       submitSensibilisation: () => avecVerrou_(() => submitSensibilisation_(user, payload)),
       listSensibilisations: () => listSensibilisations_(user, payload),
       decideSensibilisation: () => decideSensibilisation_(user, payload),
+      submitCollecte: () => avecVerrou_(() => submitCollecte_(user, payload)),
+      listCollectes: () => listCollectes_(user, payload),
+      supprimerCollectes: () => avecVerrou_(() => supprimerCollectes_(user, payload)),
+      tacheSupprimerSuivis: () => avecVerrou_(() => tacheSupprimerSuivis_(user, payload)),
       saveFicheNotif: () => avecVerrou_(() => saveFicheNotif_(user, payload)),
       listFichesNotif: () => listFichesNotif_(user),
       deleteFicheNotif: () => avecVerrou_(() => deleteFicheNotif_(user, payload)),
@@ -2032,8 +2039,41 @@ function nettoyerDonnees_(actor, p) {
 // hiérarchie (NATIONAL > DEPARTEMENT > RCSE > PF > ASCQ > RC). Le RC ne peut en créer aucune.
 const RANG_ROLE_ = { RC: 0, ASCQ: 1, PF_CNLS_TP: 2, RCSE: 3, DEPARTEMENT: 4, NATIONAL: 5 };
 const TYPE_TACHE_ = 'Tâche (recensement et suivi)';
+const TYPE_COLLECTE_ = 'Collecte de données';
 const TYPES_ACTIVITE_ = ['Collecte de données', TYPE_TACHE_, 'Formation', 'Test / Quiz', 'Information / Document', 'Autre'];
 function estTache_(a) { return a && a.Type === TYPE_TACHE_; }
+// Questionnaire simple d'une « Collecte de données » (questions ouvertes, fermées, à choix multiples, oui/non, nombre, date).
+function questionnaireSimpleDe_(a) {
+  try { const q = JSON.parse((a && a.Questionnaire) || '{}'); if (Array.isArray(q.champs) && q.champs.length) return { champs: q.champs, seq: Number(q.seq) || q.champs.length }; } catch (e) { /* pas de questionnaire */ }
+  return null;
+}
+function aQuestionnaireSimple_(a) { return !!a && a.Type === TYPE_COLLECTE_ && !!questionnaireSimpleDe_(a); }
+function nettoyerQuestionnaireSimple_(q) {
+  const champs = nettoyerChamps_(q && q.champs, 'Questionnaire');
+  if (!champs.length) throw new Error('Ajoutez au moins une question au questionnaire.');
+  return { champs: champs, seq: champs.length };
+}
+function fusionnerQuestionnaireSimple_(ancien, nouveau) {
+  const anc = ancien.champs || [], num = id => Number(String(id).replace(/\D/g, '')) || 0;
+  let seq = Math.max(Number(ancien.seq) || 0, anc.reduce((m, c) => Math.max(m, num(c.id)), 0));
+  const vus = {}, out = [];
+  (Array.isArray(nouveau && nouveau.champs) ? nouveau.champs : []).slice(0, 40).forEach(c => {
+    const label = coupe_(c && c.label, 140); if (!label) return;
+    const existant = c.id ? anc.find(x => x.id === c.id) : null;
+    if (existant && vus[existant.id]) return;
+    const type = TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : (existant ? existant.type : 'texte');
+    let options = [];
+    if (type === 'choix' || type === 'choix_multiple') {
+      options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
+      if (options.length < 2) throw new Error('La question « ' + label + ' » doit proposer au moins 2 choix.');
+    }
+    const id = existant ? existant.id : 'c' + (++seq);
+    if (existant) vus[id] = true;
+    out.push({ id: id, label: label, type: type, options: options, obligatoire: !!c.obligatoire });
+  });
+  if (!out.length) throw new Error('Gardez au moins une question dans le questionnaire.');
+  return { champs: out, seq: seq };
+}
 function estContinue_(a) { return !!a && String(a.EnContinu) === 'Oui'; }
 
 function aujourdhuiIso_() { return nowStr_().slice(0, 10); }
@@ -2043,8 +2083,61 @@ function activiteEcheue_(a) { const d = dateIso_(a.DateLimite); return !!d && d 
 function lienValide_(l) { return /^https?:\/\/[^\s]+$/i.test(String(l || '').trim()); }
 
 // Comptes de la hiérarchie de `actor` appartenant à l'un des rôles ciblés.
-function comptesCiblesActivite_(actor, roles) {
-  return readSheet_(SHEETS.USERS).filter(u => roles.includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u));
+function comptesCiblesActivite_(actor, roles, act) {
+  const filtreGeo = act ? filtreGeoActivite_(act) : null;
+  return readSheet_(SHEETS.USERS).filter(u => roles.includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u) && (!filtreGeo || filtreGeo(u)));
+}
+
+// ---- Ciblage géographique d'une activité (commune(s) et/ou arrondissement(s) concerné(s)) ----
+// Sans ciblage, l'activité concerne tous les comptes des niveaux choisis dans la hiérarchie du demandeur.
+// Avec ciblage : un compte la reçoit si sa commune (ou son arrondissement pour un RC / ASCQ) est concerné(e).
+function fabriqueGeo_() {
+  const arrById = {}; readSheet_(SHEETS.ARRONDISSEMENTS).forEach(a => { arrById[a.ID] = a; });
+  const perParUser = {}; readSheet_(SHEETS.PERIMETRES).forEach(x => { (perParUser[x.UserId] = perParUser[x.UserId] || []).push(x); });
+  const fn = function (u) {
+    const arrs = new Set(), coms = new Set();
+    if (u.ArrondissementId) arrs.add(u.ArrondissementId);
+    if (u.CommuneId) coms.add(u.CommuneId);
+    (perParUser[u.ID] || []).forEach(x => { if (x.TypeCible === 'Arrondissement') arrs.add(x.CibleId); else if (x.TypeCible === 'Commune') coms.add(x.CibleId); });
+    arrs.forEach(id => { const a = arrById[id]; if (a && a.CommuneId) coms.add(a.CommuneId); });
+    return { arrs: arrs, coms: coms };
+  };
+  fn.arrById = arrById;
+  return fn;
+}
+function filtreGeoActivite_(act) {
+  const A = parseArr_(act.CibleArrondissements), C = parseArr_(act.CibleCommunes);
+  if (!A.length && !C.length) return function () { return true; };
+  const geo = fabriqueGeo_();
+  return function (u) {
+    const g = geo(u);
+    if (C.length && !C.some(id => g.coms.has(id))) return false;
+    if (A.length) {
+      if (RANG_ROLE_[u.Role] <= 1) return A.some(id => g.arrs.has(id));        // RC / ASCQ : leur arrondissement
+      return A.some(id => { const a = geo.arrById[id]; return !!a && g.coms.has(a.CommuneId); }); // PF et au-dessus : la commune de l'arrondissement
+    }
+    return true;
+  };
+}
+// Valide la zone choisie par le demandeur (dans son propre périmètre) et fabrique le libellé affiché.
+function ciblageGeoDemande_(actor, p) {
+  const ids = v => (Array.isArray(v) ? v : []).map(String).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).slice(0, 600);
+  const C = ids(p.cibleCommunes), A = ids(p.cibleArrondissements);
+  if (!C.length && !A.length) return { communes: [], arrondissements: [], libelle: '' };
+  const coms = readSheet_(SHEETS.COMMUNES), arrs = readSheet_(SHEETS.ARRONDISSEMENTS);
+  const geo = fabriqueGeo_(), g = geo(actor);
+  const comsOk = new Set();
+  if (actor.Role === ROLES.NATIONAL) coms.forEach(c => comsOk.add(c.ID));
+  else if (actor.Role === ROLES.DEPARTEMENT) coms.filter(c => c.DepartementId === actor.DepartementId).forEach(c => comsOk.add(c.ID));
+  else g.coms.forEach(id => comsOk.add(id));
+  const arrsOk = a => actor.Role === ROLES.ASCQ ? g.arrs.has(a.ID) : comsOk.has(a.CommuneId);
+  for (const id of C) if (!comsOk.has(id)) return { err: 'Une des communes choisies n\'est pas dans votre zone.' };
+  const Aobj = A.map(id => arrs.find(a => a.ID === id));
+  for (const a of Aobj) if (!a || !arrsOk(a)) return { err: 'Un des arrondissements choisis n\'est pas dans votre zone.' };
+  const nomsC = C.map(id => (coms.find(c => c.ID === id) || {}).Nom).filter(Boolean);
+  const nomsA = Aobj.map(a => a.Nom);
+  const libelle = [nomsC.length ? 'Communes : ' + nomsC.join(', ') : '', nomsA.length ? 'Arrondissements : ' + nomsA.join(', ') : ''].filter(Boolean).join(' · ');
+  return { communes: C, arrondissements: A, libelle: coupe_(libelle, 900) };
 }
 
 function createActivite_(actor, p) {
@@ -2054,8 +2147,12 @@ function createActivite_(actor, p) {
   const type = TYPES_ACTIVITE_.includes(p.type) ? p.type : 'Autre';
   const lien = String(p.lien || '').trim();
   if (lien && !lienValide_(lien)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' };
-  if (!lien && type !== 'Information / Document' && type !== TYPE_TACHE_) return { ok: false, error: 'Ajoutez le lien du formulaire, de la formation ou du test.' };
+  const veutQuestionnaire = type === TYPE_COLLECTE_ && p.questionnaire && Array.isArray(p.questionnaire.champs) && p.questionnaire.champs.length > 0;
+  if (!lien && type !== 'Information / Document' && type !== TYPE_TACHE_ && !veutQuestionnaire) return { ok: false, error: type === TYPE_COLLECTE_ ? 'Ajoutez le lien du formulaire ou rédigez un questionnaire dans la plateforme.' : 'Ajoutez le lien du formulaire, de la formation ou du test.' };
   let questionnaire = '';
+  if (veutQuestionnaire) {
+    try { questionnaire = JSON.stringify(nettoyerQuestionnaireSimple_(p.questionnaire)); } catch (e) { return { ok: false, error: e.message }; }
+  }
   if (type === TYPE_TACHE_) {
     const q = nettoyerQuestionnaire_(p.questionnaire); // lève une erreur claire si le questionnaire est incomplet
     questionnaire = JSON.stringify(q);
@@ -2064,18 +2161,21 @@ function createActivite_(actor, p) {
   if (type === TYPE_TACHE_) p.cibleRoles = ['RC'];
   const roles = (Array.isArray(p.cibleRoles) ? p.cibleRoles : []).filter(r => RANG_ROLE_[r] !== undefined && RANG_ROLE_[r] < RANG_ROLE_[actor.Role]);
   if (!roles.length) return { ok: false, error: 'Choisissez au moins un niveau destinataire, situé en dessous du vôtre.' };
-  const cibles = comptesCiblesActivite_(actor, roles);
-  if (!cibles.length) return { ok: false, error: 'Aucun compte actif de ce(s) niveau(x) dans votre hiérarchie pour le moment.' };
+  const geo = ciblageGeoDemande_(actor, p);
+  if (geo.err) return { ok: false, error: geo.err };
+  const cibles = comptesCiblesActivite_(actor, roles, { CibleCommunes: JSON.stringify(geo.communes), CibleArrondissements: JSON.stringify(geo.arrondissements) });
+  if (!cibles.length) return { ok: false, error: geo.libelle ? 'Aucun compte actif de ce(s) niveau(x) dans la zone choisie (' + geo.libelle + ').' : 'Aucun compte actif de ce(s) niveau(x) dans votre hiérarchie pour le moment.' };
   // L'échéance est facultative : sans date, l'activité reste ouverte jusqu'à son archivage.
   if (p.dateLimite && dateIso_(p.dateLimite) < aujourdhuiIso_()) return { ok: false, error: 'L\'échéance ne peut pas être dans le passé.' };
   const rec = {
     ID: newId_('ACT'), Type: type, Titre: titre, Description: String(p.description || '').trim(), Lien: lien,
     DateLimite: p.dateLimite ? dateIso_(p.dateLimite) : '', CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom,
     CreeParRole: actor.Role, CibleRoles: JSON.stringify(roles), Statut: 'Active', Commentaires: '[]',
-    DateCreation: nowStr_(), DateModification: nowStr_(), Questionnaire: questionnaire, EnContinu: p.enContinu ? 'Oui' : ''
+    DateCreation: nowStr_(), DateModification: nowStr_(), Questionnaire: questionnaire, EnContinu: p.enContinu ? 'Oui' : '',
+    CibleCommunes: JSON.stringify(geo.communes), CibleArrondissements: JSON.stringify(geo.arrondissements), CibleGeoLibelle: geo.libelle
   };
   appendRow_(SHEETS.ACTIVITES, rec);
-  notifierCiblesActivite_(cibles, rec, `Nouvelle activité (${type}) : ${titre}` + (rec.DateLimite ? ' - à faire avant le ' + rec.DateLimite.split('-').reverse().join('/') : '') + ` - demandée par ${rec.CreeParNom}`);
+  notifierCiblesActivite_(cibles, rec, `Nouvelle activité (${type}) : ${titre}` + (rec.DateLimite ? ' - à faire avant le ' + rec.DateLimite.split('-').reverse().join('/') : '') + ` - demandée par ${rec.CreeParNom}` + (geo.libelle ? ' - zone : ' + geo.libelle : ''));
   return { ok: true, activite: rec, nbCibles: cibles.length };
 }
 
@@ -2089,6 +2189,7 @@ function activiteVisiblePar_(act, user) {
   const roles = parseArr_(act.CibleRoles);
   if (!roles.includes(user.Role)) return false;
   if (!chainAbove_(user).some(sup => sup.ID === act.CreeParId)) return false;
+  if (!filtreGeoActivite_(act)(user)) return false;
   if (!activiteEcheue_(act)) return true;
   // Une tâche échue (plus de nouveaux cas) reste visible tant que le RC a des cas à suivre.
   return estTache_(act) && activitesAvecCasEnSuivi_(user.ID).has(act.ID);
@@ -2106,10 +2207,12 @@ function listActivites_(actor) {
   const chaine = chainAbove_(actor).map(u => u.ID);
   const casEnSuivi = actor.Role === ROLES.RC ? activitesAvecCasEnSuivi_(actor.ID) : new Set();
   const mesRealisations = {}; readSheet_(SHEETS.REALISATIONS).filter(x => x.UserId === actor.ID).forEach(x => { (mesRealisations[x.ActiviteId] = mesRealisations[x.ActiviteId] || []).push(x); });
+  const mesCollectes = {}; readSheet_(SHEETS.COLLECTES).filter(x => x.UserId === actor.ID).forEach(x => { mesCollectes[x.ActiviteId] = (mesCollectes[x.ActiviteId] || 0) + 1; });
   const statsTaches = actor.Role === ROLES.RC ? statsTachesDuRc_(actor.ID) : {};
-  const recues = toutes.filter(a => a.Statut === 'Active' && (!activiteEcheue_(a) || (estTache_(a) && casEnSuivi.has(a.ID))) && parseArr_(a.CibleRoles).includes(actor.Role) && chaine.includes(a.CreeParId))
+  const recues = toutes.filter(a => a.Statut === 'Active' && (!activiteEcheue_(a) || (estTache_(a) && casEnSuivi.has(a.ID))) && parseArr_(a.CibleRoles).includes(actor.Role) && chaine.includes(a.CreeParId) && filtreGeoActivite_(a)(actor))
     .map(a => Object.assign({}, a, { DateLimite: dateIso_(a.DateLimite), Echue: activiteEcheue_(a), MonStatut: estContinue_(a) ? 'En continu' : (suivi[a.ID] ? suivi[a.ID].Statut : 'À faire'), MaDate: suivi[a.ID] ? suivi[a.ID].Date : '' },
       estContinue_(a) ? { NbRealisations: (mesRealisations[a.ID] || []).length, DerniereRealisation: (mesRealisations[a.ID] || []).reduce((m, x) => { const d = dateIso_(x.Date); return d > m ? d : m; }, '') } : {},
+      aQuestionnaireSimple_(a) ? { NbReponses: (mesCollectes[a.ID] || 0) } : {},
       estTache_(a) ? { NbCas: (statsTaches[a.ID] || {}).nbCas || 0, NbCasEnSuivi: (statsTaches[a.ID] || {}).enSuivi || 0, NbSuivisDus: (statsTaches[a.ID] || {}).dus || 0 } : {}));
   recues.sort((a, b) => String(b.DateCreation).localeCompare(String(a.DateCreation)));
 
@@ -2119,13 +2222,15 @@ function listActivites_(actor) {
     const tousRealisations = readSheet_(SHEETS.REALISATIONS);
     const users = readSheet_(SHEETS.USERS);
     creees = toutes.filter(a => a.CreeParId === actor.ID).map(a => {
-      const cibles = users.filter(u => parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u));
+      const filtreGeo = filtreGeoActivite_(a);
+      const cibles = users.filter(u => parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor, u) && filtreGeo(u));
       const ids = new Set(cibles.map(u => u.ID));
       const sv = tousSuivis.filter(x => x.ActiviteId === a.ID && ids.has(x.UserId));
       const casA = estTache_(a) ? readSheet_(SHEETS.TACHES_CAS).filter(c => c.ActiviteId === a.ID && ids.has(c.RcId)) : [];
       return Object.assign({}, a, { Echue: activiteEcheue_(a), DateLimite: dateIso_(a.DateLimite), NbCibles: cibles.length,
         NbFaits: sv.filter(x => x.Statut === 'Fait').length, NbOuverts: sv.filter(x => x.Statut === 'Ouvert').length },
         estTache_(a) ? { NbCas: casA.length, NbCasEnSuivi: casA.filter(c => etatCas_(c, aujourdhuiIso_()) === 'En suivi').length } : {},
+        aQuestionnaireSimple_(a) ? (() => { const rc = readSheet_(SHEETS.COLLECTES).filter(x => x.ActiviteId === a.ID && ids.has(x.UserId)); return { NbReponses: rc.length, NbRepondants: new Set(rc.map(x => x.UserId)).size }; })() : {},
         estContinue_(a) ? (() => { const rl = tousRealisations.filter(x => x.ActiviteId === a.ID && ids.has(x.UserId)); return { NbRealisations: rl.length, NbCiblesActives: new Set(rl.map(x => x.UserId)).size }; })() : {});
     }).sort((x, y) => String(y.DateCreation).localeCompare(String(x.DateCreation)));
   }
@@ -2145,7 +2250,8 @@ function getActiviteDetail_(actor, p) {
   const suivi = {};
   readSheet_(SHEETS.ACTIVITES_SUIVI).filter(x => x.ActiviteId === a.ID).forEach(x => { suivi[x.UserId] = x; });
   const reals = {}; readSheet_(SHEETS.REALISATIONS).filter(x => x.ActiviteId === a.ID).forEach(x => { (reals[x.UserId] = reals[x.UserId] || []).push(x); });
-  const cibles = readSheet_(SHEETS.USERS).filter(u => parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor.Role === ROLES.NATIONAL && a.CreeParId !== actor.ID ? { ID: a.CreeParId, Role: a.CreeParRole } : actor, u))
+  const filtreGeoDetail = filtreGeoActivite_(a);
+  const cibles = readSheet_(SHEETS.USERS).filter(u => filtreGeoDetail(u) && parseArr_(a.CibleRoles).includes(u.Role) && u.Actif !== false && u.Actif !== 'FALSE' && isSupervisorOf_(actor.Role === ROLES.NATIONAL && a.CreeParId !== actor.ID ? { ID: a.CreeParId, Role: a.CreeParRole } : actor, u))
     .map(u => ({ id: u.ID, nom: u.Prenom + ' ' + u.Nom, role: u.Role, telephone: u.Telephone, lieu: u.VillageNom || u.ArrondissementNom || u.CommuneNom || u.ZoneSanitaireNom || u.DepartementNom || '',
       statut: estContinue_(a) ? (reals[u.ID] ? 'En continu' : 'Non ouvert') : (suivi[u.ID] ? suivi[u.ID].Statut : 'Non ouvert'), date: suivi[u.ID] ? suivi[u.ID].Date : '',
       nb: (reals[u.ID] || []).length, derniere: (reals[u.ID] || []).reduce((m, x) => { const d = dateIso_(x.Date); return d > m ? d : m; }, '') }));
@@ -2168,7 +2274,6 @@ function updateActivite_(actor, p) {
   const typeFinal = ch.Type || r.a.Type;
   if (p.description !== undefined && String(p.description).trim() !== String(r.a.Description || '')) { ch.Description = String(p.description).trim(); modifs.push('consignes'); }
   if (p.lien !== undefined) { const l = String(p.lien).trim(); if (l && !lienValide_(l)) return { ok: false, error: 'Le lien doit commencer par http:// ou https://.' }; if (l !== String(r.a.Lien || '')) { ch.Lien = l; modifs.push('lien'); } }
-  if (typeFinal !== TYPE_TACHE_ && typeFinal !== 'Information / Document' && !String(ch.Lien !== undefined ? ch.Lien : (r.a.Lien || '')).trim()) return { ok: false, error: 'Ajoutez le lien du formulaire, de la formation ou du test.' };
   // Échéance facultative : une valeur vide la supprime.
   if (p.dateLimite !== undefined) { const d = p.dateLimite ? dateIso_(p.dateLimite) : ''; if (d !== dateIso_(r.a.DateLimite)) { ch.DateLimite = d; modifs.push('échéance'); } }
   if (p.enContinu !== undefined && !!p.enContinu !== estContinue_(r.a)) { ch.EnContinu = p.enContinu ? 'Oui' : ''; modifs.push(p.enContinu ? 'activité en continu' : 'fin du mode continu'); }
@@ -2176,7 +2281,7 @@ function updateActivite_(actor, p) {
   if (p.cibleRoles !== undefined && typeFinal !== TYPE_TACHE_) {
     const roles = (Array.isArray(p.cibleRoles) ? p.cibleRoles : []).filter(x => RANG_ROLE_[x] !== undefined && RANG_ROLE_[x] < RANG_ROLE_[actor.Role]);
     if (!roles.length) return { ok: false, error: 'Cochez au moins un niveau destinataire.' };
-    if (!comptesCiblesActivite_(actor, roles).length) return { ok: false, error: 'Aucun compte actif dans votre hiérarchie pour ces niveaux.' };
+    if (!comptesCiblesActivite_(actor, roles, r.a).length) return { ok: false, error: 'Aucun compte actif dans votre hiérarchie (et la zone ciblée) pour ces niveaux.' };
     if (quitteTache || JSON.stringify(roles) !== JSON.stringify(parseArr_(r.a.CibleRoles))) { ch.CibleRoles = JSON.stringify(roles); modifs.push('destinataires'); }
   }
   // Questionnaire d'une tâche : questions ajoutées, modifiées, déplacées ou retirées ; durée du suivi.
@@ -2184,7 +2289,7 @@ function updateActivite_(actor, p) {
   if (nouvelleTache) {
     // Une activité classique devient une tâche : questionnaire obligatoire, destinataires = RC de la hiérarchie.
     let q; try { q = nettoyerQuestionnaire_(p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
-    if (!comptesCiblesActivite_(actor, ['RC']).length) return { ok: false, error: 'Aucun relais communautaire actif dans votre hiérarchie.' };
+    if (!comptesCiblesActivite_(actor, ['RC'], r.a).length) return { ok: false, error: 'Aucun relais communautaire actif dans votre hiérarchie (et la zone ciblée).' };
     ch.Questionnaire = JSON.stringify(q); ch.CibleRoles = JSON.stringify(['RC']); modifs.push('questionnaire');
   } else if (quitteTache) {
     ch.Questionnaire = '';
@@ -2196,6 +2301,37 @@ function updateActivite_(actor, p) {
       ch.Questionnaire = JSON.stringify(q);
       if (q.dureeJours !== ancien.dureeJours) { modifs.push('durée du suivi'); prolongation = q.dureeJours; }
       if (JSON.stringify(q.champsCas) !== JSON.stringify(ancien.champsCas) || JSON.stringify(q.champsSuivi) !== JSON.stringify(ancien.champsSuivi)) modifs.push('questionnaire');
+    }
+  }
+  // Questionnaire simple d'une « Collecte de données » : ajout, modification, retrait.
+  const avaitQ = aQuestionnaireSimple_(r.a);
+  const nbReponsesCollecte = () => readSheet_(SHEETS.COLLECTES).filter(x => x.ActiviteId === r.a.ID).length;
+  if (r.a.Type === TYPE_COLLECTE_ && typeFinal !== TYPE_COLLECTE_ && avaitQ) {
+    if (nbReponsesCollecte()) return { ok: false, error: 'Ce questionnaire a déjà reçu des réponses : supprimez-les d\'abord pour changer le type de l\'activité.' };
+    ch.Questionnaire = '';
+  } else if (typeFinal === TYPE_COLLECTE_ && p.questionnaire !== undefined) {
+    const veut = p.questionnaire && Array.isArray(p.questionnaire.champs) && p.questionnaire.champs.length > 0;
+    if (!veut) {
+      if (avaitQ) {
+        if (nbReponsesCollecte()) return { ok: false, error: 'Ce questionnaire a déjà reçu des réponses : vous ne pouvez pas le retirer (supprimez d\'abord les réponses).' };
+        ch.Questionnaire = ''; modifs.push('questionnaire retiré');
+      }
+    } else {
+      let q; try { q = avaitQ ? fusionnerQuestionnaireSimple_(questionnaireSimpleDe_(r.a), p.questionnaire) : nettoyerQuestionnaireSimple_(p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
+      if (!avaitQ || JSON.stringify(q.champs) !== JSON.stringify(questionnaireSimpleDe_(r.a).champs)) { ch.Questionnaire = JSON.stringify(q); modifs.push('questionnaire'); }
+    }
+  }
+  const aQApres = typeFinal === TYPE_COLLECTE_ && (ch.Questionnaire !== undefined ? !!ch.Questionnaire : avaitQ);
+  if (typeFinal !== TYPE_TACHE_ && typeFinal !== 'Information / Document' && !aQApres && !String(ch.Lien !== undefined ? ch.Lien : (r.a.Lien || '')).trim()) return { ok: false, error: typeFinal === TYPE_COLLECTE_ ? 'Ajoutez le lien du formulaire ou rédigez un questionnaire dans la plateforme.' : 'Ajoutez le lien du formulaire, de la formation ou du test.' };
+  // Zone ciblée (commune(s) / arrondissement(s)).
+  if (p.cibleCommunes !== undefined || p.cibleArrondissements !== undefined) {
+    const geo = ciblageGeoDemande_(actor, p);
+    if (geo.err) return { ok: false, error: geo.err };
+    const nouvelleC = JSON.stringify(geo.communes), nouvelleA = JSON.stringify(geo.arrondissements);
+    if (nouvelleC !== JSON.stringify(parseArr_(r.a.CibleCommunes)) || nouvelleA !== JSON.stringify(parseArr_(r.a.CibleArrondissements))) {
+      const rolesApres = typeFinal === TYPE_TACHE_ ? ['RC'] : parseArr_(ch.CibleRoles !== undefined ? ch.CibleRoles : r.a.CibleRoles);
+      if (!comptesCiblesActivite_(actor, rolesApres, { CibleCommunes: nouvelleC, CibleArrondissements: nouvelleA }).length) return { ok: false, error: 'Aucun compte actif de ce(s) niveau(x) dans la zone choisie.' };
+      ch.CibleCommunes = nouvelleC; ch.CibleArrondissements = nouvelleA; ch.CibleGeoLibelle = geo.libelle; modifs.push('zone ciblée');
     }
   }
   if (quitteTache && ch.CibleRoles === undefined) return { ok: false, error: 'Cochez au moins un niveau destinataire.' };
@@ -2210,7 +2346,7 @@ function updateActivite_(actor, p) {
   const apres = Object.assign({}, r.a, ch);
   if (modifs.length && apres.Statut === 'Active') {
     const createur = { ID: r.a.CreeParId, Role: r.a.CreeParRole };
-    notifierCiblesActivite_(comptesCiblesActivite_(createur, parseArr_(apres.CibleRoles)), apres,
+    notifierCiblesActivite_(comptesCiblesActivite_(createur, parseArr_(apres.CibleRoles), apres), apres,
       `Activité modifiée : « ${apres.Titre} » (${modifs.join(', ')}) - par ${r.a.CreeParNom}`);
   }
   return { ok: true, modifications: modifs };
@@ -2275,7 +2411,7 @@ function commenterActivite_(actor, p) {
   updateRowById_(SHEETS.ACTIVITES, r.a.ID, { Commentaires: JSON.stringify(com), DateModification: nowStr_() });
   if (r.a.Statut === 'Active' && !activiteEcheue_(r.a)) {
     const createur = { ID: r.a.CreeParId, Role: r.a.CreeParRole };
-    notifierCiblesActivite_(comptesCiblesActivite_(createur, parseArr_(r.a.CibleRoles)), r.a, `Nouveau commentaire sur l'activité « ${r.a.Titre} » : ${texte.slice(0, 140)}`);
+    notifierCiblesActivite_(comptesCiblesActivite_(createur, parseArr_(r.a.CibleRoles), r.a), r.a, `Nouveau commentaire sur l'activité « ${r.a.Titre} » : ${texte.slice(0, 140)}`);
   }
   return { ok: true };
 }
@@ -2286,6 +2422,7 @@ function deleteActivite_(actor, p) {
   deleteRowsWhere_(SHEETS.ACTIVITES_SUIVI, 'ActiviteId', r.a.ID);
   if (estTache_(r.a)) { deleteRowsWhere_(SHEETS.TACHES_CAS, 'ActiviteId', r.a.ID); deleteRowsWhere_(SHEETS.TACHES_SUIVIS, 'ActiviteId', r.a.ID); }
   deleteRowsWhere_(SHEETS.REALISATIONS, 'ActiviteId', r.a.ID);
+  deleteRowsWhere_(SHEETS.COLLECTES, 'ActiviteId', r.a.ID);
   return { ok: true };
 }
 
@@ -2432,7 +2569,7 @@ function enrichirCas_(c, suivisDuCas, aujourdhui) {
     Reponses: (function () { try { return JSON.parse(c.Reponses || '{}'); } catch (e) { return {}; } })(),
     DateEnregistrement: enreg, DateFinSuivi: fin, DureeJours: duree, Etat: etat, Issue: c.Issue || '', DateCloture: dateIso_(c.DateCloture),
     HorsLigne: c.HorsLigne || '',
-    Suivis: suivisDuCas.map(s => ({ Jour: dateIso_(s.Jour), DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
+    Suivis: suivisDuCas.map(s => ({ ID: s.ID, Jour: dateIso_(s.Jour), DateSaisie: s.DateSaisie, Reponses: (function () { try { return JSON.parse(s.Reponses || '{}'); } catch (e) { return {}; } })() }))
       .sort((x, y) => x.Jour.localeCompare(y.Jour)),
     NbAttendus: attendus.length, NbFaits: attendus.length - manquants.length, JoursManquants: manquants,
     SuiviDu: etat === 'En suivi' && manquants.indexOf(aujourdhui) !== -1
@@ -4066,4 +4203,86 @@ function deleteFicheNotif_(actor, p) {
   if (!f || f.CreeParId !== actor.ID) return { ok: false, error: 'Fiche introuvable ou non supprimable par ce compte.' };
   deleteRowById_(SHEETS.FICHES_NOTIF, f.ID);
   return { ok: true };
+}
+
+// ============================================================
+// COLLECTE DE DONNÉES AVEC QUESTIONNAIRE SIMPLE (activité de type « Collecte de données »)
+// ============================================================
+// Le demandeur rédige un questionnaire simple dans la plateforme (questions ouvertes, fermées, à choix multiples, oui/non,
+// nombre, date). Chaque destinataire peut le remplir autant de fois que nécessaire, y compris HORS CONNEXION (envoi différé).
+// Le demandeur consulte toutes les réponses de sa hiérarchie et peut en supprimer ; un destinataire peut retirer les siennes.
+
+function submitCollecte_(actor, p) {
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === p.activiteId);
+  if (!a || a.Statut !== 'Active' || !parseArr_(a.CibleRoles).includes(actor.Role) || !chainAbove_(actor).some(sup => sup.ID === a.CreeParId) || !filtreGeoActivite_(a)(actor))
+    return { ok: false, error: 'Activité introuvable pour votre compte.' };
+  const q = a.Type === TYPE_COLLECTE_ ? questionnaireSimpleDe_(a) : null;
+  if (!q) return { ok: false, error: 'Cette activité n\'a pas de questionnaire intégré.' };
+  const saisie = dateSaisieClient_(p);
+  // Une saisie faite hors connexion avant l'échéance reste valable même si elle est synchronisée après.
+  const dateRef = saisie ? saisie.slice(0, 10) : aujourdhuiIso_();
+  const dl = dateIso_(a.DateLimite);
+  if (dl && dateRef > dl) return { ok: false, error: 'Cette collecte est close (échéance dépassée).' };
+  const clientId = String(p.clientId || '');
+  if (clientId) { const deja = readSheet_(SHEETS.COLLECTES).find(x => x.ClientId === clientId && x.UserId === actor.ID); if (deja) return { ok: true, doublon: true, id: deja.ID }; }
+  let reponses; try { reponses = nettoyerReponses_(q.champs, p.reponses); } catch (e) { return { ok: false, error: e.message }; }
+  const rec = {
+    ID: newId_('COL'), ActiviteId: a.ID, UserId: actor.ID, UserNom: actor.Prenom + ' ' + actor.Nom, Role: actor.Role,
+    CommuneId: actor.CommuneId || '', ArrondissementId: actor.ArrondissementId || '', VillageNom: actor.VillageNom || '',
+    Lieu: coupe_(p.lieu, 120), Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: clientId, HorsLigne: saisie ? 'Oui' : ''
+  };
+  appendRow_(SHEETS.COLLECTES, rec);
+  return { ok: true, id: rec.ID };
+}
+
+function listCollectes_(actor, p) {
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === p.activiteId);
+  if (!a || a.Type !== TYPE_COLLECTE_) return { ok: false, error: 'Activité introuvable.' };
+  const q = questionnaireSimpleDe_(a); if (!q) return { ok: false, error: 'Cette activité n\'a pas de questionnaire intégré.' };
+  const demandeur = a.CreeParId === actor.ID || actor.Role === ROLES.NATIONAL;
+  if (!demandeur && !(parseArr_(a.CibleRoles).includes(actor.Role) && chainAbove_(actor).some(sup => sup.ID === a.CreeParId) && filtreGeoActivite_(a)(actor))) return { ok: false, error: 'Activité introuvable pour votre compte.' };
+  let rows = readSheet_(SHEETS.COLLECTES).filter(x => x.ActiviteId === a.ID);
+  const users = {}; readSheet_(SHEETS.USERS).forEach(u => { users[u.ID] = u; });
+  if (demandeur) {
+    const ref = actor.Role === ROLES.NATIONAL && a.CreeParId !== actor.ID ? { ID: a.CreeParId, Role: a.CreeParRole } : actor;
+    rows = rows.filter(x => users[x.UserId] && isSupervisorOf_(ref, users[x.UserId]));
+  } else rows = rows.filter(x => x.UserId === actor.ID);
+  const out = rows.map(x => {
+    let rep = {}; try { rep = JSON.parse(x.Reponses || '{}'); } catch (e) { rep = {}; }
+    const u = users[x.UserId] || {};
+    return { ID: x.ID, UserId: x.UserId, UserNom: x.UserNom, Role: x.Role, Lieu: x.Lieu || u.VillageNom || u.ArrondissementNom || u.CommuneNom || '', DateSaisie: x.DateSaisie, HorsLigne: x.HorsLigne || '', Reponses: rep };
+  }).sort((x, y) => String(y.DateSaisie).localeCompare(String(x.DateSaisie)));
+  return { ok: true, reponses: out, activite: { id: a.ID, titre: a.Titre, questionnaire: q }, enTantQueDemandeur: demandeur };
+}
+
+function supprimerCollectes_(actor, p) {
+  const a = readSheet_(SHEETS.ACTIVITES).find(x => x.ID === p.activiteId);
+  if (!a) return { ok: false, error: 'Activité introuvable.' };
+  const demandeur = a.CreeParId === actor.ID || actor.Role === ROLES.NATIONAL;
+  const ids = (Array.isArray(p.ids) ? p.ids : []).map(String).slice(0, 2000);
+  if (!ids.length) return { ok: false, error: 'Sélectionnez au moins une réponse.' };
+  const rows = readSheet_(SHEETS.COLLECTES).filter(x => x.ActiviteId === a.ID && ids.indexOf(String(x.ID)) !== -1 && (demandeur || x.UserId === actor.ID));
+  if (!rows.length) return { ok: false, error: 'Aucune réponse supprimable parmi la sélection.' };
+  deleteRowsWhereIn_(SHEETS.COLLECTES, 'ID', new Set(rows.map(x => String(x.ID))));
+  if (demandeur) {
+    const parUser = {}; rows.forEach(x => { if (x.UserId !== actor.ID) parUser[x.UserId] = (parUser[x.UserId] || 0) + 1; });
+    const users = readSheet_(SHEETS.USERS);
+    Object.keys(parUser).forEach(uid => { const u = users.find(z => z.ID === uid); if (u) notifierComptes_([u], 'ACTIVITE', a.ID, `${parUser[uid]} de vos réponses au questionnaire « ${a.Titre} » ont été supprimées par ${a.CreeParNom}.`); });
+  }
+  return { ok: true, supprimes: rows.length };
+}
+
+// Le demandeur d'une tâche (ou le National) supprime des suivis journaliers précis (une erreur de saisie, par exemple), sans supprimer le cas.
+function tacheSupprimerSuivis_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.activiteId); if (r.err) return { ok: false, error: r.err.replace('la modifier', 'supprimer ses données') };
+  if (!estTache_(r.a)) return { ok: false, error: 'Cette activité n\'a pas de suivis.' };
+  const ids = (Array.isArray(p.suiviIds) ? p.suiviIds : []).map(String).slice(0, 2000);
+  if (!ids.length) return { ok: false, error: 'Sélectionnez au moins un suivi à supprimer.' };
+  const suivis = readSheet_(SHEETS.TACHES_SUIVIS).filter(x => x.ActiviteId === r.a.ID && ids.indexOf(String(x.ID)) !== -1);
+  if (!suivis.length) return { ok: false, error: 'Aucun des suivis sélectionnés n\'existe plus.' };
+  deleteRowsWhereIn_(SHEETS.TACHES_SUIVIS, 'ID', new Set(suivis.map(x => String(x.ID))));
+  const parRc = {}; suivis.forEach(x => { parRc[x.RcId] = (parRc[x.RcId] || 0) + 1; });
+  const users = readSheet_(SHEETS.USERS);
+  Object.keys(parRc).forEach(rcId => { const rc = users.find(u => u.ID === rcId); if (rc) notifierComptes_([rc], 'ACTIVITE', r.a.ID, `${parRc[rcId]} suivi(s) que vous aviez saisi(s) dans la tâche « ${r.a.Titre} » ont été supprimé(s) par ${r.a.CreeParNom} : vous pouvez les ressaisir.`); });
+  return { ok: true, supprimes: suivis.length };
 }

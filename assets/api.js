@@ -195,3 +195,11 @@ function badgeStatut_(statut) {
   const lib = statut === 'Nouveau' ? 'En attente' : statut;
   return `<span class="badge ${cls}">${escHtml(lib)}</span>`;
 }
+
+// ============================================================
+// EXPOSITION GLOBALE — nécessaire au mode hors connexion
+// ============================================================
+// Un « const » de script classique n'est PAS une propriété de window : sans ces deux lignes, assets/hors-ligne.js
+// (qui lit window.Api et window.Session) ne trouve rien et n'active ni la file d'envoi différé ni la lecture hors connexion.
+window.Api = Api;
+window.Session = Session;

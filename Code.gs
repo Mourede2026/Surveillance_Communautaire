@@ -66,7 +66,8 @@ const SHEETS = {
   PARAMETRES: 'Parametres',
   REALISATIONS: 'ActivitesRealisations',
   FICHES_NOTIF: 'FichesNotification',
-  COLLECTES: 'CollecteReponses'
+  COLLECTES: 'CollecteReponses',
+  COLLECTE_ANALYSES: 'CollecteAnalyses'
 };
 
 const ROLES = {
@@ -161,6 +162,7 @@ const COLS = {
   // Activités « en continu » : le destinataire les renseigne autant de fois que nécessaire (une ligne par réalisation).
   ActivitesRealisations: ['ID','ActiviteId','UserId','UserNom','Date','Nombre','Note','DateSaisie','ClientId'],
   // Réponses au questionnaire simple d'une activité « Collecte de données » (une ligne par questionnaire rempli).
+  CollecteAnalyses: ['ID','ActiviteId','Genre','Titre','Config','Ordre','CreeParId','DateCreation','DateModif'],
   CollecteReponses: ['ID','ActiviteId','UserId','UserNom','Role','CommuneId','ArrondissementId','VillageNom','Lieu','Reponses','DateSaisie','ClientId','HorsLigne'],
   // Fiche générique de notification des maladies sous surveillance (« 1_BJ_FORMULAIRE GENERIQUE... »),
   // remplie de façon indépendante par le RCSE. Donnees = JSON complet de la fiche (cases cochées + champs) ;
@@ -262,6 +264,8 @@ function doPost(e) {
       submitCollecte: () => avecVerrou_(() => submitCollecte_(user, payload)),
       listCollectes: () => listCollectes_(user, payload),
       supprimerCollectes: () => avecVerrou_(() => supprimerCollectes_(user, payload)),
+      saveCollecteAnalyse: () => avecVerrou_(() => saveCollecteAnalyse_(user, payload)),
+      supprimerCollecteAnalyse: () => avecVerrou_(() => supprimerCollecteAnalyse_(user, payload)),
       tacheSupprimerSuivis: () => avecVerrou_(() => tacheSupprimerSuivis_(user, payload)),
       saveFicheNotif: () => avecVerrou_(() => saveFicheNotif_(user, payload)),
       listFichesNotif: () => listFichesNotif_(user),
@@ -2056,7 +2060,7 @@ function nettoyerQuestionnaireSimple_(q) {
 function fusionnerQuestionnaireSimple_(ancien, nouveau) {
   const anc = ancien.champs || [], num = id => Number(String(id).replace(/\D/g, '')) || 0;
   let seq = Math.max(Number(ancien.seq) || 0, anc.reduce((m, c) => Math.max(m, num(c.id)), 0));
-  const vus = {}, out = [];
+  const vus = {}, out = [], srcs = [];
   (Array.isArray(nouveau && nouveau.champs) ? nouveau.champs : []).slice(0, 40).forEach(c => {
     const label = coupe_(c && c.label, 140); if (!label) return;
     const existant = c.id ? anc.find(x => x.id === c.id) : null;
@@ -2069,9 +2073,10 @@ function fusionnerQuestionnaireSimple_(ancien, nouveau) {
     }
     const id = existant ? existant.id : 'c' + (++seq);
     if (existant) vus[id] = true;
-    out.push({ id: id, label: label, type: type, options: options, obligatoire: !!c.obligatoire });
+    out.push({ id: id, label: label, type: type, options: options, obligatoire: type === 'calcul' ? false : !!c.obligatoire }); srcs.push(c);
   });
   if (!out.length) throw new Error('Gardez au moins une question dans le questionnaire.');
+  resoudreFormules_(out, srcs, 'Questionnaire');
   return { champs: out, seq: seq };
 }
 function estContinue_(a) { return !!a && String(a.EnContinu) === 'Oui'; }
@@ -2296,12 +2301,13 @@ function updateActivite_(actor, p) {
   } else if (p.questionnaire !== undefined && estTache_(r.a)) {
     const ancien = questionnaireDe_(r.a);
     let q; try { q = fusionnerQuestionnaire_(ancien, p.questionnaire); } catch (e) { return { ok: false, error: e.message }; }
-    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours, s: ancien.suivisParJour, g: ancien.gpsSuivi });
-    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours, s: q.suivisParJour, g: q.gpsSuivi }) !== avant) {
+    const avant = JSON.stringify({ a: ancien.champsCas, b: ancien.champsSuivi, d: ancien.dureeJours, s: ancien.suivisParJour, g: ancien.gpsSuivi, l: ancien.libellesSeances });
+    if (JSON.stringify({ a: q.champsCas, b: q.champsSuivi, d: q.dureeJours, s: q.suivisParJour, g: q.gpsSuivi, l: q.libellesSeances }) !== avant) {
       ch.Questionnaire = JSON.stringify(q);
       if (q.dureeJours !== ancien.dureeJours) { modifs.push('durée du suivi'); prolongation = q.dureeJours; }
       if (q.suivisParJour !== ancien.suivisParJour) modifs.push('nombre de suivis par jour');
       if (q.gpsSuivi !== ancien.gpsSuivi) modifs.push('position GPS du suivi');
+      if (JSON.stringify(q.libellesSeances) !== JSON.stringify(ancien.libellesSeances) && q.suivisParJour === ancien.suivisParJour) modifs.push('noms des suivis de la journée');
       if (JSON.stringify(q.champsCas) !== JSON.stringify(ancien.champsCas) || JSON.stringify(q.champsSuivi) !== JSON.stringify(ancien.champsSuivi)) modifs.push('questionnaire');
     }
   }
@@ -2425,6 +2431,7 @@ function deleteActivite_(actor, p) {
   if (estTache_(r.a)) { deleteRowsWhere_(SHEETS.TACHES_CAS, 'ActiviteId', r.a.ID); deleteRowsWhere_(SHEETS.TACHES_SUIVIS, 'ActiviteId', r.a.ID); }
   deleteRowsWhere_(SHEETS.REALISATIONS, 'ActiviteId', r.a.ID);
   deleteRowsWhere_(SHEETS.COLLECTES, 'ActiviteId', r.a.ID);
+  deleteRowsWhere_(SHEETS.COLLECTE_ANALYSES, 'ActiviteId', r.a.ID);
   return { ok: true };
 }
 
@@ -2450,23 +2457,142 @@ function marquerActivite_(actor, p) {
 // Les réponses sont enregistrées dans les feuilles TachesCas / TachesSuivis et consultées par le
 // demandeur (et le National) dans l'onglet Activités > « Données collectées ».
 
-const TYPES_CHAMP_ = ['texte', 'texte_long', 'nombre', 'date', 'choix', 'choix_multiple', 'oui_non'];
+// Types de questions : les tâches de suivi gardent la liste historique ; la collecte de données dispose de la liste complète.
+const TYPES_TACHE_ = ['texte', 'texte_long', 'nombre', 'date', 'choix', 'choix_multiple', 'oui_non'];
+const TYPES_CHAMP_ = TYPES_TACHE_.concat(['entier', 'decimal', 'heure', 'gps', 'signature', 'calcul']);
+const TYPES_NUMERIQUES_ = ['nombre', 'entier', 'decimal', 'oui_non', 'calcul'];
+
+// Évaluateur de formules sans eval() (même code que assets/formules.js).
+const Formules_ = (function () {
+  // Évaluateur de formules arithmétiques SANS eval() — partagé entre le navigateur et Code.gs.
+  // Syntaxe : nombres (1,5 ou 1.5), {c3} (réponse à une question), Nom (variable/paramètre), + - * / ^ ( ), comparaisons
+  // (> < >= <= = != <>) qui rendent 1 ou 0, et les fonctions ABS RACINE ARRONDI(x;n) MIN MAX SOMME MOYENNE SI(cond;a;b).
+  var FONCTIONS = { ABS: 1, RACINE: 1, ARRONDI: 1, MIN: 1, MAX: 1, SOMME: 1, MOYENNE: 1, SI: 1 };
+  function tokeniser(s) {
+    var t = [], i = 0, m;
+    s = String(s == null ? '' : s);
+    while (i < s.length) {
+      var c = s.charAt(i);
+      if (/\s/.test(c)) { i++; continue; }
+      if (c === '{') { var j = s.indexOf('}', i); if (j < 0) throw new Error('Formule invalide : accolade « { » non fermée.'); t.push({ k: 'ref', v: s.slice(i + 1, j).trim() }); i = j + 1; continue; }
+      if ((m = /^\d+(?:[.,]\d+)?/.exec(s.slice(i)))) { t.push({ k: 'num', v: parseFloat(m[0].replace(',', '.')) }); i += m[0].length; continue; }
+      if ((m = /^[A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_]*/.exec(s.slice(i)))) { t.push({ k: 'id', v: m[0] }); i += m[0].length; continue; }
+      if ((m = /^(>=|<=|!=|<>|[><=+\-*\/^();])/.exec(s.slice(i)))) { t.push({ k: 'op', v: m[0] === '<>' ? '!=' : m[0] }); i += m[0].length; continue; }
+      throw new Error('Formule invalide : caractère « ' + c + ' » non reconnu.');
+    }
+    return t;
+  }
+  function analyser(expr) {
+    var t = tokeniser(expr), p = 0, refs = [], ids = [];
+    if (!t.length) throw new Error('Formule vide.');
+    function ahead() { return t[p]; }
+    function op(v) { var x = t[p]; if (x && x.k === 'op' && x.v === v) { p++; return true; } return false; }
+    function attendre(v) { if (!op(v)) throw new Error('Formule invalide : « ' + v + ' » attendu.'); }
+    function comparaison() {
+      var a = additif(), x = ahead();
+      if (x && x.k === 'op' && ['>', '<', '>=', '<=', '=', '!='].indexOf(x.v) !== -1) { p++; return { n: 'cmp', o: x.v, a: a, b: additif() }; }
+      return a;
+    }
+    function additif() { var a = terme(); while (ahead() && ahead().k === 'op' && (ahead().v === '+' || ahead().v === '-')) { var o = t[p++].v; a = { n: 'bin', o: o, a: a, b: terme() }; } return a; }
+    function terme() { var a = puissance(); while (ahead() && ahead().k === 'op' && (ahead().v === '*' || ahead().v === '/')) { var o = t[p++].v; a = { n: 'bin', o: o, a: a, b: puissance() }; } return a; }
+    function puissance() { var a = unaire(); if (op('^')) return { n: 'bin', o: '^', a: a, b: puissance() }; return a; }
+    function unaire() { if (op('-')) return { n: 'neg', a: unaire() }; if (op('+')) return unaire(); return primaire(); }
+    function primaire() {
+      var x = t[p++];
+      if (!x) throw new Error('Formule invalide : expression incomplète.');
+      if (x.k === 'num') return { n: 'num', v: x.v };
+      if (x.k === 'ref') { if (!x.v) throw new Error('Formule invalide : référence { } vide.'); if (refs.indexOf(x.v) === -1) refs.push(x.v); return { n: 'ref', v: x.v }; }
+      if (x.k === 'id') {
+        var nom = x.v.toUpperCase();
+        if (ahead() && ahead().k === 'op' && ahead().v === '(' && FONCTIONS[nom]) {
+          p++; var args = [];
+          if (!op(')')) { do { args.push(comparaison()); } while (op(';')); attendre(')'); }
+          if (nom === 'SI' && args.length !== 3) throw new Error('Formule invalide : SI(condition ; si_vrai ; si_faux) attend 3 valeurs.');
+          if (nom === 'ARRONDI' && (args.length < 1 || args.length > 2)) throw new Error('Formule invalide : ARRONDI(valeur ; décimales).');
+          if ((nom === 'ABS' || nom === 'RACINE') && args.length !== 1) throw new Error('Formule invalide : ' + nom + ' attend 1 valeur.');
+          if ((nom === 'MIN' || nom === 'MAX' || nom === 'SOMME' || nom === 'MOYENNE') && !args.length) throw new Error('Formule invalide : ' + nom + ' attend au moins 1 valeur.');
+          return { n: 'fn', f: nom, args: args };
+        }
+        if (FONCTIONS[nom] && ahead() && ahead().k === 'op' && ahead().v === '(') throw new Error('Formule invalide.');
+        if (ids.indexOf(x.v) === -1) ids.push(x.v);
+        return { n: 'id', v: x.v };
+      }
+      if (x.v === '(') { var e = comparaison(); attendre(')'); return e; }
+      throw new Error('Formule invalide : « ' + x.v + ' » inattendu.');
+    }
+    var ast = comparaison();
+    if (p < t.length) throw new Error('Formule invalide : « ' + t[p].v + ' » inattendu.');
+    return { ast: ast, refs: refs, ids: ids };
+  }
+  // resolveur(type, nom) → nombre ou NaN (type : 'ref' | 'id'). Résultat NaN si une donnée manque ou division par zéro.
+  function calculer(an, resolveur) {
+    function ev(x) {
+      switch (x.n) {
+        case 'num': return x.v;
+        case 'ref': return Number(resolveur('ref', x.v));
+        case 'id': return Number(resolveur('id', x.v));
+        case 'neg': return -ev(x.a);
+        case 'cmp': { var a = ev(x.a), b = ev(x.b); if (isNaN(a) || isNaN(b)) return NaN; return ({ '>': a > b, '<': a < b, '>=': a >= b, '<=': a <= b, '=': Math.abs(a - b) < 1e-9, '!=': Math.abs(a - b) >= 1e-9 })[x.o] ? 1 : 0; }
+        case 'bin': { var u = ev(x.a), v = ev(x.b); if (isNaN(u) || isNaN(v)) return NaN;
+          if (x.o === '+') return u + v; if (x.o === '-') return u - v; if (x.o === '*') return u * v;
+          if (x.o === '/') return v === 0 ? NaN : u / v; var r = Math.pow(u, v); return isFinite(r) ? r : NaN; }
+        case 'fn': {
+          if (x.f === 'SI') { var cnd = ev(x.args[0]); if (isNaN(cnd)) return NaN; return cnd !== 0 ? ev(x.args[1]) : ev(x.args[2]); }
+          var vals = x.args.map(ev); if (vals.some(isNaN)) return NaN;
+          if (x.f === 'ABS') return Math.abs(vals[0]);
+          if (x.f === 'RACINE') return vals[0] < 0 ? NaN : Math.sqrt(vals[0]);
+          if (x.f === 'ARRONDI') { var d = Math.max(0, Math.min(10, Math.round(vals[1] || 0))), f = Math.pow(10, d); return Math.round(vals[0] * f) / f; }
+          if (x.f === 'MIN') return Math.min.apply(null, vals);
+          if (x.f === 'MAX') return Math.max.apply(null, vals);
+          if (x.f === 'SOMME') return vals.reduce(function (s, y) { return s + y; }, 0);
+          return vals.reduce(function (s, y) { return s + y; }, 0) / vals.length;
+        }
+      }
+      return NaN;
+    }
+    var r = ev(an.ast);
+    return isFinite(r) ? Math.round(r * 1e9) / 1e9 : NaN;
+  }
+  return { analyser: analyser, calculer: calculer };
+})();
+
+// Questions « Calcul automatique » : le demandeur désigne les autres questions par leur rang ({Q1}, {Q2}…) ; la formule est
+// stockée avec les identifiants ({c3}), ce qui la protège des changements d'ordre ultérieurs.
+function resoudreFormules_(out, srcs, lib) {
+  out.forEach((c, i) => {
+    if (c.type !== 'calcul') return;
+    const brut = coupe_(srcs[i] && srcs[i].formule, 300);
+    if (!brut) throw new Error('Dans « ' + lib + ' », le calcul « ' + c.label + ' » n\'a pas de formule.');
+    const f = brut.replace(/\{\s*Q(\d+)\s*\}/gi, (m, n) => {
+      const k = Number(n) - 1;
+      if (k < 0 || k >= out.length || k === i) throw new Error('Calcul « ' + c.label + ' » : la question Q' + n + ' n\'existe pas ou désigne le calcul lui-même.');
+      if (TYPES_NUMERIQUES_.indexOf(out[k].type) === -1) throw new Error('Calcul « ' + c.label + ' » : la question Q' + n + ' n\'est pas numérique.');
+      if (out[k].type === 'calcul' && k > i) throw new Error('Calcul « ' + c.label + ' » : il ne peut utiliser qu\'un calcul placé avant lui dans la liste.');
+      return '{' + out[k].id + '}';
+    });
+    let an; try { an = Formules_.analyser(f); } catch (e) { throw new Error('Calcul « ' + c.label + ' » : ' + e.message); }
+    if (an.ids.length) throw new Error('Calcul « ' + c.label + ' » : « ' + an.ids[0] + ' » n\'est pas reconnu (désignez les questions par {Q1}, {Q2}…).');
+    an.refs.forEach(r => { if (!out.some(o => o.id === r)) throw new Error('Calcul « ' + c.label + ' » : question inconnue {' + r + '}.'); });
+    c.formule = f;
+  });
+}
 const ISSUES_CAS_ = ['Guéri', 'Décédé', 'Référé / transféré', 'Perdu de vue', 'Autre'];
 
-function nettoyerChamps_(arr, libelleListe) {
+function nettoyerChamps_(arr, libelleListe, types) {
   const liste = Array.isArray(arr) ? arr.slice(0, 40) : [];
-  const out = [];
+  const out = [], srcs = [];
   liste.forEach(c => {
     const label = coupe_(c && c.label, 140);
     if (!label) return;
-    const type = TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : 'texte';
+    const type = (types || TYPES_CHAMP_).indexOf(c.type) !== -1 ? c.type : 'texte';
     let options = [];
     if (type === 'choix' || type === 'choix_multiple') {
       options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
       if (options.length < 2) throw new Error('Dans « ' + libelleListe + ' », la question « ' + label + ' » doit proposer au moins 2 choix.');
     }
-    out.push({ id: 'c' + (out.length + 1), label: label, type: type, options: options, obligatoire: !!c.obligatoire });
+    out.push({ id: 'c' + (out.length + 1), label: label, type: type, options: options, obligatoire: type === 'calcul' ? false : !!c.obligatoire }); srcs.push(c);
   });
+  resoudreFormules_(out, srcs, libelleListe);
   return out;
 }
 
@@ -2485,16 +2611,24 @@ function modeGpsSuivi_(v, defaut) {
   return v;
 }
 
+// Nom de chaque suivi de la journée (matin, midi, soir… ou toute période choisie par le demandeur).
+function libellesSeances_(arr, spj) {
+  const src = Array.isArray(arr) ? arr : [];
+  const out = [];
+  for (let k = 0; k < spj; k++) out.push(coupe_(src[k], 40) || ('Séance ' + (k + 1)));
+  return out;
+}
+
 function nettoyerQuestionnaire_(q) {
   q = q || {};
-  const champsCas = nettoyerChamps_(q.champsCas, 'Informations du cas');
-  const champsSuivi = nettoyerChamps_(q.champsSuivi, 'Questionnaire de suivi');
+  const champsCas = nettoyerChamps_(q.champsCas, 'Informations du cas', TYPES_TACHE_);
+  const champsSuivi = nettoyerChamps_(q.champsSuivi, 'Questionnaire de suivi', TYPES_TACHE_);
   if (!champsCas.length) throw new Error('Ajoutez au moins une question dans « Informations du cas à recenser ».');
   if (!champsSuivi.length) throw new Error('Ajoutez au moins une question dans le « Questionnaire de suivi ».');
   const duree = Math.floor(Number(q.dureeJours));
   if (!isFinite(duree) || duree < 1 || duree > 90) throw new Error('La durée du suivi doit être comprise entre 1 et 90 jours.');
   const spj = nombreSuivisParJour_(q.suivisParJour, 1);
-  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, suivisParJour: spj, gpsSuivi: modeGpsSuivi_(q.gpsSuivi, 'facultatif'), seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
+  return { champsCas: champsCas, champsSuivi: champsSuivi, dureeJours: duree, suivisParJour: spj, libellesSeances: libellesSeances_(q.libellesSeances, spj), gpsSuivi: modeGpsSuivi_(q.gpsSuivi, 'facultatif'), seq: { champsCas: champsCas.length, champsSuivi: champsSuivi.length } };
 }
 
 // Modification d'un questionnaire déjà publié : les questions existantes (id connu) gardent leur identifiant,
@@ -2511,7 +2645,7 @@ function fusionnerQuestionnaire_(ancien, nouveau) {
       const label = coupe_(c && c.label, 140); if (!label) return;
       const existant = c.id ? anc.find(x => x.id === c.id) : null;
       if (existant && vus[existant.id]) return;
-      const type = TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : (existant ? existant.type : 'texte'); // le type reste modifiable ; les anciennes réponses sont conservées telles quelles
+      const type = TYPES_TACHE_.indexOf(c.type) !== -1 ? c.type : (existant && TYPES_TACHE_.indexOf(existant.type) !== -1 ? existant.type : 'texte'); // le type reste modifiable ; les anciennes réponses sont conservées telles quelles
       let options = [];
       if (type === 'choix' || type === 'choix_multiple') {
         options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
@@ -2530,12 +2664,16 @@ function fusionnerQuestionnaire_(ancien, nouveau) {
   out.dureeJours = duree;
   out.suivisParJour = nombreSuivisParJour_(nouveau.suivisParJour, ancien.suivisParJour || 1);
   out.gpsSuivi = modeGpsSuivi_(nouveau.gpsSuivi, ancien.gpsSuivi || 'facultatif');
+  out.libellesSeances = libellesSeances_(nouveau.libellesSeances !== undefined ? nouveau.libellesSeances : ancien.libellesSeances, out.suivisParJour);
   return out;
 }
 
 function questionnaireDe_(a) {
-  try { const q = JSON.parse(a.Questionnaire || '{}'); return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, suivisParJour: Math.min(10, Math.max(1, Math.floor(Number(q.suivisParJour)) || 1)), gpsSuivi: ['non', 'obligatoire'].indexOf(q.gpsSuivi) !== -1 ? q.gpsSuivi : 'facultatif', seq: q.seq || {} }; }
-  catch (e) { return { champsCas: [], champsSuivi: [], dureeJours: 7, suivisParJour: 1, gpsSuivi: 'facultatif', seq: {} }; }
+  let q = {};
+  try { q = JSON.parse(a.Questionnaire || '{}') || {}; } catch (e) { q = {}; }
+  const spj = Math.min(10, Math.max(1, Math.floor(Number(q.suivisParJour)) || 1));
+  return { champsCas: q.champsCas || [], champsSuivi: q.champsSuivi || [], dureeJours: Number(q.dureeJours) || 7, suivisParJour: spj,
+    libellesSeances: libellesSeances_(q.libellesSeances, spj), gpsSuivi: ['non', 'obligatoire'].indexOf(q.gpsSuivi) !== -1 ? q.gpsSuivi : 'facultatif', seq: q.seq || {} };
 }
 
 // Valide et normalise les réponses d'un RC par rapport à la liste de questions.
@@ -2546,7 +2684,16 @@ function nettoyerReponses_(champs, rep) {
     let v = rep[c.id];
     let vide = v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
     if (!vide) {
-      if (c.type === 'nombre') { const n = Number(v); if (!isFinite(n)) throw new Error('Réponse numérique attendue : ' + c.label); v = n; }
+      if (c.type === 'calcul') { vide = true; }
+      else if (c.type === 'nombre' || c.type === 'decimal') { const n = Number(v); if (!isFinite(n)) throw new Error('Réponse numérique attendue : ' + c.label); v = n; }
+      else if (c.type === 'entier') { const n = Number(v); if (!isFinite(n) || Math.floor(n) !== n) throw new Error('Nombre entier attendu : ' + c.label); v = n; }
+      else if (c.type === 'heure') { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v))) throw new Error('Heure invalide : ' + c.label); v = String(v); }
+      else if (c.type === 'gps') {
+        const la = Number(v && v.lat), lo = Number(v && v.lon), pr = v && v.precision !== undefined && v.precision !== null && v.precision !== '' ? Math.round(Number(v.precision)) : '';
+        if (!v || typeof v !== 'object' || !isFinite(la) || !isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) throw new Error('Position GPS invalide : ' + c.label);
+        v = { lat: Math.round(la * 1e6) / 1e6, lon: Math.round(lo * 1e6) / 1e6, precision: isFinite(pr) ? pr : '' };
+      }
+      else if (c.type === 'signature') { v = String(v); if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(v) || v.length > 40000) throw new Error('Signature invalide ou trop volumineuse : ' + c.label); }
       else if (c.type === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) throw new Error('Date invalide : ' + c.label); v = String(v); }
       else if (c.type === 'choix') { if (c.options.indexOf(String(v)) === -1) throw new Error('Choix invalide : ' + c.label); v = String(v); }
       else if (c.type === 'choix_multiple') { v = (Array.isArray(v) ? v : [v]).map(String).filter(x => c.options.indexOf(x) !== -1); vide = !v.length; }
@@ -2554,8 +2701,20 @@ function nettoyerReponses_(champs, rep) {
       else v = String(v).replace(/\r/g, '').trim().slice(0, c.type === 'texte_long' ? 2000 : 500);
       if (v === '') vide = true;
     }
-    if (vide) { if (c.obligatoire) throw new Error('Réponse obligatoire : ' + c.label); out[c.id] = (c.type === 'choix_multiple') ? [] : ''; }
+    if (vide) { if (c.obligatoire && c.type !== 'calcul') throw new Error('Réponse obligatoire : ' + c.label); out[c.id] = (c.type === 'choix_multiple') ? [] : ''; }
     else out[c.id] = v;
+  });
+  // Questions « Calcul automatique » : recalculées ici à partir des réponses validées (la valeur envoyée par l'appareil n'est jamais crue).
+  const numDe = id => {
+    const ch = champs.find(x => x.id === id), v = out[id]; if (!ch) return NaN;
+    if (ch.type === 'oui_non') return v === 'Oui' ? 1 : (v === 'Non' ? 0 : NaN);
+    if (v === '' || v === undefined || v === null || typeof v === 'object') return NaN;
+    const n = Number(v); return isFinite(n) ? n : NaN;
+  };
+  champs.forEach(c => {
+    if (c.type !== 'calcul') return;
+    let r = NaN; try { r = Formules_.calculer(Formules_.analyser(c.formule), (k, nom) => k === 'ref' ? numDe(nom) : NaN); } catch (e) { r = NaN; }
+    out[c.id] = isFinite(r) ? r : '';
   });
   return out;
 }
@@ -4288,7 +4447,14 @@ function listCollectes_(actor, p) {
     const u = users[x.UserId] || {};
     return { ID: x.ID, UserId: x.UserId, UserNom: x.UserNom, Role: x.Role, Lieu: x.Lieu || u.VillageNom || u.ArrondissementNom || u.CommuneNom || '', DateSaisie: x.DateSaisie, HorsLigne: x.HorsLigne || '', Reponses: rep };
   }).sort((x, y) => String(y.DateSaisie).localeCompare(String(x.DateSaisie)));
-  return { ok: true, reponses: out, activite: { id: a.ID, titre: a.Titre, questionnaire: q }, enTantQueDemandeur: demandeur };
+  const res = { ok: true, reponses: out, activite: { id: a.ID, titre: a.Titre, questionnaire: q }, enTantQueDemandeur: demandeur };
+  if (demandeur) {
+    // Analyses descriptives, indicateurs et paramètres enregistrés par le demandeur (évalués sur les lignes ci-dessus).
+    res.analyses = readSheet_(SHEETS.COLLECTE_ANALYSES).filter(x => x.ActiviteId === a.ID).sort((x, y) => (Number(x.Ordre) || 0) - (Number(y.Ordre) || 0))
+      .map(x => { let cfg = {}; try { cfg = JSON.parse(x.Config || '{}'); } catch (e) { cfg = {}; } return { ID: x.ID, Genre: x.Genre, Titre: x.Titre, Config: cfg }; });
+    res.peutAnalyser = a.CreeParId === actor.ID || actor.Role === ROLES.NATIONAL;
+  }
+  return res;
 }
 
 function supprimerCollectes_(actor, p) {
@@ -4306,6 +4472,88 @@ function supprimerCollectes_(actor, p) {
     Object.keys(parUser).forEach(uid => { const u = users.find(z => z.ID === uid); if (u) notifierComptes_([u], 'ACTIVITE', a.ID, `${parUser[uid]} de vos réponses au questionnaire « ${a.Titre} » ont été supprimées par ${a.CreeParNom}.`); });
   }
   return { ok: true, supprimes: rows.length };
+}
+
+// ---- Analyses descriptives, indicateurs et paramètres d'une collecte (enregistrés par le demandeur) ----
+const GENRES_ANALYSE_ = ['analyse', 'indicateur', 'parametre'];
+const OPS_FILTRE_ = ['=', '!=', '>', '<', '>=', '<=', 'contient'];
+const AGREGATS_ = ['nb', 'nb_valeurs', 'somme', 'moyenne', 'mediane', 'min', 'max'];
+const IDENT_RE_ = /^[A-Za-zÀ-ÿ_][A-Za-zÀ-ÿ0-9_]{0,29}$/;
+
+function nettoyerConfigAnalyse_(genre, cfg, q, a, idCourant) {
+  const champs = q.champs || [];
+  const champ = (v, meta, defautVide) => {
+    v = String(v || ''); if (!v) { if (defautVide) return ''; throw new Error('Choisissez une question.'); }
+    if (meta && ['meta:lieu', 'meta:compte', 'meta:niveau'].indexOf(v) !== -1) return v;
+    if (!champs.some(c => c.id === v)) throw new Error('Question inconnue dans l\'analyse.');
+    return v;
+  };
+  const filtre = f => {
+    if (!f || !f.champ) return null;
+    const op = OPS_FILTRE_.indexOf(f.op) !== -1 ? f.op : '=';
+    return { champ: champ(f.champ, true), op: op, valeur: coupe_(f.valeur, 80) };
+  };
+  const dateOk = d => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? String(d) : '';
+  if (genre === 'parametre') {
+    const nom = String(cfg.nom || '').trim();
+    if (!IDENT_RE_.test(nom)) throw new Error('Le nom du paramètre doit commencer par une lettre et ne contenir que lettres, chiffres ou _ (30 caractères max).');
+    if (['ABS', 'RACINE', 'ARRONDI', 'MIN', 'MAX', 'SOMME', 'MOYENNE', 'SI'].indexOf(nom.toUpperCase()) !== -1) throw new Error('« ' + nom + ' » est un nom de fonction : choisissez un autre nom.');
+    const valeur = Number(String(cfg.valeur).replace(',', '.'));
+    if (cfg.valeur === '' || cfg.valeur === null || cfg.valeur === undefined || !isFinite(valeur)) throw new Error('La valeur du paramètre doit être un nombre.');
+    return { nom: nom, valeur: valeur, unite: coupe_(cfg.unite, 20), description: coupe_(cfg.description, 200) };
+  }
+  if (genre === 'analyse') {
+    const type = String(cfg.type || '');
+    if (['frequences', 'numerique', 'croise', 'groupe', 'evolution'].indexOf(type) === -1) throw new Error('Type d\'analyse inconnu.');
+    const out = { type: type, filtre: filtre(cfg.filtre), du: dateOk(cfg.du), au: dateOk(cfg.au) };
+    if (type === 'frequences') out.champ = champ(cfg.champ, true);
+    else if (type === 'numerique') out.champ = champ(cfg.champ);
+    else if (type === 'croise') { out.ligne = champ(cfg.ligne, true); out.colonne = champ(cfg.colonne, true); out.pct = cfg.pct === 'ligne' || cfg.pct === 'colonne' ? cfg.pct : ''; }
+    else if (type === 'groupe') { out.valeur = champ(cfg.valeur); out.groupe = champ(cfg.groupe, true); out.stat = ['somme', 'moyenne', 'mediane', 'min', 'max', 'nb'].indexOf(cfg.stat) !== -1 ? cfg.stat : 'moyenne'; }
+    else { out.pas = ['jour', 'semaine', 'mois'].indexOf(cfg.pas) !== -1 ? cfg.pas : 'semaine'; out.champ = champ(cfg.champ, false, true); }
+    return out;
+  }
+  // indicateur
+  const vars = (Array.isArray(cfg.variables) ? cfg.variables : []).slice(0, 12).map(v => {
+    const nom = String(v && v.nom || '').trim();
+    if (!IDENT_RE_.test(nom)) throw new Error('Nom de variable invalide : « ' + nom + ' ».');
+    const agregat = AGREGATS_.indexOf(v.agregat) !== -1 ? v.agregat : 'nb';
+    return { nom: nom, agregat: agregat, champ: agregat === 'nb' ? champ(v.champ, false, true) : champ(v.champ), filtre: filtre(v.filtre) };
+  });
+  const noms = {}; vars.forEach(v => { if (noms[v.nom.toUpperCase()]) throw new Error('Nom de variable en double : ' + v.nom); noms[v.nom.toUpperCase()] = true; });
+  const formule = coupe_(cfg.formule, 400); if (!formule) throw new Error('Saisissez la formule de l\'indicateur.');
+  let an; try { an = Formules_.analyser(formule); } catch (e) { throw new Error(e.message); }
+  if (an.refs.length) throw new Error('Dans la formule, utilisez les noms des variables (pas {…}).');
+  const params = {}; readSheet_(SHEETS.COLLECTE_ANALYSES).filter(x => x.ActiviteId === a.ID && x.Genre === 'parametre').forEach(x => { try { params[JSON.parse(x.Config).nom.toUpperCase()] = true; } catch (e) { /* ignoré */ } });
+  an.ids.forEach(n => { if (!noms[n.toUpperCase()] && !params[n.toUpperCase()]) throw new Error('« ' + n + ' » n\'est ni une variable de l\'indicateur ni un paramètre enregistré.'); });
+  return { variables: vars, formule: formule, decimales: Math.max(0, Math.min(6, Math.floor(Number(cfg.decimales)) || 0)), unite: coupe_(cfg.unite, 20), description: coupe_(cfg.description, 300), du: dateOk(cfg.du), au: dateOk(cfg.au) };
+}
+
+function saveCollecteAnalyse_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.activiteId); if (r.err) return { ok: false, error: r.err.replace('la modifier', 'gérer ses analyses') };
+  const q = questionnaireSimpleDe_(r.a); if (!q) return { ok: false, error: 'Cette activité n\'a pas de questionnaire intégré.' };
+  const genre = String(p.genre || ''); if (GENRES_ANALYSE_.indexOf(genre) === -1) return { ok: false, error: 'Type d\'élément inconnu.' };
+  const toutes = readSheet_(SHEETS.COLLECTE_ANALYSES).filter(x => x.ActiviteId === r.a.ID);
+  const existant = p.id ? toutes.find(x => x.ID === p.id) : null;
+  if (p.id && !existant) return { ok: false, error: 'Élément introuvable.' };
+  if (!existant && toutes.filter(x => x.Genre === genre).length >= 40) return { ok: false, error: 'Limite atteinte (40 éléments de ce type par collecte).' };
+  let cfg; try { cfg = nettoyerConfigAnalyse_(genre, p.config && typeof p.config === 'object' ? p.config : {}, q, r.a); } catch (e) { return { ok: false, error: e.message }; }
+  if (genre === 'parametre' && toutes.some(x => x.Genre === 'parametre' && x.ID !== (existant && existant.ID) && (() => { try { return JSON.parse(x.Config).nom.toUpperCase() === cfg.nom.toUpperCase(); } catch (e) { return false; } })())) return { ok: false, error: 'Un paramètre porte déjà ce nom.' };
+  const titre = genre === 'parametre' ? cfg.nom : coupe_(p.titre, 120);
+  if (!titre) return { ok: false, error: 'Donnez un titre.' };
+  const json = JSON.stringify(cfg); if (json.length > 4000) return { ok: false, error: 'Configuration trop volumineuse.' };
+  if (existant) { updateRowById_(SHEETS.COLLECTE_ANALYSES, existant.ID, { Titre: titre, Config: json, DateModif: nowStr_() }); return { ok: true, id: existant.ID }; }
+  const rec = { ID: newId_('ANA'), ActiviteId: r.a.ID, Genre: genre, Titre: titre, Config: json, Ordre: toutes.reduce((m, x) => Math.max(m, Number(x.Ordre) || 0), 0) + 1, CreeParId: actor.ID, DateCreation: nowStr_(), DateModif: nowStr_() };
+  appendRow_(SHEETS.COLLECTE_ANALYSES, rec);
+  return { ok: true, id: rec.ID };
+}
+
+function supprimerCollecteAnalyse_(actor, p) {
+  const r = activiteDuCreateur_(actor, p.activiteId); if (r.err) return { ok: false, error: r.err.replace('la modifier', 'gérer ses analyses') };
+  const ligne = readSheet_(SHEETS.COLLECTE_ANALYSES).find(x => x.ID === p.id && x.ActiviteId === r.a.ID);
+  if (!ligne) return { ok: false, error: 'Élément introuvable.' };
+  deleteRowsWhereIn_(SHEETS.COLLECTE_ANALYSES, 'ID', new Set([String(ligne.ID)]));
+  return { ok: true };
 }
 
 // Le demandeur d'une tâche (ou le National) supprime des suivis journaliers précis (une erreur de saisie, par exemple), sans supprimer le cas.

@@ -2055,7 +2055,7 @@ function aQuestionnaireSimple_(a) { return !!a && a.Type === TYPE_COLLECTE_ && !
 function nettoyerQuestionnaireSimple_(q) {
   const champs = nettoyerChamps_(q && q.champs, 'Questionnaire');
   if (!champs.length) throw new Error('Ajoutez au moins une question au questionnaire.');
-  return { champs: champs, seq: champs.length };
+  return verifierTailleQuestionnaire_({ champs: champs, seq: champs.length });
 }
 function fusionnerQuestionnaireSimple_(ancien, nouveau) {
   const anc = ancien.champs || [], num = id => Number(String(id).replace(/\D/g, '')) || 0;
@@ -2066,18 +2066,15 @@ function fusionnerQuestionnaireSimple_(ancien, nouveau) {
     const existant = c.id ? anc.find(x => x.id === c.id) : null;
     if (existant && vus[existant.id]) return;
     const type = TYPES_CHAMP_.indexOf(c.type) !== -1 ? c.type : (existant ? existant.type : 'texte');
-    let options = [];
-    if (type === 'choix' || type === 'choix_multiple') {
-      options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
-      if (options.length < 2) throw new Error('La question « ' + label + ' » doit proposer au moins 2 choix.');
-    }
+    const options = optionsQuestion_(c, type, label, 'Questionnaire');
     const id = existant ? existant.id : 'c' + (++seq);
     if (existant) vus[id] = true;
     out.push({ id: id, label: label, type: type, options: options, obligatoire: type === 'calcul' ? false : !!c.obligatoire }); srcs.push(c);
   });
   if (!out.length) throw new Error('Gardez au moins une question dans le questionnaire.');
   resoudreFormules_(out, srcs, 'Questionnaire');
-  return { champs: out, seq: seq };
+  resoudreLiensQ_(out, srcs, 'Questionnaire');
+  return verifierTailleQuestionnaire_({ champs: out, seq: seq });
 }
 function estContinue_(a) { return !!a && String(a.EnContinu) === 'Oui'; }
 
@@ -2459,7 +2456,7 @@ function marquerActivite_(actor, p) {
 
 // Types de questions : les tâches de suivi gardent la liste historique ; la collecte de données dispose de la liste complète.
 const TYPES_TACHE_ = ['texte', 'texte_long', 'nombre', 'date', 'choix', 'choix_multiple', 'oui_non'];
-const TYPES_CHAMP_ = TYPES_TACHE_.concat(['entier', 'decimal', 'heure', 'gps', 'signature', 'calcul']);
+const TYPES_CHAMP_ = TYPES_TACHE_.concat(['entier', 'decimal', 'heure', 'gps', 'signature', 'photo', 'calcul']);
 const TYPES_NUMERIQUES_ = ['nombre', 'entier', 'decimal', 'oui_non', 'calcul'];
 
 // Évaluateur de formules sans eval() (même code que assets/formules.js).
@@ -2556,6 +2553,105 @@ const Formules_ = (function () {
   return { analyser: analyser, calculer: calculer };
 })();
 
+// Conditions d'affichage (« Afficher cette question seulement si… ») — même code que assets/conditions.js.
+const Conditions_ = (function () {
+  var OPS = ['=', '!=', '>', '>=', '<', '<=', 'contient', 'ne_contient_pas', 'renseigne', 'vide'];
+    function vide(v) { return v === '' || v == null || (Array.isArray(v) && v.length === 0); }
+    function num(v) { if (v === '' || v == null || Array.isArray(v) || typeof v === 'object') return NaN; var n = Number(String(v).replace(',', '.')); return isFinite(n) ? n : NaN; }
+    function regle(r, v) {
+      var val = r.valeur == null ? '' : String(r.valeur);
+      switch (r.op) {
+        case 'renseigne': return !vide(v);
+        case 'vide': return vide(v);
+        case 'contient':
+          if (Array.isArray(v)) return v.indexOf(val) !== -1;
+          return String(v == null ? '' : v).toLowerCase().indexOf(val.toLowerCase()) !== -1;
+        case 'ne_contient_pas': return !regle({ op: 'contient', valeur: val }, v);
+        case '=': case '!=': {
+          var egal;
+          if (Array.isArray(v)) egal = v.length === 1 && v[0] === val;
+          else if (vide(v)) egal = false;
+          else { var a = num(v), b = num(val); egal = (isFinite(a) && isFinite(b)) ? a === b : String(v) === val; }
+          return r.op === '=' ? egal : !egal;
+        }
+        default: {
+          if (vide(v) || Array.isArray(v)) return false;
+          var x = num(v), y = num(val), c;
+          if (isFinite(x) && isFinite(y)) c = x < y ? -1 : (x > y ? 1 : 0);
+          else { var s = String(v); c = s < val ? -1 : (s > val ? 1 : 0); }   // dates AAAA-MM-JJ et heures HH:MM : comparaison de texte
+          return r.op === '>' ? c > 0 : r.op === '>=' ? c >= 0 : r.op === '<' ? c < 0 : r.op === '<=' ? c <= 0 : false;
+        }
+      }
+    }
+    // valeurDe(id) : réponse (texte, nombre ou liste) donnée à la question `id` ; une question masquée vaut « vide ».
+    function evaluer(cond, valeurDe) {
+      if (!cond || !Array.isArray(cond.regles) || !cond.regles.length) return true;
+      var res = cond.regles.map(function (r) { return regle(r, valeurDe(r.champ)); });
+      return cond.op === 'ou' ? res.some(Boolean) : res.every(Boolean);
+    }
+  return { OPS: OPS, evaluer: evaluer, regle: regle, vide: vide };
+})();
+
+// Liens entre questions d'une collecte : conditions d'affichage et choix en cascade (comme dans KoboToolbox).
+// Le demandeur désigne la question source par son rang (« Q2 ») ; elle doit être placée AVANT la question concernée.
+// Les liens sont stockés avec les identifiants (« c2 »), ce qui les protège des changements d'ordre ultérieurs.
+const SOURCES_COND_EXCLUES_ = ['calcul', 'gps', 'signature', 'photo'];
+function resoudreLiensQ_(out, srcs, lib) {
+  const rang = (ref, i, c, nature) => {
+    const m = /^Q(\d+)$/i.exec(String(ref || '').trim()), k = m ? Number(m[1]) - 1 : -1;
+    if (k < 0 || k >= out.length || k >= i) throw new Error('Dans « ' + lib + ' », ' + nature + ' de « ' + c.label + ' » doit porter sur une question placée AVANT elle.');
+    return k;
+  };
+  out.forEach((c, i) => {
+    const s = srcs[i] || {};
+    if (s.condition && Array.isArray(s.condition.regles) && s.condition.regles.length) {
+      const regles = s.condition.regles.slice(0, 6).map(r => {
+        const src = out[rang(r.champ, i, c, 'la condition d\'affichage')];
+        if (SOURCES_COND_EXCLUES_.indexOf(src.type) !== -1) throw new Error('Condition de « ' + c.label + ' » : la question « ' + src.label + ' » ne peut pas servir de condition (calcul, GPS, signature ou photo).');
+        const op = Conditions_.OPS.indexOf(r.op) !== -1 ? r.op : '=';
+        let valeur = '';
+        if (op !== 'renseigne' && op !== 'vide') {
+          valeur = coupe_(r.valeur, 80);
+          if (valeur === '') throw new Error('Condition de « ' + c.label + ' » : indiquez la valeur à comparer avec « ' + src.label + ' ».');
+          if ((src.type === 'choix' || src.type === 'choix_multiple') && src.options.indexOf(valeur) === -1) throw new Error('Condition de « ' + c.label + ' » : « ' + valeur + ' » n\'est pas un choix de « ' + src.label + ' ».');
+          if (src.type === 'oui_non' && valeur !== 'Oui' && valeur !== 'Non') throw new Error('Condition de « ' + c.label + ' » : choisissez Oui ou Non.');
+          if (TYPES_NUMERIQUES_.indexOf(src.type) !== -1 && src.type !== 'oui_non' && !isFinite(Number(String(valeur).replace(',', '.')))) throw new Error('Condition de « ' + c.label + ' » : « ' + src.label + ' » se compare à un nombre.');
+        }
+        return { champ: src.id, op: op, valeur: valeur };
+      });
+      c.condition = { op: s.condition.op === 'ou' ? 'ou' : 'et', regles: regles };
+    }
+    if (s.cascade && s.cascade.champ) {
+      if (c.type !== 'choix') throw new Error('Les choix en cascade ne s\'appliquent qu\'aux questions « Choix unique » (« ' + c.label + ' »).');
+      const par = out[rang(s.cascade.champ, i, c, 'le choix en cascade')];
+      if (par.type !== 'choix') throw new Error('Choix en cascade de « ' + c.label + ' » : la question parente « ' + par.label + ' » doit être un « Choix unique ».');
+      const vu = {}, liens = [];
+      (Array.isArray(s.cascade.liens) ? s.cascade.liens : []).slice(0, 2000).forEach(l => {
+        const o = coupe_(l && l[0], 80), pv = coupe_(l && l[1], 80); if (!o || !pv || vu[o + '\u0001' + pv]) return;
+        if (par.options.indexOf(pv) === -1) throw new Error('Choix en cascade de « ' + c.label + ' » : « ' + pv + ' » n\'existe pas parmi les choix de « ' + par.label + ' ».');
+        vu[o + '\u0001' + pv] = 1; liens.push([o, pv]);
+      });
+      if (!liens.length) throw new Error('Choix en cascade de « ' + c.label + ' » : ajoutez des lignes « Choix | Valeur du parent ».');
+      c.cascade = { champ: par.id, liens: liens };
+      c.options = liens.map(l => l[0]).filter((o, k, a) => a.indexOf(o) === k);
+    }
+  });
+}
+// Les choix d'une question en cascade viennent de ses liens (jusqu'à 600 choix distincts) ; sinon 30 choix maximum.
+function optionsQuestion_(c, type, label, lib) {
+  if (type !== 'choix' && type !== 'choix_multiple') return [];
+  if (type === 'choix' && c.cascade && c.cascade.champ) return (Array.isArray(c.cascade.liens) ? c.cascade.liens : []).map(l => coupe_(l && l[0], 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 600);
+  const options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
+  if (options.length < 2) throw new Error('Dans « ' + lib + ' », la question « ' + label + ' » doit proposer au moins 2 choix.');
+  return options;
+}
+function optionsQuestionSimple_(c, label, lib) {
+  const options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
+  if (options.length < 2) throw new Error('Dans « ' + lib + ' », la question « ' + label + ' » doit proposer au moins 2 choix.');
+  return options;
+}
+function verifierTailleQuestionnaire_(q) { if (JSON.stringify(q).length > 44000) throw new Error('Le questionnaire est trop volumineux (listes de choix en cascade trop longues) : réduisez le nombre de choix ou de questions.'); return q; }
+
 // Questions « Calcul automatique » : le demandeur désigne les autres questions par leur rang ({Q1}, {Q2}…) ; la formule est
 // stockée avec les identifiants ({c3}), ce qui la protège des changements d'ordre ultérieurs.
 function resoudreFormules_(out, srcs, lib) {
@@ -2585,14 +2681,11 @@ function nettoyerChamps_(arr, libelleListe, types) {
     const label = coupe_(c && c.label, 140);
     if (!label) return;
     const type = (types || TYPES_CHAMP_).indexOf(c.type) !== -1 ? c.type : 'texte';
-    let options = [];
-    if (type === 'choix' || type === 'choix_multiple') {
-      options = (Array.isArray(c.options) ? c.options : []).map(o => coupe_(o, 80)).filter(Boolean).filter((o, k, a) => a.indexOf(o) === k).slice(0, 30);
-      if (options.length < 2) throw new Error('Dans « ' + libelleListe + ' », la question « ' + label + ' » doit proposer au moins 2 choix.');
-    }
+    const options = types ? ((type === 'choix' || type === 'choix_multiple') ? optionsQuestionSimple_(c, label, libelleListe) : []) : optionsQuestion_(c, type, label, libelleListe);
     out.push({ id: 'c' + (out.length + 1), label: label, type: type, options: options, obligatoire: type === 'calcul' ? false : !!c.obligatoire }); srcs.push(c);
   });
   resoudreFormules_(out, srcs, libelleListe);
+  if (!types) resoudreLiensQ_(out, srcs, libelleListe);   // conditions et cascades : réservées aux collectes
   return out;
 }
 
@@ -2679,8 +2772,10 @@ function questionnaireDe_(a) {
 // Valide et normalise les réponses d'un RC par rapport à la liste de questions.
 function nettoyerReponses_(champs, rep) {
   rep = rep || {};
-  const out = {};
+  const out = {}, masquees = {};
   champs.forEach(c => {
+    // Condition d'affichage : une question masquée n'est ni obligatoire ni conservée (sa réponse éventuelle est ignorée).
+    if (c.condition && !Conditions_.evaluer(c.condition, id => out[id])) { out[c.id] = c.type === 'choix_multiple' ? [] : ''; masquees[c.id] = true; return; }
     let v = rep[c.id];
     let vide = v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
     if (!vide) {
@@ -2693,9 +2788,15 @@ function nettoyerReponses_(champs, rep) {
         if (!v || typeof v !== 'object' || !isFinite(la) || !isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) throw new Error('Position GPS invalide : ' + c.label);
         v = { lat: Math.round(la * 1e6) / 1e6, lon: Math.round(lo * 1e6) / 1e6, precision: isFinite(pr) ? pr : '' };
       }
+      else if (c.type === 'photo') { v = String(v); if (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(v) || v.length > 350000) throw new Error('Photo invalide ou trop volumineuse : ' + c.label); }
       else if (c.type === 'signature') { v = String(v); if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(v) || v.length > 40000) throw new Error('Signature invalide ou trop volumineuse : ' + c.label); }
       else if (c.type === 'date') { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v))) throw new Error('Date invalide : ' + c.label); v = String(v); }
-      else if (c.type === 'choix') { if (c.options.indexOf(String(v)) === -1) throw new Error('Choix invalide : ' + c.label); v = String(v); }
+      else if (c.type === 'choix') {
+        if (c.options.indexOf(String(v)) === -1) throw new Error('Choix invalide : ' + c.label);
+        // Choix en cascade : le choix doit correspondre à la réponse donnée à la question parente.
+        if (c.cascade && !c.cascade.liens.some(l => l[0] === String(v) && l[1] === out[c.cascade.champ])) throw new Error('Choix incompatible avec la réponse à la question parente : ' + c.label);
+        v = String(v);
+      }
       else if (c.type === 'choix_multiple') { v = (Array.isArray(v) ? v : [v]).map(String).filter(x => c.options.indexOf(x) !== -1); vide = !v.length; }
       else if (c.type === 'oui_non') { v = String(v) === 'Oui' ? 'Oui' : (String(v) === 'Non' ? 'Non' : ''); vide = !v; }
       else v = String(v).replace(/\r/g, '').trim().slice(0, c.type === 'texte_long' ? 2000 : 500);
@@ -2712,7 +2813,7 @@ function nettoyerReponses_(champs, rep) {
     const n = Number(v); return isFinite(n) ? n : NaN;
   };
   champs.forEach(c => {
-    if (c.type !== 'calcul') return;
+    if (c.type !== 'calcul' || masquees[c.id]) return;
     let r = NaN; try { r = Formules_.calculer(Formules_.analyser(c.formule), (k, nom) => k === 'ref' ? numDe(nom) : NaN); } catch (e) { r = NaN; }
     out[c.id] = isFinite(r) ? r : '';
   });
@@ -3062,6 +3163,22 @@ function enregistrerPhotosSuivi_(photosDataUrl, nomBase) {
     urls.push(file.getUrl());
   });
   return urls;
+}
+
+// Photos prises dans les questionnaires des collectes de données (type de question « Photo »).
+function dossierPhotosCollecte_() {
+  const nom = 'Surveillance_Communautaire_PhotosCollecte';
+  const it = DriveApp.getFoldersByName(nom);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(nom);
+}
+function enregistrerPhotoCollecte_(dataUrl, nomBase) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.*)$/.exec(dataUrl || '');
+  if (!m) throw new Error('photo illisible');
+  const ext = m[1].split('/')[1].replace('jpeg', 'jpg');
+  const file = dossierPhotosCollecte_().createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), m[1], nomBase + '.' + ext));
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file.getUrl();
 }
 
 // Types de documents acceptés pour le rapport d'un suivi groupé (en plus des photos).
@@ -4421,8 +4538,15 @@ function submitCollecte_(actor, p) {
   const clientId = String(p.clientId || '');
   if (clientId) { const deja = readSheet_(SHEETS.COLLECTES).find(x => x.ClientId === clientId && x.UserId === actor.ID); if (deja) return { ok: true, doublon: true, id: deja.ID }; }
   let reponses; try { reponses = nettoyerReponses_(q.champs, p.reponses); } catch (e) { return { ok: false, error: e.message }; }
+  // Photos : envoyées en data URL (déjà réduites par l'appareil), rangées dans Drive ; seule l'adresse est conservée dans la réponse.
+  const idColl = newId_('COL');
+  try {
+    q.champs.filter(c => c.type === 'photo' && String(reponses[c.id] || '').indexOf('data:image/') === 0)
+      .forEach(c => { reponses[c.id] = enregistrerPhotoCollecte_(reponses[c.id], 'collecte_' + a.ID + '_' + idColl + '_' + c.id); });
+  } catch (e) { return { ok: false, error: 'Enregistrement de la photo impossible (' + e.message + '). Si le problème persiste, l\'administrateur doit exécuter « autoriserDrive » dans Apps Script.' }; }
+  if (JSON.stringify(reponses).length > 48000) return { ok: false, error: 'Réponse trop volumineuse (signature ou textes trop longs).' };
   const rec = {
-    ID: newId_('COL'), ActiviteId: a.ID, UserId: actor.ID, UserNom: actor.Prenom + ' ' + actor.Nom, Role: actor.Role,
+    ID: idColl, ActiviteId: a.ID, UserId: actor.ID, UserNom: actor.Prenom + ' ' + actor.Nom, Role: actor.Role,
     CommuneId: actor.CommuneId || '', ArrondissementId: actor.ArrondissementId || '', VillageNom: actor.VillageNom || '',
     Lieu: coupe_(p.lieu, 120), Reponses: JSON.stringify(reponses), DateSaisie: saisie || nowStr_(), ClientId: clientId, HorsLigne: saisie ? 'Oui' : ''
   };

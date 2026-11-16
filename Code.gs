@@ -165,10 +165,11 @@ const COLS = {
   CollecteAnalyses: ['ID','ActiviteId','Genre','Titre','Config','Ordre','CreeParId','DateCreation','DateModif'],
   CollecteReponses: ['ID','ActiviteId','UserId','UserNom','Role','CommuneId','ArrondissementId','VillageNom','Lieu','Reponses','DateSaisie','ClientId','HorsLigne'],
   // Fiche générique de notification des maladies sous surveillance (« 1_BJ_FORMULAIRE GENERIQUE... »),
-  // remplie de façon indépendante par le RCSE. Donnees = JSON complet de la fiche (cases cochées + champs) ;
+  // remplie par le RCSE et par l'ASCQ (les fiches de l'ASCQ remontent au RCSE dont il dépend). Donnees = JSON complet de la fiche (cases cochées + champs) ;
   // les autres colonnes sont un résumé pour la liste des cas.
   FichesNotification: ['ID','CreeParId','CreeParNom','ZoneSanitaire','Annee','SemaineEpi','Maladie','NomPatient',
-    'Sexe','Age','Village','Evolution','Classification','Donnees','DateSaisie','DateModification','ClientId'],
+    'Sexe','Age','Village','Evolution','Classification','Donnees','DateSaisie','DateModification','ClientId',
+    'CreeParRole','CommuneId','CommuneNom','ArrondissementId','ArrondissementNom'],
   // Paramètres de l'application (clé = ID) : ex. validationAscq = 1 / 0.
   Parametres: ['ID','Valeur','ModifieLe','ModifiePar']
 };
@@ -4446,13 +4447,24 @@ function runMigrerVersNational_() {
 
 
 // ============================================================
-// FICHE GÉNÉRIQUE DE NOTIFICATION DES MALADIES SOUS SURVEILLANCE (niveau RCSE)
+// FICHE GÉNÉRIQUE DE NOTIFICATION DES MALADIES SOUS SURVEILLANCE (niveaux RCSE et ASCQ)
 // ============================================================
-// Le RCSE remplit la fiche officielle « 1_BJ_FORMULAIRE GENERIQUE DE NOTIFICATION DES MALADIES SOUS
-// SURVEILLANCE » de façon indépendante (hors alertes/décès communautaires). Chaque RCSE ne voit et ne gère
-// que les fiches qu'il a lui-même saisies.
+// Le RCSE et l'ASCQ remplissent la fiche officielle « 1_BJ_FORMULAIRE GENERIQUE DE NOTIFICATION DES MALADIES
+// SOUS SURVEILLANCE » de façon indépendante (hors alertes/décès communautaires).
+//  - L'ASCQ ne notifie que pour son/ses arrondissement(s) ; il ne voit et ne gère que ses propres fiches.
+//  - Le RCSE voit ses propres fiches ET celles de tous les ASCQ placés sous lui (lecture seule pour ces dernières) ;
+//    la synthèse par arrondissement affichée sur sa page agrège l'ensemble.
+//  - Chaque fiche porte l'arrondissement de résidence du cas (ArrondissementId), contrôlé côté serveur.
 
 function ficheNotifTexte_(v, n) { return coupe_(v, n || 200); }
+function ficheNotifRoleOk_(actor) { return actor.Role === ROLES.RCSE || actor.Role === ROLES.ASCQ; }
+
+// Zone sanitaire d'un compte : celle du RCSE lui-même, ou celle du RCSE dont dépend l'ASCQ.
+function ficheNotifZoneDe_(actor) {
+  if (actor.ZoneSanitaireNom) return actor.ZoneSanitaireNom;
+  const rcse = chainAbove_(actor).find(u => u.Role === ROLES.RCSE);
+  return rcse ? (rcse.ZoneSanitaireNom || '') : '';
+}
 
 // Nettoie la fiche reçue : seules les clés attendues sont conservées, chaque valeur est bornée en taille
 // (texte, nombre ou liste de textes) avant d'être stockée en JSON dans la colonne Donnees.
@@ -4470,18 +4482,33 @@ function ficheNotifNettoyer_(brut) {
 }
 
 function saveFicheNotif_(actor, p) {
-  if (actor.Role !== ROLES.RCSE) return { ok: false, error: 'Seul un compte RCSE peut remplir la fiche de notification.' };
+  if (!ficheNotifRoleOk_(actor)) return { ok: false, error: 'Seuls les comptes RCSE et ASCQ peuvent remplir la fiche de notification.' };
   const d = ficheNotifNettoyer_(p.donnees);
   const nom = ficheNotifTexte_(d.nomPatient, 120);
   if (nom.length < 2) return { ok: false, error: 'Indiquez le nom du patient.' };
   if (!d.maladie) return { ok: false, error: 'Cochez la maladie notifiée (ou « Autre à préciser »).' };
   if (d.maladie === 'Autre' && !ficheNotifTexte_(d.maladieAutre, 120)) return { ok: false, error: 'Précisez la maladie dans « Autre à préciser ».' };
   const maladie = d.maladie === 'Autre' ? ficheNotifTexte_(d.maladieAutre, 120) : ficheNotifTexte_(d.maladie, 80);
+
+  // Arrondissement de résidence : obligatoire et obligatoirement dans le périmètre du compte (ASCQ : ses
+  // arrondissements ; RCSE : ceux de sa zone sanitaire). Commune et département en sont déduits.
+  const arrId = String(d.arrondissementId || '');
+  if (!arrId) return { ok: false, error: 'Choisissez l\'arrondissement de résidence du cas.' };
+  if (arrondissementsDuPerimetre_(actor).map(String).indexOf(arrId) === -1) return { ok: false, error: 'Cet arrondissement n\'est pas dans votre périmètre.' };
+  const arr = readSheet_(SHEETS.ARRONDISSEMENTS).find(a => String(a.ID) === arrId);
+  if (!arr) return { ok: false, error: 'Arrondissement introuvable.' };
+  const com = readSheet_(SHEETS.COMMUNES).find(c => String(c.ID) === String(arr.CommuneId));
+  d.arrondissement = ficheNotifTexte_(arr.Nom, 120);
+  d.comResidence = ficheNotifTexte_(arr.CommuneNom || (com ? com.Nom : ''), 120);
+  if (com && com.DepartementNom) d.depResidence = ficheNotifTexte_(com.DepartementNom, 120);
+  if (!d.zoneSanitaire) d.zoneSanitaire = ficheNotifTexte_(ficheNotifZoneDe_(actor), 120);
+
   const age = [d.ageAns ? d.ageAns + ' an(s)' : '', d.ageMois ? d.ageMois + ' mois' : '', d.ageJours ? d.ageJours + ' j' : ''].filter(Boolean).join(' ');
   const resume = {
     ZoneSanitaire: ficheNotifTexte_(d.zoneSanitaire, 120), Annee: ficheNotifTexte_(d.annee, 6), SemaineEpi: ficheNotifTexte_(d.semaine, 6),
     Maladie: maladie, NomPatient: nom, Sexe: ficheNotifTexte_(d.sexe, 2), Age: age,
-    Village: ficheNotifTexte_(d.village, 120), Evolution: ficheNotifTexte_(d.evolution, 20), Classification: ficheNotifTexte_(d.classification, 60)
+    Village: ficheNotifTexte_(d.village, 120), Evolution: ficheNotifTexte_(d.evolution, 20), Classification: ficheNotifTexte_(d.classification, 60),
+    CommuneId: String(arr.CommuneId || ''), CommuneNom: d.comResidence, ArrondissementId: arrId, ArrondissementNom: d.arrondissement
   };
   const json = JSON.stringify(d);
   if (json.length > 40000) return { ok: false, error: 'La fiche est trop volumineuse.' };
@@ -4496,21 +4523,31 @@ function saveFicheNotif_(actor, p) {
     const deja = readSheet_(SHEETS.FICHES_NOTIF).find(r => r.ClientId === clientId && r.CreeParId === actor.ID);
     if (deja) return { ok: true, id: deja.ID, doublon: true };
   }
-  const rec = Object.assign({ ID: newId_('FNOT'), CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom, Donnees: json,
+  const rec = Object.assign({ ID: newId_('FNOT'), CreeParId: actor.ID, CreeParNom: actor.Prenom + ' ' + actor.Nom, CreeParRole: actor.Role, Donnees: json,
     DateSaisie: nowStr_(), DateModification: '', ClientId: clientId }, resume);
   appendRow_(SHEETS.FICHES_NOTIF, rec);
   return { ok: true, id: rec.ID };
 }
 
+// ASCQ : ses propres fiches. RCSE : ses propres fiches + celles de tous les ASCQ placés sous lui.
+// Les anciennes fiches (sans arrondissement enregistré) sont rattachées par le nom saisi dans la fiche.
 function listFichesNotif_(actor) {
-  if (actor.Role !== ROLES.RCSE) return { ok: false, error: 'Réservé aux comptes RCSE.' };
-  const fiches = readSheet_(SHEETS.FICHES_NOTIF).filter(f => f.CreeParId === actor.ID)
+  if (!ficheNotifRoleOk_(actor)) return { ok: false, error: 'Réservé aux comptes RCSE et ASCQ.' };
+  const ids = new Set([String(actor.ID)]);
+  if (actor.Role === ROLES.RCSE) descendantsComptes_(actor).filter(u => u.Role === ROLES.ASCQ).forEach(u => ids.add(String(u.ID)));
+  const fiches = readSheet_(SHEETS.FICHES_NOTIF).filter(f => ids.has(String(f.CreeParId)))
+    .map(f => {
+      const o = Object.assign({}, f);
+      if (!o.CreeParRole) o.CreeParRole = ROLES.RCSE;
+      if (!o.ArrondissementNom) { try { o.ArrondissementNom = String((JSON.parse(f.Donnees || '{}') || {}).arrondissement || ''); } catch (e) { o.ArrondissementNom = ''; } }
+      return o;
+    })
     .sort((a, b) => String(b.DateSaisie).localeCompare(String(a.DateSaisie)));
   return { ok: true, fiches: fiches };
 }
 
 function deleteFicheNotif_(actor, p) {
-  if (actor.Role !== ROLES.RCSE) return { ok: false, error: 'Réservé aux comptes RCSE.' };
+  if (!ficheNotifRoleOk_(actor)) return { ok: false, error: 'Réservé aux comptes RCSE et ASCQ.' };
   const f = readSheet_(SHEETS.FICHES_NOTIF).find(x => x.ID === p.id);
   if (!f || f.CreeParId !== actor.ID) return { ok: false, error: 'Fiche introuvable ou non supprimable par ce compte.' };
   deleteRowById_(SHEETS.FICHES_NOTIF, f.ID);

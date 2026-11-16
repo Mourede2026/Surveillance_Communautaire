@@ -1,9 +1,11 @@
 /**
- * Module « Fiche de notification » (niveau RCSE) : fiche officielle
+ * Module « Fiche de notification » (niveaux RCSE et ASCQ) : fiche officielle
  * « 1_BJ_FORMULAIRE GENERIQUE DE NOTIFICATION DES MALADIES SOUS SURVEILLANCE ».
  *   • Page de remplissage indépendante (cases à cocher + champs) ;
  *   • à chaque enregistrement, la liste de tous les cas remplis s'affiche avec leurs informations ;
- *   • chaque cas peut être imprimé sur la fiche officielle (cases cochées, champs remplis), modifié ou supprimé.
+ *   • chaque cas peut être imprimé sur la fiche officielle (cases cochées, champs remplis), modifié ou supprimé ;
+ *   • l'ASCQ notifie pour son/ses arrondissement(s) ; ses fiches remontent automatiquement chez le RCSE ;
+ *   • côté RCSE : la liste regroupe ses fiches + celles de ses ASCQ, et une synthèse par arrondissement s'affiche en bas.
  * Dépend de api.js (Api, toast, fmtDate, escHtml).
  *
  * initFicheNotification({ containerId, user })
@@ -25,6 +27,7 @@
   const PRELEV = ['Sang', 'Selles', 'LCR'];
 
   let ctx = null, fiches = [], enAttente = [], editId = null, semaineCourante = null;
+  let mesArrs = [], mesVillages = [], anneeSynthese = '';  // arrondissements / villages du périmètre du compte
 
   // ---------------- utilitaires ----------------
   const E = escHtml;
@@ -38,6 +41,21 @@
   const dat = (name, label) => `<div class="field"><label>${label}</label><input type="date" name="${name}"></div>`;
   const radios = (name, liste) => liste.map(o => { const [v, l] = Array.isArray(o) ? o : [o, o];
     return `<label class="fn-opt"><input type="radio" name="${name}" value="${E(v)}"> ${E(Array.isArray(o) ? v + ' — ' + l : l)}</label>`; }).join('');
+
+  function optionsArrondissements() {
+    if (!mesArrs.length) return '<option value="">Aucun arrondissement disponible (connexion requise)</option>';
+    return '<option value="">— Choisir —</option>' + mesArrs.map(a => `<option value="${E(a.ID)}">${E(a.Nom)}${a.CommuneNom ? ' (' + E(a.CommuneNom) + ')' : ''}</option>`).join('');
+  }
+
+  // Met à jour commune / département (déduits de l'arrondissement) et les villages proposés.
+  function majGeoFormulaire(ecraser) {
+    const f = document.getElementById('fnForm'), sel = f.elements['arrondissementId'], a = mesArrs.find(x => x.ID === sel.value);
+    if (ecraser) {
+      f.elements['comResidence'].value = a ? (a.CommuneNom || '') : '';
+      f.elements['depResidence'].value = a ? (a.DepartementNom || '') : '';
+    }
+    document.getElementById('fnVillages').innerHTML = a ? mesVillages.filter(v => v.ArrondissementId === a.ID).map(v => `<option value="${E(v.Nom)}"></option>`).join('') : '';
+  }
 
   function formulaireHtml() {
     return `<form id="fnForm" autocomplete="off">
@@ -57,8 +75,11 @@
       </div>
 
       <div class="fn-bloc"><h3>Résidence et identification du cas</h3>
-        <div class="grid grid-2">${txt('pays', 'Pays')}${txt('depResidence', 'Département')}${txt('comResidence', 'Commune')}${txt('arrondissement', 'Arrondissement')}
-          ${txt('village', 'Ville / Village')}${txt('quartier', 'Quartier')}${txt('adresse', 'Adresse')}</div>
+        <div class="grid grid-2">${txt('pays', 'Pays')}
+          <div class="field"><label>Arrondissement de résidence *</label><select name="arrondissementId" id="fnArr" required>${optionsArrondissements()}</select></div>
+          ${txt('comResidence', 'Commune', 'readonly')}${txt('depResidence', 'Département', 'readonly')}
+          <div class="field"><label>Ville / Village</label><input name="village" id="fnVillage" list="fnVillages" placeholder="Choisissez dans la liste ou saisissez"><datalist id="fnVillages"></datalist></div>
+          ${txt('quartier', 'Quartier')}${txt('adresse', 'Adresse')}</div>
         <div class="field"><label>Urbaine / Rurale</label><div class="fn-ligne">${radios('zoneType', [['U', 'Urbaine'], ['R', 'Rurale']])}</div></div>
         <div class="grid grid-2">${txt('nomPatient', 'Nom du patient *', 'required')}${txt('parent', 'Père / Mère')}${txt('telephone', 'Téléphone')}${txt('adresseParents', 'Adresse des parents / tuteurs')}</div>
         <div class="grid grid-2">${dat('dateNaissance', 'Date de naissance')}
@@ -106,7 +127,7 @@
   // ---------------- lecture / écriture du formulaire ----------------
   function lireFormulaire() {
     const f = document.getElementById('fnForm'), d = {};
-    f.querySelectorAll('input').forEach(el => {
+    f.querySelectorAll('input, select').forEach(el => {
       if (!el.name) return;
       if (el.type === 'radio') { if (el.checked) d[el.name] = el.value; }
       else if (el.type === 'checkbox') { d[el.name] = el.checked; }
@@ -123,7 +144,7 @@
   function remplirFormulaire(d) {
     const f = document.getElementById('fnForm');
     f.reset();
-    f.querySelectorAll('input').forEach(el => {
+    f.querySelectorAll('input, select').forEach(el => {
       if (!el.name) return;
       if (el.type === 'radio') el.checked = d[el.name] === el.value;
       else if (el.type === 'checkbox') {
@@ -133,13 +154,16 @@
         else el.checked = !!d[el.name];
       } else el.value = d[el.name] !== undefined ? d[el.name] : '';
     });
+    majGeoFormulaire(false);
   }
 
   // Valeurs par défaut tirées du compte RCSE (zone sanitaire, notificateur) et de la semaine en cours.
   function valeursParDefaut() {
     const u = ctx.user, auj = new Date().toISOString().slice(0, 10);
     return {
-      departement: u.DepartementNom || '', zoneSanitaire: u.ZoneSanitaireNom || '', pays: 'Bénin',
+      departement: u.DepartementNom || '', zoneSanitaire: u.ZoneSanitaireNom || '', commune: u.Role === 'ASCQ' ? (u.CommuneNom || '') : '', pays: 'Bénin',
+      notifQualif: u.Role === 'ASCQ' ? 'ASCQ' : (u.Role === 'RCSE' ? 'RCSE' : ''),
+      arrondissementId: mesArrs.length === 1 ? mesArrs[0].ID : '',
       annee: semaineCourante ? String(semaineCourante.Annee) : String(new Date().getFullYear()),
       semaine: semaineCourante ? String(semaineCourante.SemaineEpi) : '',
       dateNotification: auj, notifNom: ((u.Prenom || '') + ' ' + (u.Nom || '')).trim(), notifTel: u.Telephone || ''
@@ -149,6 +173,7 @@
   function nouvelleFiche() {
     editId = null;
     remplirFormulaire(valeursParDefaut());
+    majGeoFormulaire(true);
     document.getElementById('fnEditInfo').textContent = '';
     document.getElementById('fnSave').textContent = '💾 Enregistrer la fiche';
   }
@@ -259,7 +284,7 @@
         const d = i.payload.donnees, age = [d.ageAns ? d.ageAns + ' an(s)' : '', d.ageMois ? d.ageMois + ' mois' : '', d.ageJours ? d.ageJours + ' j' : ''].filter(Boolean).join(' ');
         const dt = new Date(i.creeLe), p2 = n => String(n).padStart(2, '0');
         return { ID: 'att:' + i.id, _attente: true, _refus: i.statut === 'erreur' ? i.erreur : '', _modif: !!i.payload.id, _itemId: i.id, Donnees: JSON.stringify(d),
-          Maladie: d.maladie === 'Autre' ? (d.maladieAutre || 'Autre') : (d.maladie || ''), NomPatient: d.nomPatient || '', Sexe: d.sexe || '', Age: age, Village: d.village || '',
+          Maladie: d.maladie === 'Autre' ? (d.maladieAutre || 'Autre') : (d.maladie || ''), NomPatient: d.nomPatient || '', Sexe: d.sexe || '', Age: age, Village: d.village || '', ArrondissementNom: d.arrondissement || '',
           SemaineEpi: d.semaine || '', Annee: d.annee || '', Evolution: d.evolution || '', Classification: d.classification || '',
           DateSaisie: dt.getFullYear() + '-' + p2(dt.getMonth() + 1) + '-' + p2(dt.getDate()) + ' ' + p2(dt.getHours()) + ':' + p2(dt.getMinutes()) + ':00' };
       });
@@ -267,28 +292,34 @@
   }
   const toutes = () => enAttente.concat(fiches);
 
+  const estMienne = f => !f.CreeParId || f.CreeParId === ctx.user.ID;   // une fiche d'un ASCQ vue par le RCSE est en lecture seule
+  const lieuCell = f => E(f.ArrondissementNom || '—') + (f.Village ? '<div class="petit">' + E(f.Village) + '</div>' : '');
+  const parQui = f => estMienne(f) ? '' : '<div class="petit">👤 ' + E(f.CreeParNom || '') + ' · ' + E(f.CreeParRole || '') + '</div>';
+
   function dessinerListe() {
     const z = document.getElementById('fnListe');
     const total = toutes();
     document.getElementById('fnCompteur').textContent = total.length ? '(' + total.length + ')' : '';
     if (!total.length) { z.innerHTML = '<div class="empty-state">Aucune fiche remplie pour le moment.</div>'; return; }
     let h = `<div class="no-print" style="margin-bottom:10px"><button type="button" class="btn-secondary" id="fnImprTout" style="font-size:.8rem;padding:6px 12px">🖨️ Imprimer toutes les fiches (${total.length})</button></div>
-      <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Maladie</th><th>Patient</th><th>Sexe / Âge</th><th>Village</th><th>Sem.</th><th>Évolution</th><th>Classification</th><th></th></tr></thead><tbody>`;
+      <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Maladie</th><th>Patient</th><th>Sexe / Âge</th><th>Lieu</th><th>Sem.</th><th>Évolution</th><th>Classification</th><th></th></tr></thead><tbody>`;
     total.forEach(f => {
       if (f._attente) {
         h += `<tr style="background:var(--tint-2)"><td>${E(fmtDate(f.DateSaisie))}<div class="petit">${f._refus ? '⚠ refusée : ' + E(f._refus) : '⏳ en attente d\'envoi' + (f._modif ? ' (modification)' : '')}</div></td><td><strong>${E(f.Maladie)}</strong></td><td>${E(f.NomPatient)}</td><td>${E(f.Sexe)}${f.Age ? ' · ' + E(f.Age) : ''}</td>
-        <td>${E(f.Village)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
+        <td>${lieuCell(f)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
         <td style="white-space:nowrap"><button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
           <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>
           <button type="button" class="btn-danger" data-fn="retirer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px" title="Retirer de la file d'envoi">✖</button></td></tr>`;
         return;
       }
-      h += `<tr><td>${E(fmtDate(f.DateSaisie))}</td><td><strong>${E(f.Maladie)}</strong></td><td>${E(f.NomPatient)}</td><td>${E(f.Sexe)}${f.Age ? ' · ' + E(f.Age) : ''}</td>
-        <td>${E(f.Village)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
-        <td style="white-space:nowrap"><button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
-          <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>
+      const btnVoir = `<button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
+          <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>`;
+      const btnGerer = estMienne(f) ? `
           <button type="button" class="btn-secondary" data-fn="modifier" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">✏️</button>
-          <button type="button" class="btn-danger" data-fn="supprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🗑️</button></td></tr>`;
+          <button type="button" class="btn-danger" data-fn="supprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🗑️</button>` : '';
+      h += `<tr><td>${E(fmtDate(f.DateSaisie))}${parQui(f)}</td><td><strong>${E(f.Maladie)}</strong></td><td>${E(f.NomPatient)}</td><td>${E(f.Sexe)}${f.Age ? ' · ' + E(f.Age) : ''}</td>
+        <td>${lieuCell(f)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
+        <td style="white-space:nowrap">${btnVoir}${btnGerer}</td></tr>`;
     });
     z.innerHTML = h + '</tbody></table></div>';
     document.getElementById('fnImprTout').onclick = () => imprimer(toutes());
@@ -302,9 +333,10 @@
       await window.HorsLigne._Stock.fileSupprimer(f._itemId); window.HorsLigne.majBandeau(); await charger(); return;
     }
     if (action === 'imprimer') imprimer([f]);
-    else if (action === 'modifier') modifierFiche(id);
+    else if (action === 'modifier') { if (!estMienne(f)) { toast('Cette fiche a été saisie par un autre compte : modification impossible.', true); return; } modifierFiche(id); }
     else if (action === 'voir') apercu(f);
     else if (action === 'supprimer') {
+      if (!estMienne(f)) { toast('Cette fiche a été saisie par un autre compte : suppression impossible.', true); return; }
       if (!confirm('Supprimer définitivement la fiche de « ' + (f.NomPatient || '') + ' » ?')) return;
       try { await Api.call('deleteFicheNotif', { id }); toast('Fiche supprimée.'); if (editId === id) nouvelleFiche(); await charger(); }
       catch (e) { toast(e.message, true); }
@@ -330,12 +362,78 @@
     try { const r = await Api.call('listFichesNotif', {}); fiches = r.fiches || []; }
     catch (e) { fiches = []; if (!enAttente.length) { document.getElementById('fnListe').innerHTML = '<div class="empty-state">' + E(e.horsLigne ? 'Hors connexion : la liste des fiches déjà envoyées sera disponible après une ouverture avec connexion. Vous pouvez néanmoins saisir de nouvelles fiches.' : 'Erreur de chargement : ' + e.message) + '</div>'; return; } }
     dessinerListe();
+    dessinerSynthese();
+  }
+
+  // ---------------- synthèse par arrondissement (RCSE) ----------------
+  // Agrège toutes les fiches visibles du RCSE (les siennes + celles de ses ASCQ), arrondissement par arrondissement.
+  const estRcse = () => ctx && ctx.user && ctx.user.Role === 'RCSE';
+
+  function dessinerSynthese() {
+    const z = document.getElementById('fnSynthese'); if (!z) return;
+    const annees = Array.from(new Set(fiches.map(f => String(f.Annee || '')).filter(Boolean))).sort().reverse();
+    const courante = String(new Date().getFullYear());
+    if (anneeSynthese === '' && annees.length) anneeSynthese = annees.indexOf(courante) !== -1 ? courante : annees[0];
+    const lignes = fiches.filter(f => !anneeSynthese || anneeSynthese === '*' || String(f.Annee || '') === anneeSynthese);
+    const grp = {};
+    lignes.forEach(f => {
+      const nom = f.ArrondissementNom || 'Non précisé', cle = (f.ArrondissementId || '') + '|' + nom;
+      const g = grp[cle] || (grp[cle] = { nom, commune: f.CommuneNom || '', total: 0, deces: 0, confirmes: 0, suspects: 0, ascq: 0, rcse: 0, maladies: {}, dernier: '' });
+      g.total++;
+      if (f.Evolution === 'Décédé') g.deces++;
+      if (/^Confirm/.test(f.Classification || '')) g.confirmes++;
+      else if (f.Classification === 'Suspect' || f.Classification === 'Probable') g.suspects++;
+      if (f.CreeParRole === 'ASCQ') g.ascq++; else g.rcse++;
+      g.maladies[f.Maladie || 'Non précisée'] = (g.maladies[f.Maladie || 'Non précisée'] || 0) + 1;
+      if (String(f.DateSaisie || '') > g.dernier) g.dernier = String(f.DateSaisie || '');
+    });
+    const liste = Object.keys(grp).map(k => grp[k]).sort((a, b) => b.total - a.total || a.nom.localeCompare(b.nom));
+    const T = liste.reduce((t, g) => ({ total: t.total + g.total, deces: t.deces + g.deces, confirmes: t.confirmes + g.confirmes, suspects: t.suspects + g.suspects, ascq: t.ascq + g.ascq, rcse: t.rcse + g.rcse }), { total: 0, deces: 0, confirmes: 0, suspects: 0, ascq: 0, rcse: 0 });
+    const sel = `<label class="petit" style="display:inline-flex;gap:6px;align-items:center">Année <select id="fnSynAnnee" style="width:auto">
+      <option value="*"${anneeSynthese === '*' ? ' selected' : ''}>Toutes</option>${annees.map(a => `<option value="${E(a)}"${a === anneeSynthese ? ' selected' : ''}>${E(a)}</option>`).join('')}</select></label>`;
+    let h = `<div style="margin-bottom:10px">${sel}</div>`;
+    if (!liste.length) { z.innerHTML = h + '<div class="empty-state">Aucune fiche pour cette période.</div>'; brancherSynthese(); return; }
+    h += `<div class="grid grid-4" style="margin-bottom:12px">
+        <div class="stat-card"><div class="n">${T.total}</div><div class="l">Cas notifiés</div></div>
+        <div class="stat-card"><div class="n">${T.deces}</div><div class="l">Décédés</div></div>
+        <div class="stat-card"><div class="n">${T.confirmes}</div><div class="l">Cas confirmés</div></div>
+        <div class="stat-card"><div class="n">${liste.length}</div><div class="l">Arrondissements touchés</div></div></div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Arrondissement</th><th>Cas</th><th>Décès</th><th>Confirmés</th><th>Suspects / probables</th><th>Maladies notifiées</th><th>Source (RCSE / ASCQ)</th><th>Dernière saisie</th></tr></thead><tbody>`;
+    liste.forEach(g => {
+      const mal = Object.keys(g.maladies).sort((a, b) => g.maladies[b] - g.maladies[a]).map(m => E(m) + ' (' + g.maladies[m] + ')').join(', ');
+      h += `<tr><td><strong>${E(g.nom)}</strong>${g.commune ? '<div class="petit">' + E(g.commune) + '</div>' : ''}</td><td><strong>${g.total}</strong></td><td>${g.deces}</td><td>${g.confirmes}</td><td>${g.suspects}</td><td>${mal}</td><td>${g.rcse} / ${g.ascq}</td><td>${E(g.dernier ? fmtDate(g.dernier) : '')}</td></tr>`;
+    });
+    h += `<tr style="font-weight:700;background:var(--tint-2)"><td>Total zone sanitaire</td><td>${T.total}</td><td>${T.deces}</td><td>${T.confirmes}</td><td>${T.suspects}</td><td></td><td>${T.rcse} / ${T.ascq}</td><td></td></tr></tbody></table></div>`;
+    z.innerHTML = h; brancherSynthese();
+  }
+  function brancherSynthese() {
+    const s = document.getElementById('fnSynAnnee');
+    if (s) s.onchange = () => { anneeSynthese = s.value; dessinerSynthese(); };
+  }
+
+  // Arrondissements / villages du périmètre : ASCQ = ses arrondissements ; RCSE = ceux des communes de sa zone sanitaire.
+  async function chargerPerimetre() {
+    try {
+      const [{ perimetres }, { geo }] = await Promise.all([Api.call('listPerimetres', {}), Api.call('listGeo', {})]);
+      let ids;
+      if (ctx.user.Role === 'ASCQ') ids = new Set(perimetres.filter(p => p.TypeCible === 'Arrondissement').map(p => p.CibleId));
+      else {
+        const coms = new Set(perimetres.filter(p => p.TypeCible === 'Commune').map(p => p.CibleId));
+        ids = new Set(geo.arrondissements.filter(a => coms.has(a.CommuneId)).map(a => a.ID));
+      }
+      const depDe = {}; (geo.communes || []).forEach(c => { depDe[c.ID] = c.DepartementNom || ''; });
+      mesArrs = geo.arrondissements.filter(a => ids.has(a.ID)).map(a => Object.assign({}, a, { DepartementNom: depDe[a.CommuneId] || '' }))
+        .sort((a, b) => String(a.Nom).localeCompare(String(b.Nom)));
+      mesVillages = geo.villages.filter(v => ids.has(v.ArrondissementId));
+    } catch (e) { mesArrs = []; mesVillages = []; }
   }
 
   // ---------------- point d'entrée ----------------
   window.initFicheNotification = async function (opts) {
-    ctx = opts;
+    ctx = opts; anneeSynthese = '';
     const el = document.getElementById(opts.containerId);
+    el.innerHTML = '<div class="empty-state">Chargement…</div>';
+    await chargerPerimetre();
     if (!document.getElementById('fnStyle')) {
       const st = document.createElement('style'); st.id = 'fnStyle';
       st.textContent = `.fn-bloc{border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
@@ -348,9 +446,14 @@
         .grid-3{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}`;
       document.head.appendChild(st);
     }
-    el.innerHTML = `<p class="petit" style="margin:0 0 12px">Remplissez la fiche officielle de notification (cases à cocher et champs). Chaque fiche enregistrée apparaît dans la liste en bas de page, d'où vous pouvez l'imprimer sur la fiche officielle, la modifier ou la supprimer.</p>
+    const rcse = estRcse();
+    el.innerHTML = `<p class="petit" style="margin:0 0 12px">Remplissez la fiche officielle de notification (cases à cocher et champs). Chaque fiche enregistrée apparaît dans la liste en bas de page, d'où vous pouvez l'imprimer sur la fiche officielle, la modifier ou la supprimer.${rcse
+        ? ' <strong>Les fiches notifiées par vos ASCQ s\'ajoutent automatiquement à cette liste</strong> (consultation et impression uniquement) et sont comptées dans la synthèse par arrondissement.'
+        : ' Vos fiches remontent automatiquement chez votre RCSE.'}</p>
       ${formulaireHtml()}
-      <div class="card" style="margin:22px 0 0"><h2>📋 Cas remplis <span id="fnCompteur" class="petit"></span></h2><div id="fnListe">Chargement…</div></div>`;
+      <div class="card" style="margin:22px 0 0"><h2>📋 Cas remplis <span id="fnCompteur" class="petit"></span></h2><div id="fnListe">Chargement…</div></div>
+      ${rcse ? '<div class="card" style="margin:22px 0 0"><h2>📍 Synthèse de la situation par arrondissement</h2><p class="petit" style="margin:0 0 8px">Tous les cas notifiés dans votre zone sanitaire (vos fiches et celles de vos ASCQ), regroupés par arrondissement de résidence du cas.</p><div id="fnSynthese">Chargement…</div></div>' : ''}`;
+    document.getElementById('fnArr').addEventListener('change', () => majGeoFormulaire(true));
     // Semaine épidémiologique en cours (calendrier importé par le National), pour pré-remplir année et semaine.
     try {
       const cal = await Api.call('listCalendrier', {});
@@ -371,6 +474,9 @@
       const d = lireFormulaire();
       if (!d.nomPatient) { toast('Indiquez le nom du patient.', true); return; }
       if (!d.maladie) { toast('Cochez la maladie notifiée.', true); return; }
+      const arr = mesArrs.find(a => a.ID === d.arrondissementId);
+      if (!arr) { toast('Choisissez l\'arrondissement de résidence du cas.', true); return; }
+      d.arrondissement = arr.Nom; d.comResidence = arr.CommuneNom || d.comResidence || ''; d.depResidence = arr.DepartementNom || d.depResidence || '';
       const btn = document.getElementById('fnSave'); btn.disabled = true;
       try {
         const r = await Api.call('saveFicheNotif', { id: editId || '', clientId: editId ? '' : clientId(), donnees: d });

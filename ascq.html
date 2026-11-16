@@ -25,6 +25,7 @@
     <nav>
       <a href="#" data-tab="dashboard" class="active">Tableau de bord</a>
       <a href="#" data-tab="activites" id="navActivites">🔗 Activités</a>
+      <a href="#" data-tab="fichenotif">📋 Fiche de notification</a>
       <a href="#" data-tab="sensibilisations">📣 Sensibilisations</a>
       <a href="#" data-tab="investiguer">À investiguer</a>
       <a href="#" data-tab="deces" id="navDeces">⚰️ Décès à confirmer</a>
@@ -45,6 +46,10 @@
 
       <section id="tab-sensibilisations" style="display:none">
         <div class="card"><h2>📣 Sensibilisations communautaires des relais communautaires</h2><div id="sensibilisationsZone"></div></div>
+      </section>
+
+      <section id="tab-fichenotif" style="display:none">
+        <div class="card"><h2>📋 Fiche de notification des maladies sous surveillance</h2><div id="fichenotifZone"></div></div>
       </section>
 
       <section id="tab-activites" style="display:none">
@@ -301,6 +306,7 @@
 <script src="assets/activites.js"></script>
 <script src="assets/collecte.js"></script>
 <script src="assets/analyses.js"></script>
+<script src="assets/fiche-notification.js"></script>
 <script src="assets/nettoyage.js"></script>
 <script src="assets/mon-compte.js"></script>
 <script>
@@ -313,8 +319,9 @@ document.querySelectorAll('.sidebar nav a').forEach(a => a.addEventListener('cli
   e.preventDefault();
   document.querySelectorAll('.sidebar nav a').forEach(x => x.classList.remove('active'));
   a.classList.add('active');
-  ['dashboard','activites','sensibilisations','nettoyage','investiguer','deces','relais','suivi','rapport','notifications','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
+  ['dashboard','activites','fichenotif','sensibilisations','nettoyage','investiguer','deces','relais','suivi','rapport','notifications','briefing'].forEach(t => document.getElementById('tab-'+t).style.display = 'none');
   document.getElementById('tab-'+a.dataset.tab).style.display = 'block';
+  if (a.dataset.tab === 'fichenotif') initFicheNotification({ containerId:'fichenotifZone', user });
   if (a.dataset.tab === 'nettoyage') initNettoyage('nettoyageZone');
   if (a.dataset.tab === 'sensibilisations') initSensibilisations({ containerId:'sensibilisationsZone', user, saisie:false });
   if (a.dataset.tab === 'activites') initActivites({ containerId:'activitesZone', user, recevoir:true, gerer:true, onChange:()=>majBadgeActivites_('navActivites') });

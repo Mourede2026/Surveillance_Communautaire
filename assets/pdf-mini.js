@@ -4,8 +4,8 @@
  * Coordonnées en points, origine en HAUT à gauche (y vers le bas), page A4 par défaut.
  *
  *   var doc = new PdfMini({ titre: '…' }); var p = doc.page();
- *   p.texte(x, y, 'Texte', { taille: 10, gras: true, couleur: '#0B3D3A', align: 'left|center|right' });
- *   p.rect(x, y, l, h, { fond: '#E6EFEE', trait: '#333', epaisseur: 0.5 });  p.ligne(x1, y1, x2, y2, { couleur, epaisseur });
+ *   p.texte(x, y, 'Texte', { taille: 10, gras: true, oblique: true, angle: 0.8, couleur: '#0B3D3A', align: 'left|center|right' });
+ *   p.rect(x, y, l, h, { fond: '#E6EFEE', trait: '#333', epaisseur: 0.5 });  p.ligne(x1, y1, x2, y2, { couleur, epaisseur, arrondi: true });
  *   p.image({ rgb: Uint8Array, l: 96, h: 96 }, x, y, largeur, hauteur);
  *   doc.octets() -> Uint8Array ;  doc.telecharger('nom.pdf')
  */
@@ -39,7 +39,8 @@
   Page.prototype.texte = function (x, y, str, o) {
     o = o || {}; var taille = o.taille || 10, gras = !!o.gras, w = largeurTexte(str, taille, gras);
     if (o.align === 'center') x -= w / 2; else if (o.align === 'right') x -= w;
-    this.ops.push('BT /' + (gras ? 'F2' : 'F1') + ' ' + taille + ' Tf ' + couleur(o.couleur, '0 0 0') + ' rg 1 0 0 1 ' + x.toFixed(2) + ' ' + (this.h - y).toFixed(2) + ' Tm (' + echapper(String(str)) + ') Tj ET');
+    var a = (o.angle || 0) * Math.PI / 180, c = Math.cos(a).toFixed(4), sn = Math.sin(a).toFixed(4), police = o.oblique ? 'F3' : (gras ? 'F2' : 'F1');
+    this.ops.push('BT /' + police + ' ' + taille + ' Tf ' + couleur(o.couleur, '0 0 0') + ' rg ' + c + ' ' + sn + ' ' + (-sn) + ' ' + c + ' ' + x.toFixed(2) + ' ' + (this.h - y).toFixed(2) + ' Tm (' + echapper(String(str)) + ') Tj ET');
     return w;
   };
   Page.prototype.rect = function (x, y, l, h, o) {
@@ -50,7 +51,7 @@
     this.ops.push(parts.join(' '));
   };
   Page.prototype.ligne = function (x1, y1, x2, y2, o) {
-    o = o || {}; this.ops.push(couleur(o.couleur, '0 0 0') + ' RG ' + (o.epaisseur || 0.5) + ' w ' + x1.toFixed(2) + ' ' + (this.h - y1).toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + (this.h - y2).toFixed(2) + ' l S');
+    o = o || {}; this.ops.push((o.arrondi ? '1 J 1 j ' : '') + couleur(o.couleur, '0 0 0') + ' RG ' + (o.epaisseur || 0.5) + ' w ' + x1.toFixed(2) + ' ' + (this.h - y1).toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + (this.h - y2).toFixed(2) + ' l S');
   };
   Page.prototype.image = function (img, x, y, l, h) {
     this.images.push(img); var n = this.images.length;
@@ -65,16 +66,17 @@
     function obj(n, contenu) { offs[n] = pos; ecrire(n + ' 0 obj\n'); ecrire(contenu); ecrire('\nendobj\n'); }
     function flux(n, dict, data) { offs[n] = pos; ecrire(n + ' 0 obj\n<< ' + dict + ' /Length ' + data.length + ' >>\nstream\n'); ecrire(data); ecrire('\nendstream\nendobj\n'); }
     ecrire('%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n');
-    var nb = this.pages.length, num = 5, pageNums = [], plan = [];
+    var nb = this.pages.length, num = 6, pageNums = [], plan = [];
     this.pages.forEach(function (p) { var po = num++, co = num++, im = []; p.images.forEach(function () { im.push(num++); }); pageNums.push(po); plan.push({ p: p, po: po, co: co, im: im }); });
     var total = num - 1;
     obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
     obj(2, '<< /Type /Pages /Kids [' + pageNums.map(function (n) { return n + ' 0 R'; }).join(' ') + '] /Count ' + nb + ' >>');
     obj(3, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     obj(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    obj(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
     plan.forEach(function (it) {
       var xo = it.im.map(function (n, i) { return '/Im' + (i + 1) + ' ' + n + ' 0 R'; }).join(' ');
-      obj(it.po, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + it.p.l.toFixed(2) + ' ' + it.p.h.toFixed(2) + '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>' + (xo ? ' /XObject << ' + xo + ' >>' : '') + ' >> /Contents ' + it.co + ' 0 R >>');
+      obj(it.po, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + it.p.l.toFixed(2) + ' ' + it.p.h.toFixed(2) + '] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >>' + (xo ? ' /XObject << ' + xo + ' >>' : '') + ' >> /Contents ' + it.co + ' 0 R >>');
       flux(it.co, '', enc(it.p.ops.join('\n')));
       it.p.images.forEach(function (img, i) { flux(it.im[i], '/Type /XObject /Subtype /Image /Width ' + img.l + ' /Height ' + img.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8', img.rgb); });
     });

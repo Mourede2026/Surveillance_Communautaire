@@ -261,6 +261,62 @@
     </div>`;
   }
 
+  // Téléchargement PDF : une page A4 par fiche, canevas officiel rempli en bleu (écriture manuscrite), partie laboratoire vierge.
+  function telechargerPdf(liste) {
+    if (!liste.length) { toast('Aucune fiche à exporter.', true); return; }
+    if (!window.FicheNotifPdf) { toast('Export PDF indisponible : rechargez la page.', true); return; }
+    try {
+      const donnees = liste.map(f => Object.assign({}, lireDonnees(f)));
+      const nettoyer = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      const nom = liste.length === 1
+        ? 'Fiche_notification_' + [nettoyer(donnees[0].maladie === 'Autre' ? donnees[0].maladieAutre : donnees[0].maladie), nettoyer(donnees[0].nomPatient), donnees[0].semaine ? 'S' + donnees[0].semaine + '-' + (donnees[0].annee || '') : ''].filter(Boolean).join('_') + '.pdf'
+        : 'Fiches_notification_' + liste.length + '_cas.pdf';
+      window.FicheNotifPdf.telecharger(donnees, nom);
+    } catch (e) { toast('Export PDF impossible : ' + e.message, true); }
+  }
+
+  // Aperçu écran du PDF (même rendu que le fichier téléchargé) avec Télécharger / Imprimer.
+  function pagesCanvas(liste, largeur, dpr) { return window.FicheNotifPdf.canvases(liste.map(f => lireDonnees(f)), largeur, dpr); }
+
+  function apercuPdf(liste) {
+    if (!liste.length) { toast('Aucune fiche à afficher.', true); return; }
+    if (!window.FicheNotifPdf) { toast('Aperçu PDF indisponible : rechargez la page.', true); return; }
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    ov.innerHTML = `<div class="modal-box" style="width:min(900px,96vw);max-height:94vh;overflow:auto;background:#fff;color:#000">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;position:sticky;top:0;background:#fff;padding:6px 0;z-index:2">
+        <strong>📄 Aperçu PDF${liste.length > 1 ? ' (' + liste.length + ' fiches)' : ''}</strong>
+        <span style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" id="fnPvDl">⬇️ Télécharger le PDF</button><button type="button" class="btn-secondary" id="fnPvPr">🖨️ Imprimer</button><button type="button" class="btn-secondary" id="fnPvX">Fermer</button></span></div>
+      <div id="fnPvPages"></div></div>`;
+    document.body.appendChild(ov);
+    const zone = ov.querySelector('#fnPvPages');
+    try { pagesCanvas(liste, liste.length > 3 ? 700 : 860, liste.length > 3 ? 1 : 0).forEach(c => { c.style.border = '1px solid #ccc'; c.style.marginTop = '10px'; zone.appendChild(c); }); }
+    catch (e) { zone.textContent = 'Aperçu impossible : ' + e.message; }
+    ov.querySelector('#fnPvDl').onclick = () => telechargerPdf(liste);
+    ov.querySelector('#fnPvPr').onclick = () => imprimerPages(liste);
+    ov.querySelector('#fnPvX').onclick = () => ov.remove();
+    ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  }
+
+  // Impression directe de la fiche remplie (même rendu que le PDF) : pages image insérées dans la page puis window.print().
+  function imprimerPages(liste) {
+    if (!liste.length) { toast('Aucune fiche à imprimer.', true); return; }
+    if (!window.FicheNotifPdf) { toast('Impression indisponible : rechargez la page.', true); return; }
+    if (!document.getElementById('fnPrintCss')) {
+      const st = document.createElement('style'); st.id = 'fnPrintCss';
+      st.textContent = '#fnPrintZone{display:none}@media print{@page{size:A4 portrait;margin:0}body>*:not(#fnPrintZone){display:none!important}#fnPrintZone{display:block!important}#fnPrintZone img{display:block;width:210mm;height:296mm;page-break-after:always;break-after:page}}';
+      document.head.appendChild(st);
+    }
+    const ancien = document.getElementById('fnPrintZone'); if (ancien) ancien.remove();
+    const z = document.createElement('div'); z.id = 'fnPrintZone';
+    try { pagesCanvas(liste, 1240, 1).forEach(c => { const im = new Image(); im.src = c.toDataURL('image/png'); z.appendChild(im); }); }
+    catch (e) { toast('Impression impossible : ' + e.message, true); return; }
+    document.body.appendChild(z);
+    const fin = () => { z.remove(); window.removeEventListener('afterprint', fin); };
+    window.addEventListener('afterprint', fin);
+    Promise.all(Array.from(z.querySelectorAll('img')).map(i => i.decode ? i.decode().catch(() => {}) : Promise.resolve())).then(() => setTimeout(() => { try { window.print(); } catch (e) { toast('Impression impossible sur cet appareil : utilisez « Télécharger le PDF ».', true); fin(); } }, 60));
+  }
+
   // Impression via un iframe caché (évite les blocages de fenêtres surgissantes, notamment sur smartphone).
   function imprimer(liste) {
     if (!liste.length) { toast('Aucune fiche à imprimer.', true); return; }
@@ -301,7 +357,8 @@
     const total = toutes();
     document.getElementById('fnCompteur').textContent = total.length ? '(' + total.length + ')' : '';
     if (!total.length) { z.innerHTML = '<div class="empty-state">Aucune fiche remplie pour le moment.</div>'; return; }
-    let h = `<div class="no-print" style="margin-bottom:10px"><button type="button" class="btn-secondary" id="fnImprTout" style="font-size:.8rem;padding:6px 12px">🖨️ Imprimer toutes les fiches (${total.length})</button></div>
+    let h = `<div class="no-print" style="margin-bottom:10px"><button type="button" class="btn-secondary" id="fnImprTout" style="font-size:.8rem;padding:6px 12px">🖨️ Imprimer toutes les fiches (${total.length})</button>
+      <button type="button" id="fnPdfTout" style="font-size:.8rem;padding:6px 12px;margin-left:6px">📄 PDF de toutes les fiches (${total.length})</button></div>
       <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Maladie</th><th>Patient</th><th>Sexe / Âge</th><th>Lieu</th><th>Sem.</th><th>Évolution</th><th>Classification</th><th></th></tr></thead><tbody>`;
     total.forEach(f => {
       if (f._attente) {
@@ -309,11 +366,13 @@
         <td>${lieuCell(f)}</td><td>${E(f.SemaineEpi)}/${E(f.Annee)}</td><td>${E(f.Evolution)}</td><td>${E(f.Classification)}</td>
         <td style="white-space:nowrap"><button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
           <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>
+          <button type="button" data-fn="pdf" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">📄 PDF</button>
           <button type="button" class="btn-danger" data-fn="retirer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px" title="Retirer de la file d'envoi">✖</button></td></tr>`;
         return;
       }
       const btnVoir = `<button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
-          <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>`;
+          <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>
+          <button type="button" data-fn="pdf" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">📄 PDF</button>`;
       const btnGerer = estMienne(f) ? `
           <button type="button" class="btn-secondary" data-fn="modifier" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">✏️</button>
           <button type="button" class="btn-danger" data-fn="supprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🗑️</button>` : '';
@@ -322,7 +381,8 @@
         <td style="white-space:nowrap">${btnVoir}${btnGerer}</td></tr>`;
     });
     z.innerHTML = h + '</tbody></table></div>';
-    document.getElementById('fnImprTout').onclick = () => imprimer(toutes());
+    document.getElementById('fnImprTout').onclick = () => imprimerPages(toutes());
+    document.getElementById('fnPdfTout').onclick = () => apercuPdf(toutes());
     z.querySelectorAll('[data-fn]').forEach(b => b.addEventListener('click', () => actionLigne(b.dataset.fn, b.dataset.id)));
   }
 
@@ -332,9 +392,10 @@
       if (!confirm('Retirer cette fiche de la file d\'envoi ? Elle ne sera PAS transmise au serveur.')) return;
       await window.HorsLigne._Stock.fileSupprimer(f._itemId); window.HorsLigne.majBandeau(); await charger(); return;
     }
-    if (action === 'imprimer') imprimer([f]);
+    if (action === 'pdf') apercuPdf([f]);
+    else if (action === 'imprimer') imprimerPages([f]);
     else if (action === 'modifier') { if (!estMienne(f)) { toast('Cette fiche a été saisie par un autre compte : modification impossible.', true); return; } modifierFiche(id); }
-    else if (action === 'voir') apercu(f);
+    else if (action === 'voir') apercuPdf([f]);
     else if (action === 'supprimer') {
       if (!estMienne(f)) { toast('Cette fiche a été saisie par un autre compte : suppression impossible.', true); return; }
       if (!confirm('Supprimer définitivement la fiche de « ' + (f.NomPatient || '') + ' » ?')) return;
@@ -350,10 +411,11 @@
       <style>${CSS_IMPR.replace(/@page[^}]*}/, '').replace(/body\s*{[^}]*}/, '').replace(/\.fiche\s*{[^}]*}/, '.fiche{padding:0}')}</style>
       ${ficheImprimable(f)}
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-        <button type="button" id="fnApImpr">🖨️ Imprimer</button><button type="button" class="btn-secondary" id="fnApFerm">Fermer</button></div></div>`;
+        <button type="button" id="fnApImpr">🖨️ Imprimer</button><button type="button" id="fnApPdf">📄 PDF</button><button type="button" class="btn-secondary" id="fnApFerm">Fermer</button></div></div>`;
     document.body.appendChild(ov);
     ov.querySelector('#fnApFerm').onclick = () => ov.remove();
     ov.querySelector('#fnApImpr').onclick = () => imprimer([f]);
+    ov.querySelector('#fnApPdf').onclick = () => telechargerPdf([f]);
     ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
   }
 

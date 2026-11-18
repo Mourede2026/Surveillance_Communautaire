@@ -4452,7 +4452,7 @@ function runMigrerVersNational_() {
 // Le RCSE et l'ASCQ remplissent la fiche officielle « 1_BJ_FORMULAIRE GENERIQUE DE NOTIFICATION DES MALADIES
 // SOUS SURVEILLANCE » de façon indépendante (hors alertes/décès communautaires).
 //  - L'ASCQ ne notifie que pour son/ses arrondissement(s) ; il ne voit et ne gère que ses propres fiches.
-//  - Le RCSE voit ses propres fiches ET celles de tous les ASCQ placés sous lui (lecture seule pour ces dernières) ;
+//  - Le RCSE voit ses propres fiches ET celles de tous les ASCQ placés sous lui, qu'il peut aussi modifier et supprimer ;
 //    la synthèse par arrondissement affichée sur sa page agrège l'ensemble.
 //  - Chaque fiche porte l'arrondissement de résidence du cas (ArrondissementId), contrôlé côté serveur.
 
@@ -4479,6 +4479,14 @@ function ficheNotifNettoyer_(brut) {
     else out[k] = ficheNotifTexte_(v, 300);
   });
   return out;
+}
+
+// Une fiche est gérable (modifier / supprimer) par son auteur, et par le RCSE pour les fiches saisies par les ASCQ placés sous lui.
+function ficheNotifGerable_(actor, f) {
+  if (!f) return false;
+  if (String(f.CreeParId) === String(actor.ID)) return true;
+  if (actor.Role !== ROLES.RCSE) return false;
+  return descendantsComptes_(actor).some(u => u.Role === ROLES.ASCQ && String(u.ID) === String(f.CreeParId));
 }
 
 function saveFicheNotif_(actor, p) {
@@ -4514,7 +4522,7 @@ function saveFicheNotif_(actor, p) {
   if (json.length > 40000) return { ok: false, error: 'La fiche est trop volumineuse.' };
   if (p.id) {
     const f = readSheet_(SHEETS.FICHES_NOTIF).find(x => x.ID === p.id);
-    if (!f || f.CreeParId !== actor.ID) return { ok: false, error: 'Fiche introuvable ou non modifiable par ce compte.' };
+    if (!ficheNotifGerable_(actor, f)) return { ok: false, error: 'Fiche introuvable ou non modifiable par ce compte.' };
     updateRowById_(SHEETS.FICHES_NOTIF, f.ID, Object.assign({}, resume, { Donnees: json, DateModification: nowStr_() }));
     return { ok: true, id: f.ID };
   }
@@ -4549,7 +4557,7 @@ function listFichesNotif_(actor) {
 function deleteFicheNotif_(actor, p) {
   if (!ficheNotifRoleOk_(actor)) return { ok: false, error: 'Réservé aux comptes RCSE et ASCQ.' };
   const f = readSheet_(SHEETS.FICHES_NOTIF).find(x => x.ID === p.id);
-  if (!f || f.CreeParId !== actor.ID) return { ok: false, error: 'Fiche introuvable ou non supprimable par ce compte.' };
+  if (!ficheNotifGerable_(actor, f)) return { ok: false, error: 'Fiche introuvable ou non supprimable par ce compte.' };
   deleteRowById_(SHEETS.FICHES_NOTIF, f.ID);
   return { ok: true };
 }

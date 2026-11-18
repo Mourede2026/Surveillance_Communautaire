@@ -182,7 +182,7 @@
     const f = fiches.find(x => x.ID === id); if (!f) return;
     editId = id;
     remplirFormulaire(lireDonnees(f));
-    document.getElementById('fnEditInfo').textContent = '✏️ Modification de la fiche de ' + (f.NomPatient || '');
+    document.getElementById('fnEditInfo').textContent = '✏️ Modification de la fiche de ' + (f.NomPatient || '') + (estMienne(f) ? '' : ' (saisie par ' + (f.CreeParNom || 'un ASCQ') + ')');
     document.getElementById('fnSave').textContent = '💾 Enregistrer les modifications';
     document.getElementById('fnForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -348,7 +348,9 @@
   }
   const toutes = () => enAttente.concat(fiches);
 
-  const estMienne = f => !f.CreeParId || f.CreeParId === ctx.user.ID;   // une fiche d'un ASCQ vue par le RCSE est en lecture seule
+  const estMienne = f => !f.CreeParId || f.CreeParId === ctx.user.ID;
+  // Le RCSE peut modifier / supprimer ses fiches ET celles des ASCQ placés sous lui (le serveur revérifie).
+  const peutGerer = f => estMienne(f) || (ctx.user.Role === 'RCSE' && f.CreeParRole === 'ASCQ');
   const lieuCell = f => E(f.ArrondissementNom || '—') + (f.Village ? '<div class="petit">' + E(f.Village) + '</div>' : '');
   const parQui = f => estMienne(f) ? '' : '<div class="petit">👤 ' + E(f.CreeParNom || '') + ' · ' + E(f.CreeParRole || '') + '</div>';
 
@@ -373,7 +375,7 @@
       const btnVoir = `<button type="button" class="btn-secondary" data-fn="voir" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">👁️ Voir</button>
           <button type="button" class="btn-secondary" data-fn="imprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🖨️ Imprimer</button>
           <button type="button" data-fn="pdf" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">📄 PDF</button>`;
-      const btnGerer = estMienne(f) ? `
+      const btnGerer = peutGerer(f) ? `
           <button type="button" class="btn-secondary" data-fn="modifier" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">✏️</button>
           <button type="button" class="btn-danger" data-fn="supprimer" data-id="${E(f.ID)}" style="font-size:.78rem;padding:5px 9px">🗑️</button>` : '';
       h += `<tr><td>${E(fmtDate(f.DateSaisie))}${parQui(f)}</td><td><strong>${E(f.Maladie)}</strong></td><td>${E(f.NomPatient)}</td><td>${E(f.Sexe)}${f.Age ? ' · ' + E(f.Age) : ''}</td>
@@ -394,10 +396,10 @@
     }
     if (action === 'pdf') apercuPdf([f]);
     else if (action === 'imprimer') imprimerPages([f]);
-    else if (action === 'modifier') { if (!estMienne(f)) { toast('Cette fiche a été saisie par un autre compte : modification impossible.', true); return; } modifierFiche(id); }
+    else if (action === 'modifier') { if (!peutGerer(f)) { toast('Cette fiche a été saisie par un autre compte : modification impossible.', true); return; } modifierFiche(id); }
     else if (action === 'voir') apercuPdf([f]);
     else if (action === 'supprimer') {
-      if (!estMienne(f)) { toast('Cette fiche a été saisie par un autre compte : suppression impossible.', true); return; }
+      if (!peutGerer(f)) { toast('Cette fiche a été saisie par un autre compte : suppression impossible.', true); return; }
       if (!confirm('Supprimer définitivement la fiche de « ' + (f.NomPatient || '') + ' » ?')) return;
       try { await Api.call('deleteFicheNotif', { id }); toast('Fiche supprimée.'); if (editId === id) nouvelleFiche(); await charger(); }
       catch (e) { toast(e.message, true); }

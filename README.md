@@ -200,6 +200,9 @@ Bouton **📖 Guide** (barre du haut, et entrée du menu profil) : un guide comp
 
 ## Mode hors connexion
 
+- **Interface 100 % hors connexion (service worker `sw.js`)** : à la première ouverture avec réseau, toutes les pages, scripts, styles et icônes sont copiés sur l'appareil ; ensuite chaque profil ouvre l'application sans connexion (la session ouverte est reprise automatiquement). Avec réseau, la version la plus récente est servie (la copie locale prend le relais si le réseau met plus de 4 s). Pour forcer le renouvellement du cache après une mise à jour, incrémenter `VERSION` dans `sw.js`. `sw.js` doit rester à la racine, à côté de `index.html`.
+- **Notifications hors connexion** : les notifications déjà reçues restent consultables ; « marquer comme lue » fonctionne hors connexion (envoi différé). Au retour du réseau, `HorsLigne.actualiserCache()` rafraîchit, une requête à la fois, un petit nombre de lectures déjà présentes sur l'appareil (jamais sur connexion 2G / économiseur de données). Aucune donnée d'un écran jamais ouvert n'est disponible hors connexion.
+
 `assets/hors-ligne.js` (chargé juste après `api.js` dans toutes les pages d'espace) enveloppe `Api.call`.
 
 - **Relais communautaire** : une **alerte** ou un **décès** peut être notifié sans réseau. La notification est gardée sur le téléphone (IndexedDB, file d'attente) puis envoyée automatiquement, dans l'ordre, au retour de la connexion (événement `online`, ouverture de l'application, retour au premier plan, minuteur de 45 s) ou avec « Envoyer maintenant ». Onglet **Historique › Envois en attente** : liste, « Réessayer », « Supprimer ».

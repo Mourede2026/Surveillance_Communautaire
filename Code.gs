@@ -370,7 +370,7 @@ function ensureSchema_() {
 // l'actualisation des données très lente. Réinitialisé en tête de doGet_/doPost_ (jamais réutilisé
 // d'une requête à l'autre, pour ne jamais servir de données obsolètes après une écriture).
 let __sheetCache_ = {};
-function reinitialiserCacheFeuilles_() { __sheetCache_ = {}; }
+function reinitialiserCacheFeuilles_() { __sheetCache_ = {}; __entetes_ = {}; }
 
 function readSheet_(name) {
   if (__sheetCache_[name]) return __sheetCache_[name];
@@ -391,9 +391,22 @@ function readSheet_(name) {
 // plusieurs fois de suite sur la même feuille).
 function invaliderCacheFeuille_(name) { delete __sheetCache_[name]; }
 
+// Ordre réel des colonnes d'une feuille (ligne 1). ensureSchema_ AJOUTE les colonnes manquantes à la FIN d'une feuille
+// existante sans réordonner : l'ordre réel peut donc différer de COLS. Écrire dans l'ordre de COLS décalerait alors
+// les valeurs (ex. une date dans une colonne d'effectif). On écrit toujours selon les en-têtes réels.
+let __entetes_ = {};
+function entetesReels_(sheetName, sh) {
+  if (__entetes_[sheetName]) return __entetes_[sheetName];
+  const largeur = sh.getLastColumn();
+  const h = largeur > 0 ? sh.getRange(1, 1, 1, largeur).getValues()[0].map(String) : [];
+  const ok = COLS[sheetName].every(c => h.indexOf(c) !== -1);
+  __entetes_[sheetName] = ok ? h : COLS[sheetName];
+  return __entetes_[sheetName];
+}
+
 function appendRow_(sheetName, obj) {
   const sh = ss_().getSheetByName(sheetName);
-  const headers = COLS[sheetName];
+  const headers = entetesReels_(sheetName, sh);
   const row = headers.map(h => (obj[h] !== undefined ? obj[h] : ''));
   sh.appendRow(row);
   invaliderCacheFeuille_(sheetName);
@@ -3002,10 +3015,63 @@ function tacheSupprimerCas_(actor, p) {
 // Photo(s) de la séance + liste nominative des personnes sensibilisées (nom, sexe, âge).
 // Stockage des photos dans Google Drive (voir autoriserDrive). Envoi possible hors connexion.
 
+// ---- Sensibilisations : lecture fiable (colonnes décalées détectées et remises en place) ----
+// Des lignes enregistrées avant la correction de appendRow_ peuvent avoir leurs valeurs décalées par rapport aux
+// en-têtes de la feuille (ex. une date lue comme « adultes hommes » → 1 794 301 378 000 personnes). Chaque ligne est
+// lue selon l'ordre des en-têtes ; si les valeurs sont incohérentes, elle est relue selon l'ordre du code (COLS) ;
+// seule une disposition entièrement cohérente est retenue. Jamais de valeur inventée.
+const SENS_STATUTS_ = ['', 'Approuvée', 'En attente', 'Rejetée'];
+function sensEntier_(v, max) {
+  if (v === '' || v === null || v === undefined) return true;
+  if (typeof v === 'number') return isFinite(v) && v >= 0 && v <= max && Math.floor(v) === v;
+  if (typeof v === 'string') return /^\d{1,6}$/.test(v.trim()) && Number(v) <= max;
+  return false; // Date, booléen… : pas un effectif
+}
+function sensDateOk_(v) { return v === '' || v === null || v === undefined || Object.prototype.toString.call(v) === '[object Date]' || /^\d{4}-\d{2}-\d{2}/.test(String(v)) || /^\d{2}\/\d{2}\/\d{4}/.test(String(v)); }
+function sensLayoutValide_(o) {
+  return ['NbAdultesH', 'NbAdultesF', 'NbEnfantsG', 'NbEnfantsF', 'NbHommes', 'NbFemmes'].every(k => sensEntier_(o[k], 5000)) &&
+    sensEntier_(o.NbParticipants, 20000) && SENS_STATUTS_.indexOf(o.Statut === undefined || o.Statut === null ? '' : String(o.Statut)) !== -1 &&
+    sensDateOk_(o.Date) && sensDateOk_(o.DateSaisie);
+}
+function sensAligner_(headers, row) {
+  const cols = COLS[SHEETS.SENSIBILISATIONS];
+  const parEntete = {}; headers.forEach((h, i) => { parEntete[h] = row[i]; });
+  if (sensLayoutValide_(parEntete)) return { obj: parEntete, decale: false };
+  const parPos = {}; cols.forEach((h, i) => { parPos[h] = row[i]; });
+  if (sensLayoutValide_(parPos)) return { obj: parPos, decale: true };
+  return { obj: parEntete, decale: false };
+}
+function lireSensibilisations_() {
+  const nom = SHEETS.SENSIBILISATIONS;
+  if (__sheetCache_[nom]) return __sheetCache_[nom];
+  const values = ss_().getSheetByName(nom).getDataRange().getValues();
+  const headers = values.shift().map(String);
+  const rows = values.filter(r => r.join('') !== '').map(row => sensAligner_(headers, row).obj);
+  __sheetCache_[nom] = rows;
+  return rows;
+}
+// Remet réellement en place (dans la feuille) les lignes décalées. Sans danger : une ligne n'est réécrite que si sa lecture
+// par en-têtes est incohérente ET que sa lecture selon COLS est cohérente.
+function reparerSensibilisations_() {
+  const nom = SHEETS.SENSIBILISATIONS, sh = ss_().getSheetByName(nom);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  const values = sh.getDataRange().getValues(), headers = values[0].map(String);
+  let n = 0;
+  for (let r = 1; r < values.length; r++) {
+    if (values[r].join('') === '') continue;
+    const a = sensAligner_(headers, values[r]);
+    if (!a.decale) continue;
+    sh.getRange(r + 1, 1, 1, headers.length).setValues([headers.map(h => (a.obj[h] !== undefined ? a.obj[h] : ''))]);
+    n++;
+  }
+  invaliderCacheFeuille_(nom);
+  return n;
+}
+
 function submitSensibilisation_(actor, p) {
   if (actor.Role !== ROLES.RC) return { ok: false, error: 'Seul un Relais Communautaire peut enregistrer une sensibilisation.' };
   const clientId = String(p.clientId || '');
-  if (clientId) { const deja = readSheet_(SHEETS.SENSIBILISATIONS).find(r => r.ClientId === clientId && r.RcId === actor.ID); if (deja) return { ok: true, sensibilisation: deja, doublon: true }; }
+  if (clientId) { const deja = lireSensibilisations_().find(r => r.ClientId === clientId && r.RcId === actor.ID); if (deja) return { ok: true, sensibilisation: deja, doublon: true }; }
   const theme = coupe_(p.theme, 160);
   if (theme.length < 3) return { ok: false, error: 'Indiquez le thème de la sensibilisation.' };
   if (!p.date) return { ok: false, error: 'La date de la sensibilisation est obligatoire.' };
@@ -3055,7 +3121,12 @@ function submitSensibilisation_(actor, p) {
 }
 
 function listSensibilisations_(actor, p) {
-  let rows = readSheet_(SHEETS.SENSIBILISATIONS);
+  // Réparation unique (une seule fois après la mise à jour) des lignes décalées déjà présentes dans la feuille.
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (!props.getProperty('SENS_ALIGNE_V1')) avecVerrou_(() => { reparerSensibilisations_(); props.setProperty('SENS_ALIGNE_V1', nowStr_()); });
+  } catch (e) { /* non bloquant : la lecture ci-dessous reste corrigée à la volée */ }
+  let rows = lireSensibilisations_();
   const statutDe = r => r.Statut || 'Approuvée'; // anciennes saisies : approuvées
   if (actor.Role === ROLES.RC) rows = rows.filter(r => r.RcId === actor.ID);
   else {
@@ -3067,10 +3138,19 @@ function listSensibilisations_(actor, p) {
   rows = rows.map(r => Object.assign({}, r, { Statut: statutDe(r) }));
   // Anciennes saisies nominatives (si elles existent) : effectifs déduits des âges (enfant = moins de 18 ans).
   const effectifs = r => {
-    const saisi = [r.NbAdultesH, r.NbAdultesF, r.NbEnfantsG, r.NbEnfantsF].some(v => v !== '' && v !== undefined && v !== null);
-    if (saisi) return { NbAdultesH: Number(r.NbAdultesH) || 0, NbAdultesF: Number(r.NbAdultesF) || 0, NbEnfantsG: Number(r.NbEnfantsG) || 0, NbEnfantsF: Number(r.NbEnfantsF) || 0 };
-    const o = { NbAdultesH: 0, NbAdultesF: 0, NbEnfantsG: 0, NbEnfantsF: 0 };
+    const brut = [r.NbAdultesH, r.NbAdultesF, r.NbEnfantsG, r.NbEnfantsF];
+    const saisi = brut.some(v => v !== '' && v !== undefined && v !== null);
+    const total = (r.NbParticipants === '' || r.NbParticipants === null || r.NbParticipants === undefined || !sensEntier_(r.NbParticipants, 20000)) ? null : Number(r.NbParticipants);
+    if (saisi) {
+      const ok = brut.every(v => v !== '' && v !== null && v !== undefined && sensEntier_(v, 5000));
+      const [a, b, c, d] = brut.map(Number);
+      if (ok && (total === null || a + b + c + d === total)) return { NbAdultesH: a, NbAdultesF: b, NbEnfantsG: c, NbEnfantsF: d, NbParticipants: total === null ? a + b + c + d : total, DetailOk: true };
+      // Détail incohérent (valeurs décalées/corrompues) : on ne montre QUE le total enregistré, jamais un détail faux.
+      return { NbAdultesH: '', NbAdultesF: '', NbEnfantsG: '', NbEnfantsF: '', NbParticipants: total === null ? 0 : total, DetailOk: false };
+    }
+    const o = { NbAdultesH: 0, NbAdultesF: 0, NbEnfantsG: 0, NbEnfantsF: 0, DetailOk: true };
     parseArr_(r.Participants).forEach(x => { const enf = Number(x.age) < 18; if (x.sexe === 'F') o[enf ? 'NbEnfantsF' : 'NbAdultesF']++; else o[enf ? 'NbEnfantsG' : 'NbAdultesH']++; });
+    o.NbParticipants = total === null ? o.NbAdultesH + o.NbAdultesF + o.NbEnfantsG + o.NbEnfantsF : total;
     return o;
   };
   const sorted = rows.map(r => Object.assign({}, r, { Date: dateIso_(r.Date) }, effectifs(r))).sort((a, b) => (b.Date + b.ID).localeCompare(a.Date + a.ID));
@@ -3080,7 +3160,7 @@ function listSensibilisations_(actor, p) {
 // Décision de l'ASCQ : approuver (la sensibilisation remonte alors aux niveaux supérieurs) ou rejeter (motif obligatoire, le RC est prévenu).
 function decideSensibilisation_(actor, p) {
   if (actor.Role !== ROLES.ASCQ) return { ok: false, error: 'Seul l\'ASCQ du relais communautaire peut approuver ou rejeter une sensibilisation.' };
-  const s = readSheet_(SHEETS.SENSIBILISATIONS).find(x => x.ID === p.id);
+  const s = lireSensibilisations_().find(x => x.ID === p.id);
   if (!s) return { ok: false, error: 'Sensibilisation introuvable.' };
   const rc = readSheet_(SHEETS.USERS).find(u => u.ID === s.RcId);
   if (!rc || !isSupervisorOf_(actor, rc)) return { ok: false, error: 'Cette sensibilisation ne concerne pas un relais communautaire de votre périmètre.' };
@@ -3098,7 +3178,7 @@ function decideSensibilisation_(actor, p) {
     : `Votre sensibilisation « ${s.Theme} » du ${date} a été rejetée par votre ASCQ ${nom} — motif : ${motif}. Vous pouvez l'enregistrer à nouveau après correction.`);
   if (decision === 'Approuvée') {
     const apresAscq = chainAbove_(rc).filter(u => u.Role !== ROLES.RC && u.ID !== actor.ID && RANG_ROLE_[u.Role] > RANG_ROLE_[ROLES.ASCQ]);
-    notifierComptes_(apresAscq, 'SENSIBILISATION', s.ID, `Sensibilisation « ${s.Theme} » réalisée par ${s.RcNom} le ${date} (approuvée par l'ASCQ) : ${total} personne(s) sensibilisée(s) (adultes : ${(Number(s.NbAdultesH) || 0) + (Number(s.NbAdultesF) || 0)}, enfants : ${(Number(s.NbEnfantsG) || 0) + (Number(s.NbEnfantsF) || 0)})${s.VillageNom ? ' - Village: ' + s.VillageNom : ''}`);
+    notifierComptes_(apresAscq, 'SENSIBILISATION', s.ID, `Sensibilisation « ${s.Theme} » réalisée par ${s.RcNom} le ${date} (approuvée par l'ASCQ) : ${total} personne(s) sensibilisée(s)${[s.NbAdultesH, s.NbAdultesF, s.NbEnfantsG, s.NbEnfantsF].every(v => v !== '' && sensEntier_(v, 5000)) && (Number(s.NbAdultesH) + Number(s.NbAdultesF) + Number(s.NbEnfantsG) + Number(s.NbEnfantsF) === total) ? ' (adultes : ' + (Number(s.NbAdultesH) + Number(s.NbAdultesF)) + ', enfants : ' + (Number(s.NbEnfantsG) + Number(s.NbEnfantsF)) + ')' : ''}${s.VillageNom ? ' - Village: ' + s.VillageNom : ''}`);
   }
   return { ok: true, statut: decision };
 }
@@ -4399,6 +4479,8 @@ function onOpen() {
     .createMenu('⚙️ Surveillance - Outils')
     .addItem('Tester l\'exécution (diagnostic)', 'runTestDiagnostic_')
     .addSeparator()
+    .addItem('Réparer les colonnes décalées (Sensibilisations)', 'runReparerSensibilisations_')
+    .addItem('Diagnostiquer l\'ordre des colonnes de toutes les feuilles', 'runDiagnosticColonnes_')
     .addItem('Exécuter la migration des utilisateurs', 'runMigrerUtilisateurs_')
     .addItem('Exécuter la migration vers le rôle NATIONAL', 'runMigrerVersNational_')
     .addToUi();
@@ -4411,6 +4493,24 @@ function runTestDiagnostic_() {
     'de l\'éditeur Apps Script (un bug d\'interface), pas votre code. Vous pouvez utiliser ce ' +
     'menu ⚙️ Surveillance - Outils pour exécuter les fonctions à la place.'
   );
+}
+
+function runReparerSensibilisations_() {
+  const ui = SpreadsheetApp.getUi();
+  try { const n = reparerSensibilisations_(); PropertiesService.getScriptProperties().setProperty('SENS_ALIGNE_V1', nowStr_()); ui.alert(n + ' ligne(s) de la feuille Sensibilisations remise(s) en place.'); }
+  catch (err) { ui.alert('Erreur : ' + (err && err.message ? err.message : err)); }
+}
+
+// Liste les feuilles dont l'ordre réel des colonnes diffère de celui du code (risque de valeurs décalées dans d'anciennes lignes).
+function runDiagnosticColonnes_() {
+  const ui = SpreadsheetApp.getUi(), ss = ss_(), lignes = [];
+  Object.keys(COLS).forEach(nom => {
+    const sh = ss.getSheetByName(nom); if (!sh || sh.getLastRow() < 1 || sh.getLastColumn() < 1) return;
+    const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    const diff = COLS[nom].some((c, i) => h[i] !== c);
+    if (diff && sh.getLastRow() > 1) lignes.push('• ' + nom + ' (' + (sh.getLastRow() - 1) + ' ligne(s))');
+  });
+  ui.alert(lignes.length ? 'Feuilles dont l\'ordre des colonnes diffère du code :\n\n' + lignes.join('\n') + '\n\nLes nouvelles lignes sont désormais écrites selon les en-têtes réels (aucun nouveau décalage). Les anciennes lignes de ces feuilles peuvent contenir des valeurs décalées : signalez-le pour qu\'elles soient vérifiées.' : 'Toutes les feuilles ont le même ordre de colonnes que le code : aucun décalage possible.');
 }
 
 function runMigrerUtilisateurs_() {

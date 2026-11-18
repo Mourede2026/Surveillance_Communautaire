@@ -212,14 +212,21 @@
     }
     function montrer() {
       const v = filtrer();
-      const som = k => v.reduce((a, s) => a + Number(s[k] || 0), 0);
+      // Chiffres réels : le total = somme des totaux enregistrés ; le détail adultes/enfants ne compte que les séances dont
+      // le détail est cohérent (DetailOk). Une valeur impossible n'est jamais affichée.
+      const nombre = x => { const n = Number(x); return isFinite(n) && n >= 0 && n <= 20000 ? n : 0; };
+      const avecDetail = v.filter(s => s.DetailOk !== false);
+      const som = k => avecDetail.reduce((a, s) => a + nombre(s[k]), 0);
       const adH = som('NbAdultesH'), adF = som('NbAdultesF'), enG = som('NbEnfantsG'), enF = som('NbEnfantsF');
-      el.querySelector('#sensStats').innerHTML = [[v.length, 'Séances'], [adH + adF + enG + enF, 'Personnes sensibilisées'], [adH + adF, 'Adultes (' + adH + ' H · ' + adF + ' F)'], [enG + enF, 'Enfants (' + enG + ' G · ' + enF + ' F)']].map(x => `<div class="stat-card"><div class="n">${x[0]}</div><div class="l">${x[1]}</div></div>`).join('');
+      const total = v.reduce((a, s) => a + nombre(s.NbParticipants), 0);
+      const sansDetail = v.length - avecDetail.length;
+      const noteDetail = sansDetail ? '<div class="petit">détail connu pour ' + avecDetail.length + ' séance(s) sur ' + v.length + '</div>' : '';
+      el.querySelector('#sensStats').innerHTML = [[v.length, 'Séances', ''], [total, 'Personnes sensibilisées', ''], [adH + adF, 'Adultes (' + adH + ' H · ' + adF + ' F)', noteDetail], [enG + enF, 'Enfants (' + enG + ' G · ' + enF + ' F)', noteDetail]].map(x => `<div class="stat-card"><div class="n">${x[0]}</div><div class="l">${x[1]}</div>${x[2]}</div>`).join('');
       corps.innerHTML = v.length ? v.map(s => {
         const ph = jsonArr(s.PhotosUrls);
         const decisions = estAscq && s.Statut !== 'Approuvée' ? `<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap"><button type="button" class="btn-mini" data-appr="${esc(s.ID)}">✔ Approuver</button>${s.Statut === 'En attente' ? `<button type="button" class="btn-danger btn-mini" data-rej="${esc(s.ID)}">✖ Rejeter</button>` : ''}</div>` : '';
         return `<tr><td>${dFr(s.Date)}${s.HorsLigne ? '<div class="petit">hors connexion</div>' : ''}</td>${estRc ? '' : `<td>${esc(s.RcNom)}</td><td>${esc(s.VillageNom)}</td>`}<td><strong>${esc(s.Theme)}</strong>${s.Lieu ? '<div class="petit">' + esc(s.Lieu) + '</div>' : ''}</td>
-          <td>${esc(s.NbParticipants)}<div class="petit">Adultes ${esc(s.NbAdultesH)} H · ${esc(s.NbAdultesF)} F<br>Enfants ${esc(s.NbEnfantsG)} G · ${esc(s.NbEnfantsF)} F</div></td>
+          <td>${esc(s.NbParticipants)}${s.DetailOk === false ? '<div class="petit">détail par sexe/âge non disponible</div>' : `<div class="petit">Adultes ${esc(s.NbAdultesH)} H · ${esc(s.NbAdultesF)} F<br>Enfants ${esc(s.NbEnfantsG)} G · ${esc(s.NbEnfantsF)} F</div>`}</td>
           <td>${ph.length ? `<a href="${esc(ph[0])}" target="_blank" rel="noopener"><img class="sens-mini" src="${esc(miniature(ph[0]))}" alt="Photo" loading="lazy"></a>${ph.length > 1 ? '<div class="petit">+' + (ph.length - 1) + ' photo(s)</div>' : ''}` : '—'}</td>
           ${avecStatut ? `<td>${badgeStatut(s)}${s.Statut === 'Rejetée' && s.MotifRejet ? '<div class="petit">Motif : ' + esc(s.MotifRejet) + '</div>' : ''}${decisions}</td>` : ''}
           <td><button type="button" class="btn-secondary btn-mini" data-sens="${esc(s.ID)}">Détail</button></td></tr>`;
@@ -233,7 +240,7 @@
     });
     el.querySelector('#sensExport').onclick = () => {
       const l = [['Date', 'Relais communautaire', 'Village', 'Thème', 'Lieu', 'Adultes hommes', 'Adultes femmes', 'Enfants garçons', 'Enfants filles', 'Total', 'Statut']];
-      filtrer().forEach(s => l.push([s.Date, s.RcNom, s.VillageNom, s.Theme, s.Lieu, s.NbAdultesH, s.NbAdultesF, s.NbEnfantsG, s.NbEnfantsF, s.NbParticipants, s.Statut]));
+      filtrer().forEach(s => l.push([s.Date, s.RcNom, s.VillageNom, s.Theme, s.Lieu, s.DetailOk === false ? '' : s.NbAdultesH, s.DetailOk === false ? '' : s.NbAdultesF, s.DetailOk === false ? '' : s.NbEnfantsG, s.DetailOk === false ? '' : s.NbEnfantsF, s.NbParticipants, s.Statut]));
       telecharger('sensibilisations_statistiques.csv', csv(l));
     };
     montrer();
@@ -250,10 +257,10 @@
       ${s.Commentaires ? `<p style="margin:0 0 10px">${esc(s.Commentaires)}</p>` : ''}
       <div class="fiche-photos">${ph.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(miniature(u))}" alt="Photo ${i + 1}"></a>`).join('') || '<span class="petit">Aucune photo.</span>'}</div>
       <h4 class="sous-titre">Personnes sensibilisées</h4>
-      <div class="table-wrap"><table><thead><tr><th></th><th>Hommes / Garçons</th><th>Femmes / Filles</th><th>Total</th></tr></thead><tbody>
+      ${s.DetailOk === false ? `<p class="petit">Le détail par sexe et par âge n'est pas disponible pour cette séance. Total enregistré : <strong>${esc(s.NbParticipants)}</strong> personne(s).</p>` : `<div class="table-wrap"><table><thead><tr><th></th><th>Hommes / Garçons</th><th>Femmes / Filles</th><th>Total</th></tr></thead><tbody>
         <tr><th style="text-align:left">Adultes</th><td>${esc(s.NbAdultesH)}</td><td>${esc(s.NbAdultesF)}</td><td>${Number(s.NbAdultesH || 0) + Number(s.NbAdultesF || 0)}</td></tr>
         <tr><th style="text-align:left">Enfants</th><td>${esc(s.NbEnfantsG)}</td><td>${esc(s.NbEnfantsF)}</td><td>${Number(s.NbEnfantsG || 0) + Number(s.NbEnfantsF || 0)}</td></tr>
-        <tr><th style="text-align:left">Total</th><td>${Number(s.NbAdultesH || 0) + Number(s.NbEnfantsG || 0)}</td><td>${Number(s.NbAdultesF || 0) + Number(s.NbEnfantsF || 0)}</td><td><strong>${esc(s.NbParticipants)}</strong></td></tr></tbody></table></div>
+        <tr><th style="text-align:left">Total</th><td>${Number(s.NbAdultesH || 0) + Number(s.NbEnfantsG || 0)}</td><td>${Number(s.NbAdultesF || 0) + Number(s.NbEnfantsF || 0)}</td><td><strong>${esc(s.NbParticipants)}</strong></td></tr></tbody></table></div>`}
       ${pers.length ? `<h4 class="sous-titre">Liste nominative (ancienne saisie)</h4><div class="petit">${pers.map(p => esc(p.nom) + ' (' + (p.sexe === 'F' ? 'F' : 'M') + ', ' + esc(p.age) + ' ans)').join(' · ')}</div>` : ''}
       <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">${estAscq && s.Statut !== 'Approuvée' ? `<button type="button" id="sensApprouver">✔ Approuver</button>${s.Statut === 'En attente' ? '<button type="button" class="btn-danger" id="sensRejeter">✖ Rejeter</button>' : ''}` : ''}<button type="button" class="btn-secondary" id="sensFerme">Fermer</button></div></div>`;
     document.body.appendChild(ov);

@@ -16,7 +16,7 @@
  */
 (function (global) {
   'use strict';
-  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation', renseignerActivite: 'Activité', submitCollecte: 'Collecte', saveFicheNotif: 'Fiche' };
+  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation', renseignerActivite: 'Activité', submitCollecte: 'Collecte', saveFicheNotif: 'Fiche', markNotificationRead: 'Notification lue', marquerToutesNotificationsLues: 'Notifications lues' };
   var ACTIONS_PUBLIQUES = { login: 1, logout: 1, ping: 1 };
   var CACHE_MAX = 400;
   var DB_NOM = 'sivec-hors-ligne';
@@ -117,6 +117,16 @@
     for (var i = 0; i < tout.length - CACHE_MAX; i++) await Stock.cacheSupprimer(tout[i].k);
   }
 
+  // Hors connexion, une notification « marquée comme lue » l'est tout de suite dans la copie locale (l'envoi suivra).
+  async function marquerLuLocal(action, p) {
+    try {
+      var k = cleCache('listNotifications', {}), c = await Stock.cacheGet(k);
+      if (!c || !c.data || !Array.isArray(c.data.notifications)) return;
+      c.data.notifications.forEach(function (n) { if (action === 'marquerToutesNotificationsLues' || String(n.ID) === String(p.id)) n.Lu = true; });
+      await Stock.cachePut(k, c.data);
+    } catch (e) { /* ignoré : l'envoi différé reste valable */ }
+  }
+
   // ---------- Écriture : envoi différé (RC) ----------
   async function envoyerOuMettreEnFile(appel, action, payload) {
     var p = Object.assign({}, payload);
@@ -126,6 +136,7 @@
     }
     p.saisieHorsLigneLe = new Date().toISOString();
     await Stock.fileAjouter({ id: p.clientId, user: utilisateur(), action: action, payload: p, creeLe: Date.now(), statut: 'attente', erreur: '' });
+    if (action === 'markNotificationRead' || action === 'marquerToutesNotificationsLues') await marquerLuLocal(action, p);
     majBandeau(); aviser('sivec:file');
     return { ok: true, queued: true, horsLigne: true, clientId: p.clientId };
   }
@@ -157,6 +168,36 @@
     return { envoyes: envoyes };
   }
 
+  // ---------- Mise à jour légère des copies locales (notifications, tableau de bord…) ----------
+  // Au retour du réseau (et au plus une fois par 20 minutes) : on rafraîchit, UNE requête à la fois, les lectures déjà
+  // présentes sur l'appareil — d'abord notifications / profil / tableau de bord, puis les plus anciennes — 12 au maximum.
+  // Jamais sur connexion très lente ni en mode « économiseur de données ». Aucune donnée nouvelle n'est téléchargée
+  // pour un écran que l'utilisateur n'a jamais ouvert.
+  var DERNIERE_MAJ = 'hl:derniereMaj', MAJ_MAX = 12, MAJ_INTERVALLE = 20 * 60 * 1000;
+  async function actualiserCache(force) {
+    if (!enLigne() || etat.majEnCours || !Session_.getToken || !Session_.getToken() || !utilisateur()) return 0;
+    var cx = global.navigator && global.navigator.connection;
+    if (!force && cx && (cx.saveData || /(^|-)2g$/.test(cx.effectiveType || ''))) return 0;
+    var dernier = Number(lsLire(DERNIERE_MAJ) || 0);
+    if (!force && Date.now() - dernier < MAJ_INTERVALLE) return 0;
+    etat.majEnCours = true; var faits = 0;
+    try {
+      var pref = utilisateur() + '|';
+      var prio = function (k) { return /\|(listNotifications|getMe|getDashboard)\|/.test(k) ? 0 : 1; };
+      var lignes = (await Stock.cacheTout()).filter(function (l) { return l.k.indexOf(pref) === 0; })
+        .sort(function (a, b) { return prio(a.k) - prio(b.k) || a.date - b.date; }).slice(0, MAJ_MAX);
+      for (var i = 0; i < lignes.length; i++) {
+        var parts = lignes[i].k.slice(pref.length).split('|'), action = parts.shift(), payload = {};
+        try { payload = JSON.parse(parts.join('|') || '{}'); } catch (e) { continue; }
+        try { var data = await appelOriginal(action, payload); await Stock.cachePut(lignes[i].k, data); faits++; }
+        catch (e) { if (e && e.reseau) break; if (erreurSession(e && e.message)) break; }
+      }
+      lsEcrire(DERNIERE_MAJ, Date.now());
+    } finally { etat.majEnCours = false; }
+    if (faits) aviser('sivec:maj', { rafraichis: faits });
+    return faits;
+  }
+
   // ---------- Enveloppe de Api.call ----------
   var appelOriginal = function () { return Promise.reject(new Error('Api indisponible')); };
   if (Api_ && typeof Api_.call === 'function') {
@@ -184,6 +225,7 @@
     if (it.action === 'submitSensibilisation') return '📣 Sensibilisation — ' + (p.theme || 'sans thème') + ' · ' + ((Number(p.adultesHommes) || 0) + (Number(p.adultesFemmes) || 0) + (Number(p.enfantsGarcons) || 0) + (Number(p.enfantsFilles) || 0)) + ' personne(s)';
     if (it.action === 'submitCollecte') return '📝 Questionnaire rempli — ' + (p.lieu || 'sans lieu précisé');
     if (it.action === 'saveFicheNotif') { var d = p.donnees || {}; return '📋 Fiche de notification — ' + (d.nomPatient || 'sans nom') + (d.maladie ? ' · ' + (d.maladie === 'Autre' ? (d.maladieAutre || 'autre') : d.maladie) : ''); }
+    if (it.action === 'markNotificationRead' || it.action === 'marquerToutesNotificationsLues') return '🔔 ' + (it.action === 'markNotificationRead' ? 'Notification marquée comme lue' : 'Notifications marquées comme lues');
     if (it.action === 'tacheEnregistrerCas') return '🗂️ Cas recensé — ' + (p.date || 'aujourd\'hui');
     if (it.action === 'tacheSaisirSuivi') return '📝 Suivi de cas — ' + (p.jour || 'aujourd\'hui') + (p.seance > 1 ? ' (séance ' + p.seance + ')' : '');
     return '🚨 Alerte — ' + (p.typeAlerte || 'événement') + (p.villageNom ? ' · ' + p.villageNom : '');
@@ -241,15 +283,15 @@
 
   // ---------- Déclencheurs ----------
   if (typeof global.addEventListener === 'function') {
-    global.addEventListener('online', function () { majBandeau(); synchroniser(); });
+    global.addEventListener('online', function () { majBandeau(); synchroniser().then(function () { return actualiserCache(true); }); });
     global.addEventListener('offline', function () { majBandeau(); });
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { majBandeau(); synchroniser(); } });
-      var demarrer = function () { majBandeau(); setTimeout(synchroniser, 1500); };
+      var demarrer = function () { majBandeau(); setTimeout(function () { synchroniser().then(function () { return actualiserCache(false); }); }, 1500); };
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', demarrer); else demarrer();
     }
     etat.minuteur = setInterval(function () { if (enLigne()) synchroniser(); }, 45000);
   }
 
-  global.HorsLigne = { synchroniser: synchroniser, enAttente: enAttente, rendreFile: rendreFile, majBandeau: majBandeau, _Stock: Stock, _etat: etat, _cleCache: cleCache };
+  global.HorsLigne = { synchroniser: synchroniser, actualiserCache: actualiserCache, enAttente: enAttente, rendreFile: rendreFile, majBandeau: majBandeau, _Stock: Stock, _etat: etat, _cleCache: cleCache };
 })(typeof window !== 'undefined' ? window : globalThis);

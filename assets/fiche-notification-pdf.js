@@ -60,6 +60,16 @@
       main(x + 1.5, y - 0.3, val, w - 3, o.taille);
       x += w + (o.apres === undefined ? 6 : o.apres);
     }
+    // Notificateur = le compte qui notifie (enregistré dans l'application) ; à défaut, l'auteur de la fiche.
+    var notif = { nom: texte(d.notifNom || d.__creePar), qualif: texte(d.notifQualif), tel: texte(d.notifTel) };
+    // Signature : le nom du notificateur, en grand, penché, avec un paraphe (signature stylisée à partir du compte).
+    function signer(x0, w) {
+      if (!notif.nom) return;
+      var t = 13; while (t > 7 && largeur(notif.nom, t) > w - 8) t -= 0.5;
+      var tw = Math.min(largeur(notif.nom, t), w - 6);
+      p.texte(x0 + 3, y - 1.4 + (rnd() - 0.5) * 0.6, notif.nom, { taille: t, oblique: true, couleur: BLEU, angle: 3 + rnd() * 2 });
+      p.ligne(x0 + 2, y + 2.8, x0 + 8 + tw, y - 2.6, { couleur: BLEU, epaisseur: 0.9, arrondi: true });
+    }
     function croix(bx, by, s) {
       var j = function () { return (rnd() - 0.5) * 0.9; };
       p.ligne(bx - 0.9 + j(), by - 0.6 + j(), bx + s + 1 + j(), by + s + 0.9 + j(), { couleur: BLEU, epaisseur: 1.05, arrondi: true });
@@ -172,7 +182,7 @@
     lab('Statut vaccinal :'); cb(d.vaccinal === 'Vacciné', 'Vacciné'); cb(d.vaccinal === 'Non vacciné', 'Non vacciné', { apres: 14 });
     lab('Si oui , nombre de doses'); slots([texte(d.nbDoses)], [20], { apres: 12 }); dateC('Date dernière dose :', d.dateDerniereDose, { apres: 0 }); suite();
     lab('Classification Finale :', { apres: 5 }); CLASSIF.forEach(function (cl, i) { cb(d.classification === cl, cl, { apres: i === CLASSIF.length - 1 ? 0 : 6, taille: 6.9 }); }); suite();
-    lab('Nom du Notificateur :'); fld(135, d.notifNom); lab('Tél :'); fld(80, d.notifTel); lab('Qualification :'); fld(80, d.notifQualif); lab('Signature :'); fld(R - x, '', { apres: 0 }); suite(ROW + 1);
+    lab('Nom du Notificateur :'); fld(118, notif.nom); lab('Tél :'); fld(66, notif.tel); lab('Qualification :'); fld(62, notif.qualif); lab('Signature :'); var xsig = x; fld(R - x, '', { apres: 0 }); signer(xsig, R - xsig); suite(ROW + 1);
 
     // ===== Prélèvement =====
     var prel = d.prelevements || [];
@@ -251,6 +261,15 @@
         p.ligne(x, y + 1.7, x + w, y + 1.7, { couleur: TRAIT, epaisseur: 0.4 }); main(x, y - 0.3, vals[i], w, 9, true);
         x += w; lab('/', { apres: i === widths.length - 1 ? (o.apres === undefined ? 6 : o.apres) : 1 });
       });
+    }
+    // Notificateur = le compte qui notifie ; signature stylisée à partir de son nom (voir la fiche générique).
+    var notif = { nom: texte(d.notifNom || d.__creePar), qualif: texte(d.notifQualif), tel: texte(d.notifTel) };
+    function signer(x0, w) {
+      if (!notif.nom) return;
+      var t = 13; while (t > 7 && largeur(notif.nom, t) > w - 8) t -= 0.5;
+      var tw = Math.min(largeur(notif.nom, t), w - 6);
+      p.texte(x0 + 3, y - 1.4 + (rnd() - 0.5) * 0.6, notif.nom, { taille: t, oblique: true, couleur: BLEU, angle: 3 + rnd() * 2 });
+      p.ligne(x0 + 2, y + 2.8, x0 + 8 + tw, y - 2.6, { couleur: BLEU, epaisseur: 0.9, arrondi: true });
     }
     var largSlots = function (n, w) { return 2 + w.reduce(function (a, b) { return a + b; }, 0) + n * 3.4; };
     function suite(h) { x = M; y += h === undefined ? ROW : h; }
@@ -421,7 +440,9 @@
       else sec.rows.forEach(function (r) { ligneLibre(r); });
       if (sec.style === 'enquete') { y += 1; }
     });
-    y += 6; x = M; p.texte(M, y, S.signature, { taille: T, couleur: NOIR });
+    // ===== pied de fiche : notificateur (nom, qualification, téléphone) et signature, remplis depuis le compte =====
+    y += 10; x = M; lab(S.signature, { apres: 5 }); fld(R - x, notif.nom + (notif.qualif ? ' \u2014 ' + notif.qualif : ''), { apres: 0 }); suite(ROW + 3);
+    lab('Téléphone :'); fld(130, notif.tel, { apres: 14 }); lab('Signature :'); var xsg = x; fld(R - x, '', { apres: 0 }); signer(xsg, R - xsg);
     if (global.__FN_DEBUG) console.log(S.code + ' : bas de fiche y=' + y.toFixed(1) + ' / ' + p.h);
     return p;
   }

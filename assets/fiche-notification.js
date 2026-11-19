@@ -37,7 +37,7 @@
   const E = escHtml;
   const nomSigne = i => 'sg' + i;
   const clientId = () => 'fn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-  function lireDonnees(f) { try { const d = JSON.parse(f.Donnees || '{}'); const o = d && typeof d === 'object' ? d : {}; o.typeFiche = o.typeFiche || f.TypeFiche || 'maladie'; return o; } catch (e) { return { typeFiche: f.TypeFiche || 'maladie' }; } }
+  function lireDonnees(f) { try { const d = JSON.parse(f.Donnees || '{}'); const o = d && typeof d === 'object' ? d : {}; o.typeFiche = o.typeFiche || f.TypeFiche || 'maladie'; o.__creePar = f.CreeParNom || ''; return o; } catch (e) { return { typeFiche: f.TypeFiche || 'maladie' }; } }
   const coche = v => v ? '☒' : '☐';
 
   // ---------------- champs du formulaire ----------------
@@ -214,7 +214,11 @@
   function modifierFiche(id) {
     const f = fiches.find(x => x.ID === id); if (!f) return;
     editId = id;
-    const d = lireDonnees(f), info = '✏️ Modification de la fiche de ' + (f.NomPatient || '') + (estMienne(f) ? '' : ' (saisie par ' + (f.CreeParNom || 'un ASCQ') + ')');
+    const d = lireDonnees(f);
+    // Le notificateur reste celui qui a notifié (jamais le compte qui corrige) : à défaut, l'auteur enregistré de la fiche.
+    if (!d.notifNom) d.notifNom = f.CreeParNom || '';
+    if (!d.notifQualif && f.CreeParRole) d.notifQualif = f.CreeParRole;
+    const info = '✏️ Modification de la fiche de ' + (f.NomPatient || '') + (estMienne(f) ? '' : ' (saisie par ' + (f.CreeParNom || 'un ASCQ') + ')');
     afficherType(d.typeFiche, d);
     if (d.typeFiche === 'maladie') document.getElementById('fnEditInfo').textContent = info; else formS.fixerInfo(info);
     document.getElementById('fnTypeBar').scrollIntoView({ behavior: 'smooth', block: 'start' });

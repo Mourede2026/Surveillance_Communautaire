@@ -16,7 +16,7 @@
  */
 (function (global) {
   'use strict';
-  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation', renseignerActivite: 'Activité', submitCollecte: 'Collecte', saveFicheNotif: 'Fiche', markNotificationRead: 'Notification lue', marquerToutesNotificationsLues: 'Notifications lues' };
+  var ENVOI_DIFFERE = { submitAlerte: 'Alerte', submitDeces: 'Décès', tacheEnregistrerCas: 'Cas', tacheSaisirSuivi: 'Suivi', submitSensibilisation: 'Sensibilisation', renseignerActivite: 'Activité', submitCollecte: 'Collecte', saveFicheNotif: 'Fiche', submitInvestigation: 'Alerte validée (fiche)', confirmerDeces: 'Décès confirmé (fiche)', markNotificationRead: 'Notification lue', marquerToutesNotificationsLues: 'Notifications lues' };
   var ACTIONS_PUBLIQUES = { login: 1, logout: 1, ping: 1 };
   var CACHE_MAX = 400;
   var DB_NOM = 'sivec-hors-ligne';

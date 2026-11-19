@@ -306,6 +306,8 @@
 <script src="assets/activites.js"></script>
 <script src="assets/collecte.js"></script>
 <script src="assets/analyses.js"></script>
+<script src="assets/fiche-schemas.js"></script>
+<script src="assets/fiche-form.js"></script>
 <script src="assets/fiche-notification-pdf.js"></script>
 <script src="assets/fiche-notification.js"></script>
 <script src="assets/nettoyage.js"></script>
@@ -446,13 +448,22 @@ function openInvestigation(key) {
     const payload = Object.fromEntries(fd.entries());
     payload.casParCategorie = casParCategorie;
     payload.decesParCategorie = decesParCategorie;
-    try {
-      await Api.call('submitInvestigation', payload);
-      toast('Fiche d\'investigation envoyée.');
-      invFormCard.style.display = 'none';
-      document.getElementById('invResumeCard').innerHTML = '';
-      loadPending(); loadDashboard();
-    } catch (err) { toast(err.message, true); }
+    const avere = String(payload.evenementAvere || 'Oui') !== 'Non';
+    const fermer = () => { invFormCard.style.display = 'none'; document.getElementById('invResumeCard').innerHTML = ''; loadPending(); loadDashboard(); };
+    if (!avere) {
+      // Événement non avéré : pas de fiche de notification à remplir.
+      try { await Api.call('submitInvestigation', payload); toast('Fiche d\'investigation envoyée.'); fermer(); } catch (err) { toast(err.message, true); }
+      return;
+    }
+    // Événement avéré : la FICHE DE NOTIFICATION du cas doit être remplie et envoyée avec la validation ; sans elle, l'alerte n'est pas prise en compte.
+    FicheNotif.demarrerValidation({
+      type: 'maladie',
+      titre: 'Validation de l\u2019alerte de ' + (ligneRc && (ligneRc.Nom || ligneRc.TypeAlerte) || 'cas notifié') + ' — fiche de notification à remplir',
+      prefill: () => FicheNotif.prefillAlerte(__pendingAlertesParId[refId] || ligneRc),
+      finaliser: (fiche) => Api.call('submitInvestigation', Object.assign({}, payload, { fiche: fiche })),
+      messageSucces: 'Alerte validée : la fiche de notification est envoyée à la plateforme.',
+      apres: fermer
+    });
   };
 }
 function todayISO_() { return new Date().toISOString().slice(0,10); }

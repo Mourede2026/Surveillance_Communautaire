@@ -10,7 +10,7 @@
  * Pour publier une nouvelle version de l'interface, il suffit de remplacer les fichiers : le service worker
  * récupère automatiquement les nouveaux fichiers. Incrémenter VERSION force un renouvellement complet du cache.
  */
-const VERSION = 'sivec-v3';
+const VERSION = 'sivec-v4';
 const CACHE = VERSION + '-shell';
 const DELAI_RESEAU_MS = 4000;
 const A_METTRE_EN_CACHE = [
@@ -47,6 +47,8 @@ const A_METTRE_EN_CACHE = [
   "assets/deces-confirmation.js",
   "assets/export-excel.js",
   "assets/fiche-notification-pdf.js",
+  "assets/fiche-schemas.js",
+  "assets/fiche-form.js",
   "assets/fiche-notification.js",
   "assets/forms.js",
   "assets/geo-benin-data.js",

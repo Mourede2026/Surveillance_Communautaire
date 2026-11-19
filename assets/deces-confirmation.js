@@ -61,7 +61,17 @@
     }
     let commentaire = '';
     if (decision === 'confirmer') {
-      if (!confirm('Confirmer ce décès ?\n\nIl sera compté dans le rapport hebdomadaire. Cette décision est définitive.')) return;
+      const ligne = (window.__decesParId || {})[id];
+      if (!window.FicheNotif || !ligne) { toast('Fiche de notification indisponible : rechargez la page.', true); return; }
+      if (!confirm('Confirmer ce décès ?\n\nVous allez remplir la fiche de notification correspondante (décès maternel, néonatal ou autre décès). Le décès n\'est confirmé — et compté dans le rapport hebdomadaire — qu\'une fois la fiche envoyée. Cette décision est définitive.')) return;
+      const pre = FicheNotif.prefillDeces(ligne);
+      FicheNotif.demarrerValidation({
+        type: pre.type, titre: 'Confirmation du décès de ' + (ligne.Nom || 'la personne notifiée') + ' — fiche de notification à remplir', prefill: pre.valeurs,
+        finaliser: (fiche) => Api.call('confirmerDeces', { id, decision: 'confirmer', commentaire: '', fiche }),
+        messageSucces: 'Décès confirmé : la fiche de notification est envoyée et le décès sera compté dans le rapport hebdomadaire.',
+        apres: () => { window.loadDecesAConfirmer(); if (typeof loadDashboard === 'function') loadDashboard(); }
+      });
+      return;
     } else {
       commentaire = (prompt('Motif de la non-confirmation (obligatoire) — ex. information erronée, doublon, personne toujours en vie :') || '').trim();
       if (!commentaire) { toast('Le motif est obligatoire pour ne pas confirmer un décès.', true); return; }

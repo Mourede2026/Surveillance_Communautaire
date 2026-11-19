@@ -27,13 +27,17 @@
   const PRELEV = ['Sang', 'Selles', 'LCR'];
 
   let ctx = null, fiches = [], enAttente = [], editId = null, semaineCourante = null;
+  // Type de fiche affiché : maladie (fiche générique 1_BJ) ou l'une des fiches décès (3_BJ, 4_BJ, 02_BJ).
+  // `validation` : fiche demandée à l'ASCQ pour VALIDER une alerte / confirmer un décès du relais communautaire.
+  let typeCourant = 'maladie', formS = null, validation = null;
+  const TYPES_LIB = { maladie: 'Maladie sous surveillance (fiche générique 1_BJ)', deces_maternel: 'Décès maternel (fiche 3_BJ)', deces_neonatal: 'Décès néonatal (fiche 4_BJ)', autres_deces: 'Autres décès (fiche 02_BJ)' };
   let mesArrs = [], mesVillages = [], anneeSynthese = '';  // arrondissements / villages du périmètre du compte
 
   // ---------------- utilitaires ----------------
   const E = escHtml;
   const nomSigne = i => 'sg' + i;
   const clientId = () => 'fn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-  function lireDonnees(f) { try { const d = JSON.parse(f.Donnees || '{}'); return d && typeof d === 'object' ? d : {}; } catch (e) { return {}; } }
+  function lireDonnees(f) { try { const d = JSON.parse(f.Donnees || '{}'); const o = d && typeof d === 'object' ? d : {}; o.typeFiche = o.typeFiche || f.TypeFiche || 'maladie'; return o; } catch (e) { return { typeFiche: f.TypeFiche || 'maladie' }; } }
   const coche = v => v ? '☒' : '☐';
 
   // ---------------- champs du formulaire ----------------
@@ -55,6 +59,13 @@
       f.elements['depResidence'].value = a ? (a.DepartementNom || '') : '';
     }
     document.getElementById('fnVillages').innerHTML = a ? mesVillages.filter(v => v.ArrondissementId === a.ID).map(v => `<option value="${E(v.Nom)}"></option>`).join('') : '';
+  }
+
+  function barreType() {
+    return `<div id="fnValidBandeau" class="fn-bloc" style="display:none;background:#F2FAF7;border-color:var(--teal-700)"></div>
+      <div class="fn-bloc" id="fnTypeBar"><div class="field" style="margin:0"><label>Type de fiche à remplir</label>
+        <select id="fnType">${Object.keys(TYPES_LIB).map(k => `<option value="${k}">${E(TYPES_LIB[k])}</option>`).join('')}</select></div>
+        <p class="petit" style="margin:8px 0 0">Toutes les rubriques sont <strong>obligatoires</strong> (écrivez <strong>NA</strong> quand l'information est inconnue ou sans objet), sauf celles qui dépendent d'un choix (« Autre à préciser », dates de vaccination…).</p></div>`;
   }
 
   function formulaireHtml() {
@@ -170,21 +181,43 @@
     };
   }
 
+  // Valeurs par défaut des fiches décès (compte, zone sanitaire, notificateur, semaine en cours).
+  function valeursParDefautSchema() {
+    const u = ctx.user, v = valeursParDefaut();
+    return Object.assign({}, v, { depResidence: '', comResidence: '', depNotif: u.DepartementNom || '', zsNotif: u.ZoneSanitaireNom || '', comNotif: u.Role === 'ASCQ' ? (u.CommuneNom || '') : '',
+      dateEnquete: v.dateNotification, arrondissementId: mesArrs.length === 1 ? mesArrs[0].ID : '' });
+  }
+  function monterSchema(type, valeurs) {
+    formS = FicheForm.monter(document.getElementById('fnFormS'), type, { arrs: mesArrs, valeurs: valeurs, onSubmit: d => enregistrer(type, d), onReset: () => { if (confirm('Vider le formulaire ?')) nouvelleFiche(); } });
+    formS.fixerBouton(validation ? '✅ Valider l\u2019alerte et envoyer la fiche' : (editId ? '💾 Enregistrer les modifications' : '💾 Enregistrer la fiche'));
+  }
+  // Affiche le formulaire du type demandé (générique ou fiche décès), vide ou pré-rempli.
+  function afficherType(type, valeurs) {
+    typeCourant = type;
+    const sel = document.getElementById('fnType'); if (sel) sel.value = type;
+    const generique = type === 'maladie';
+    document.getElementById('fnForm').style.display = generique ? '' : 'none';
+    document.getElementById('fnFormS').style.display = generique ? 'none' : '';
+    if (generique) {
+      remplirFormulaire(Object.assign(valeursParDefaut(), valeurs || {}));
+      majGeoFormulaire(!(valeurs && valeurs.arrondissementId));
+      document.getElementById('fnSave').textContent = validation ? '✅ Valider l\u2019alerte et envoyer la fiche' : (editId ? '💾 Enregistrer les modifications' : '💾 Enregistrer la fiche');
+    } else monterSchema(type, Object.assign(valeursParDefautSchema(), valeurs || {}));
+  }
+
   function nouvelleFiche() {
     editId = null;
-    remplirFormulaire(valeursParDefaut());
-    majGeoFormulaire(true);
+    afficherType(typeCourant, null);
     document.getElementById('fnEditInfo').textContent = '';
-    document.getElementById('fnSave').textContent = '💾 Enregistrer la fiche';
   }
 
   function modifierFiche(id) {
     const f = fiches.find(x => x.ID === id); if (!f) return;
     editId = id;
-    remplirFormulaire(lireDonnees(f));
-    document.getElementById('fnEditInfo').textContent = '✏️ Modification de la fiche de ' + (f.NomPatient || '') + (estMienne(f) ? '' : ' (saisie par ' + (f.CreeParNom || 'un ASCQ') + ')');
-    document.getElementById('fnSave').textContent = '💾 Enregistrer les modifications';
-    document.getElementById('fnForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const d = lireDonnees(f), info = '✏️ Modification de la fiche de ' + (f.NomPatient || '') + (estMienne(f) ? '' : ' (saisie par ' + (f.CreeParNom || 'un ASCQ') + ')');
+    afficherType(d.typeFiche, d);
+    if (d.typeFiche === 'maladie') document.getElementById('fnEditInfo').textContent = info; else formS.fixerInfo(info);
+    document.getElementById('fnTypeBar').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // ---------------- fiche imprimable (reprend la mise en page de la fiche officielle) ----------------
@@ -349,8 +382,8 @@
   const toutes = () => enAttente.concat(fiches);
 
   const estMienne = f => !f.CreeParId || f.CreeParId === ctx.user.ID;
-  // Le RCSE peut modifier / supprimer ses fiches ET celles des ASCQ placés sous lui (le serveur revérifie).
-  const peutGerer = f => estMienne(f) || (ctx.user.Role === 'RCSE' && f.CreeParRole === 'ASCQ');
+  // Le RCSE peut modifier / supprimer TOUTES les fiches de sa liste (les siennes et celles de ses ASCQ) ; le serveur revérifie.
+  const peutGerer = f => estMienne(f) || ctx.user.Role === 'RCSE';
   const lieuCell = f => E(f.ArrondissementNom || '—') + (f.Village ? '<div class="petit">' + E(f.Village) + '</div>' : '');
   const parQui = f => estMienne(f) ? '' : '<div class="petit">👤 ' + E(f.CreeParNom || '') + ' · ' + E(f.CreeParRole || '') + '</div>';
 
@@ -492,6 +525,113 @@
     } catch (e) { mesArrs = []; mesVillages = []; }
   }
 
+  // ---------------- contrôle des rubriques obligatoires ----------------
+  function marquerObligatoires() {
+    const form = document.getElementById('fnForm'); if (!form) return;
+    FicheSchemas.champs(FicheSchemas.get('maladie')).forEach(c => {
+      if (c.opt || c.unDe || (c.siTous && c.siTous.length) || c.t === 'multi') return;
+      const el = form.elements[c.k]; const e0 = el && el.length !== undefined && !el.tagName ? el[0] : el; if (!e0) return;
+      const lab = e0.closest('.field') && e0.closest('.field').querySelector('label'); if (lab && lab.textContent.indexOf('*') === -1) lab.insertAdjacentHTML('beforeend', ' <span class="fn-req">*</span>');
+    });
+  }
+  function marquerManquants(type, manq) {
+    if (type !== 'maladie') { if (formS) formS.marquer(manq); return; }
+    const form = document.getElementById('fnForm'); form.querySelectorAll('.fn-err').forEach(z => z.classList.remove('fn-err'));
+    let premier = null;
+    manq.forEach(m => {
+      const ks = m.k === 'signes' ? ['sg0'] : (m.ks || [m.k]);
+      ks.forEach(k => { const el = form.elements[k]; const e0 = el && el.length !== undefined && !el.tagName ? el[0] : el; if (!e0) return;
+        const z = e0.closest('.field') || e0.closest('.fn-bloc'); if (z) { z.classList.add('fn-err'); if (!premier) premier = z; } });
+    });
+    if (premier) premier.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Enregistre une fiche (tous types). En mode « validation », la fiche est envoyée AVEC la validation de l'alerte / du décès.
+  async function enregistrer(type, d) {
+    d.typeFiche = type;
+    if (type === 'maladie') {
+      const arr = mesArrs.find(a => a.ID === d.arrondissementId);
+      if (arr) { d.arrondissement = arr.Nom; d.comResidence = arr.CommuneNom || d.comResidence || ''; d.depResidence = arr.DepartementNom || d.depResidence || ''; }
+      FicheSchemas.champs(FicheSchemas.get('maladie')).forEach(c => { if (c.siTous && c.siTous.length && !FicheSchemas.cond(c.siTous, d)) delete d[c.k]; });
+    }
+    const manq = FicheSchemas.manquantsDetail(type, d);
+    if (manq.length) {
+      marquerManquants(type, manq);
+      const noms = manq.map(m => m.l).filter((x, i, t) => t.indexOf(x) === i);
+      toast('Rubriques obligatoires à compléter (' + noms.length + ') : ' + noms.slice(0, 4).join(', ') + (noms.length > 4 ? '…' : '') + '. Écrivez NA si sans objet.', true);
+      return;
+    }
+    const btn = type === 'maladie' ? document.getElementById('fnSave') : null; if (btn) btn.disabled = true; if (formS && type !== 'maladie') formS.bloquer(true);
+    try {
+      if (validation) {
+        const v = validation;
+        await v.finaliser({ type: type, donnees: d });
+        validation = null; majBandeauValidation(); nouvelleFiche();
+        toast(v.messageSucces || 'Alerte validée : la fiche de notification est envoyée.');
+        await charger();
+        if (v.apres) v.apres();
+        return;
+      }
+      const r = await Api.call('saveFicheNotif', { id: editId || '', clientId: editId ? '' : clientId(), type: type, donnees: d });
+      toast(r.queued ? 'Pas de réseau : la fiche est gardée sur cet appareil et sera envoyée automatiquement (elle apparaît dans la liste, en attente).' : (editId ? 'Fiche modifiée.' : 'Fiche enregistrée.'));
+      nouvelleFiche();
+      await charger();
+      document.getElementById('fnListe').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) { toast(err.message, true); }
+    if (btn) btn.disabled = false; if (formS && type !== 'maladie') formS.bloquer(false);
+  }
+
+  // ---------------- validation d'une alerte / d'un décès : fiche obligatoire ----------------
+  function majBandeauValidation() {
+    const b = document.getElementById('fnValidBandeau'), sel = document.getElementById('fnType'); if (!b) return;
+    if (!validation) { b.style.display = 'none'; b.innerHTML = ''; if (sel) sel.disabled = false; return; }
+    b.style.display = '';
+    b.innerHTML = '<strong>✅ ' + E(validation.titre || 'Validation en cours') + '</strong><p class="petit" style="margin:4px 0 8px">Remplissez la fiche officielle ci-dessous. <strong>La validation n\'est prise en compte, et rien ne remonte à la plateforme, qu\'une fois la fiche complète envoyée.</strong></p>' +
+      '<button type="button" class="btn-secondary" id="fnValidAnnuler" style="font-size:.8rem;padding:6px 12px">Annuler la validation</button>';
+    if (sel) sel.disabled = true;
+    document.getElementById('fnValidAnnuler').onclick = () => {
+      if (!confirm('Annuler la validation ? Rien ne sera envoyé.')) return;
+      const v = validation; validation = null; majBandeauValidation(); nouvelleFiche(); if (v.annuler) v.annuler();
+    };
+  }
+  function appliquerValidation() {
+    majBandeauValidation(); editId = null;
+    afficherType(validation.type, typeof validation.prefill === 'function' ? validation.prefill() : (validation.prefill || {}));
+    document.getElementById('fnTypeBar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  const isoDate = v => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v || '')); return m ? m[1] : ''; };
+  const norm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const sansVides = o => { Object.keys(o).forEach(k => { if (o[k] === '' || o[k] === undefined || o[k] === null) delete o[k]; }); return o; };
+  const arrDuCas = l => mesArrs.some(a => a.ID === l.ArrondissementId) ? l.ArrondissementId : '';
+
+  // Pré-remplissage de la fiche générique à partir de l'alerte notifiée par le relais communautaire.
+  function prefillAlerte(l) {
+    l = l || {};
+    const brut = String(l.AutrePreciser || l.TypeAlerte || '').replace(/^\d+\.\s*/, '').trim(), nb = norm(brut);
+    const mal = nb ? MALADIES.find(m => norm(m) === nb || (nb.length > 3 && (nb.indexOf(norm(m)) !== -1 || norm(m).indexOf(nb) !== -1))) : '';
+    const sb = String(l.Signes || '').split('|').map(x => x.trim()).filter(Boolean);
+    return sansVides({ nomPatient: l.Nom, telephone: l.Telephone, adresse: l.Adresse, village: l.VillageNom, dateNaissance: isoDate(l.DateNaissance), dateDebut: isoDate(l.DateDebutMaladie),
+      signes: SIGNES.filter(x => sb.some(b => norm(b) === norm(x))), signesAutres: sb.filter(b => !SIGNES.some(x => norm(x) === norm(b))).join(', '),
+      maladie: mal || (brut ? 'Autre' : ''), maladieAutre: mal ? '' : brut, sexe: (l.Sexe === 'F' || l.Sexe === 'M') ? l.Sexe : '', arrondissementId: arrDuCas(l),
+      gpsLon: l.GPSLon, gpsLat: l.GPSLat });
+  }
+  // Pré-remplissage de la fiche décès (type selon le décès notifié par le RC : maternel, néonatal, autre).
+  function prefillDeces(l) {
+    l = l || {};
+    const type = FicheSchemas.typeDeDeces(l.TypeDeces), sexe = (l.Sexe === 'M' || l.Sexe === 'F') ? l.Sexe : '';
+    const LIEU_RC = { 1: '6', 2: '6', 3: '8', 4: '7', 5: '8', 6: '8' };   // lieux du relais → codes de la fiche officielle
+    const o = { village: l.VillageNom, adresseParent: l.Adresse, dateNaissance: isoDate(l.DateNaissance), dateDeces: isoDate(l.DateDeces), lieuDeces: LIEU_RC[l.LieuDeces] || '', arrondissementId: arrDuCas(l) };
+    if (type === 'deces_neonatal') Object.assign(o, { nomEnfant: l.Nom, nomMere: l.NomParent, tel: l.TelephoneParent, ageJours: l.AgeJours, sexeEnfant: sexe === 'M' ? '1' : sexe === 'F' ? '2' : '' });
+    else if (type === 'deces_maternel') Object.assign(o, { nomDefunte: l.Nom, tel: l.TelephoneParent, ageAns: l.AgeAnnees });
+    else Object.assign(o, { nomDefunt: l.Nom, nomProche: l.NomParent, telProche: l.TelephoneParent, sexe: sexe, ageAns: l.AgeAnnees, causePrincipale: l.CauseProbable });
+    return { type: type, valeurs: sansVides(o) };
+  }
+  window.FicheNotif = {
+    // opts : { type, titre, prefill (objet ou fonction), finaliser(fiche) → Promise, apres(), annuler(), messageSucces }
+    demarrerValidation: function (opts) { validation = opts; const lien = document.querySelector('[data-tab="fichenotif"]'); if (lien) lien.click(); },
+    prefillAlerte: prefillAlerte, prefillDeces: prefillDeces, enCours: () => !!validation
+  };
+
   // ---------------- point d'entrée ----------------
   window.initFicheNotification = async function (opts) {
     ctx = opts; anneeSynthese = '';
@@ -507,6 +647,8 @@
         .fn-opt{display:flex;align-items:center;gap:6px;font-weight:400;font-size:.85rem;margin:0;cursor:pointer}
         .fn-opt input{width:auto;margin:0}.fn-age{display:flex;gap:6px}.fn-age input{width:90px}
         .fn-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+        .fn-req{color:#c0392b;font-weight:700}.fn-err{outline:2px solid #c0392b;outline-offset:2px;border-radius:6px;background:#FDF3F2}
+        .fn-enfant{border:1px dashed var(--line);border-radius:8px;margin:8px 0;padding:8px}.fn-enfant legend{font-size:.82rem;font-weight:700;padding:0 6px}
         .grid-3{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}`;
       document.head.appendChild(st);
     }
@@ -514,7 +656,9 @@
     el.innerHTML = `<p class="petit" style="margin:0 0 12px">Remplissez la fiche officielle de notification (cases à cocher et champs). Chaque fiche enregistrée apparaît dans la liste en bas de page, d'où vous pouvez l'imprimer sur la fiche officielle, la modifier ou la supprimer.${rcse
         ? ' <strong>Les fiches notifiées par vos ASCQ s\'ajoutent automatiquement à cette liste</strong> (consultation et impression uniquement) et sont comptées dans la synthèse par arrondissement.'
         : ' Vos fiches remontent automatiquement chez votre RCSE.'}</p>
+      ${barreType()}
       ${formulaireHtml()}
+      <div id="fnFormS" style="display:none"></div>
       <div class="card" style="margin:22px 0 0"><h2>📋 Cas remplis <span id="fnCompteur" class="petit"></span></h2><div id="fnListe">Chargement…</div></div>
       ${rcse ? '<div class="card" style="margin:22px 0 0"><h2>📍 Synthèse de la situation par arrondissement</h2><p class="petit" style="margin:0 0 8px">Tous les cas notifiés dans votre zone sanitaire (vos fiches et celles de vos ASCQ), regroupés par arrondissement de résidence du cas.</p><div id="fnSynthese">Chargement…</div></div>' : ''}`;
     document.getElementById('fnArr').addEventListener('change', () => majGeoFormulaire(true));
@@ -533,24 +677,11 @@
         f.gpsLon.value = p.coords.longitude.toFixed(6); f.gpsLat.value = p.coords.latitude.toFixed(6);
       }, () => toast('Position introuvable : autorisez la localisation ou saisissez les coordonnées.', true), { enableHighAccuracy: true, timeout: 10000 });
     };
-    document.getElementById('fnForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const d = lireFormulaire();
-      if (!d.nomPatient) { toast('Indiquez le nom du patient.', true); return; }
-      if (!d.maladie) { toast('Cochez la maladie notifiée.', true); return; }
-      const arr = mesArrs.find(a => a.ID === d.arrondissementId);
-      if (!arr) { toast('Choisissez l\'arrondissement de résidence du cas.', true); return; }
-      d.arrondissement = arr.Nom; d.comResidence = arr.CommuneNom || d.comResidence || ''; d.depResidence = arr.DepartementNom || d.depResidence || '';
-      const btn = document.getElementById('fnSave'); btn.disabled = true;
-      try {
-        const r = await Api.call('saveFicheNotif', { id: editId || '', clientId: editId ? '' : clientId(), donnees: d });
-        toast(r.queued ? 'Pas de réseau : la fiche est gardée sur cet appareil et sera envoyée automatiquement (elle apparaît dans la liste, en attente).' : (editId ? 'Fiche modifiée.' : 'Fiche enregistrée.'));
-        nouvelleFiche();
-        await charger();
-        document.getElementById('fnListe').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } catch (err) { toast(err.message, true); }
-      btn.disabled = false;
-    });
+    document.getElementById('fnForm').addEventListener('submit', (e) => { e.preventDefault(); enregistrer('maladie', lireFormulaire()); });
+    document.getElementById('fnForm').addEventListener('change', e => { const z = e.target.closest('.fn-err'); if (z) z.classList.remove('fn-err'); });
+    document.getElementById('fnType').onchange = e => { editId = null; typeCourant = e.target.value; afficherType(typeCourant, null); document.getElementById('fnEditInfo').textContent = ''; };
+    marquerObligatoires();
+    if (validation) appliquerValidation();
     charger();
     if (!window.__fnEcoute) { window.__fnEcoute = true; ['sivec:sync', 'sivec:file'].forEach(ev => window.addEventListener(ev, () => { if (document.getElementById('fnListe')) charger(); })); }
   };

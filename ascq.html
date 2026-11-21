@@ -459,6 +459,7 @@ function openInvestigation(key) {
     FicheNotif.demarrerValidation({
       type: 'maladie',
       titre: 'Validation de l\u2019alerte de ' + (ligneRc && (ligneRc.Nom || ligneRc.TypeAlerte) || 'cas notifié') + ' — fiche de notification à remplir',
+      consigne: 'Affection notifiée par le relais : ' + String((ligneRc && (ligneRc.AutrePreciser || ligneRc.TypeAlerte)) || '—').replace(/^\d+\.\s*/, '') + '. Le relais a pu se tromper : redéfinissez l\u2019affection dans « Maladie notifiée » si besoin, puis complétez la fiche.',
       prefill: () => FicheNotif.prefillAlerte(__pendingAlertesParId[refId] || ligneRc),
       finaliser: (fiche) => Api.call('submitInvestigation', Object.assign({}, payload, { fiche: fiche })),
       messageSucces: 'Alerte validée : la fiche de notification est envoyée à la plateforme.',

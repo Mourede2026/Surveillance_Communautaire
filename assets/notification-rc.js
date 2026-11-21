@@ -151,5 +151,5 @@
     el.querySelector('[data-nrc=supprimer]').onclick = function () { supprimer(refType, l, function (r) { el.innerHTML = ''; if (rappels.onSupprime) rappels.onSupprime(r); }); };
   }
 
-  window.NotifRc = { donneesHtml: donneesHtml, rendreCarte: rendreCarte, modifier: modifier, supprimer: supprimer, formulaire: formulaire, validee: validee };
+  window.NotifRc = { typesDeces: TYPES_DECES, typesAlerte: TYPES_ALERTE, donneesHtml: donneesHtml, rendreCarte: rendreCarte, modifier: modifier, supprimer: supprimer, formulaire: formulaire, validee: validee };
 })();

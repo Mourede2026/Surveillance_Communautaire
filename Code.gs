@@ -116,13 +116,13 @@ const COLS = {
     'DateNaissance','Age','GPSLon','GPSLat','TypeAlerte','AutrePreciser','DateDebutMaladie',
     'DateNotification','Signes','PersonnesTouchees','PersonnesMortes','AnimauxMalades',
     'AnimauxMorts','EnCours','NotificateurId','NotificateurNom','Titre','CentreSante',
-    'DateSaisie','Statut','InvestigationId','ClientId','HorsLigne','SynchroniseLe','ModifieParAscq','DateModification'],
+    'DateSaisie','Statut','InvestigationId','ClientId','HorsLigne','SynchroniseLe','ModifieParAscq','DateModification','TypeAlerteInitial'],
   Deces: ['ID','Annee','SemaineEpi','Mois','NPI','NDeces','Departement','ZoneSanitaire',
     'CommuneId','ArrondissementId','VillageId','NGrappe','Adresse','Nom','NomParent',
     'TelephoneParent','DateNaissance','AgeAnnees','AgeMois','AgeJours','Sexe','GPSLon','GPSLat',
     'TypeDeces','DateDeces','DateNotification','LieuDeces','Circonstances','CauseProbable',
     'NotificateurId','NotificateurNom','Titre','CentreSante','DateSaisie','Statut','InvestigationId',
-    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation','ClientId','HorsLigne','SynchroniseLe','ModifieParAscq','DateModification'],
+    'ConfirmePar','ConfirmeParNom','DateConfirmation','CommentaireConfirmation','ClientId','HorsLigne','SynchroniseLe','ModifieParAscq','DateModification','TypeDecesInitial'],
   Investigations: ['ID','RefType','RefId','ASCQId','Departement','ZoneSanitaire','CommuneId',
     'ArrondissementId','VillageId','Relais','TelRelais','ASCQNom','TelASCQ','GPSLon','GPSLat',
     'EvenementAvere','Source','Maladie','Description','Circonstances','DateSurvenue',
@@ -1509,8 +1509,10 @@ function confirmerDeces_(actor, p) {
     return { ok: false, error: 'Ce décès a déjà été traité (' + d.Statut + ') : la décision est définitive.' };
   }
   // Décès confirmé : la FICHE DE NOTIFICATION correspondante (maternel 3_BJ, néonatal 4_BJ, autre décès 02_BJ) est obligatoire.
+  // Le relais a pu se tromper de type de décès : l'ASCQ choisit le bon (maternel, bébé 0-28 j, enfant, adulte) avant de remplir la fiche.
+  const typeChoisi = /^[1-5]$/.test(String(p.typeDeces || '')) ? String(p.typeDeces) : String(d.TypeDeces);
   if (confirme) {
-    const attendu = FicheSchemas.typeDeDeces(d.TypeDeces);
+    const attendu = FicheSchemas.typeDeDeces(typeChoisi);
     if (!p.fiche || !p.fiche.donnees) return { ok: false, error: 'La fiche de notification (' + FicheSchemas.get(attendu).court + ') est obligatoire pour confirmer ce décès.' };
     if (p.fiche.type && p.fiche.type !== attendu) return { ok: false, error: 'La fiche attendue pour ce décès est : ' + FicheSchemas.get(attendu).court + '.' };
     const fr = enregistrerFicheNotif_(actor, { type: attendu, donnees: p.fiche.donnees, clientId: p.clientId }, { refType: 'DECES', refId: d.ID });
@@ -1520,11 +1522,19 @@ function confirmerDeces_(actor, p) {
   if (!confirme && !commentaire) return { ok: false, error: 'Indiquez le motif pour lequel ce décès n\'est pas confirmé.' };
   const nomAscq = actor.Prenom + ' ' + actor.Nom;
   const statut = confirme ? 'Confirmé' : 'Non confirmé';
-  updateRowById_(SHEETS.DECES, d.ID, { Statut: statut, ConfirmePar: actor.ID, ConfirmeParNom: nomAscq, DateConfirmation: nowStr_(), CommentaireConfirmation: commentaire });
+  const chDeces = { Statut: statut, ConfirmePar: actor.ID, ConfirmeParNom: nomAscq, DateConfirmation: nowStr_(), CommentaireConfirmation: commentaire };
+  if (confirme && typeChoisi !== String(d.TypeDeces)) {
+    Object.assign(chDeces, { TypeDeces: typeChoisi, TypeDecesInitial: d.TypeDecesInitial || d.TypeDeces, ModifieParAscq: 'Oui', DateModification: nowStr_() });
+    appendRow_(SHEETS.JOURNAL_MODIFS, { ID: newId_('MOD'), Date: nowStr_(), Action: 'MODIFICATION', RefType: 'DECES', RefId: d.ID, AuteurId: actor.ID, AuteurNom: nomAscq,
+      Motif: 'Type de décès redéfini à la confirmation (fiche de notification)', Avant: JSON.stringify({ TypeDeces: d.TypeDeces }), Apres: JSON.stringify({ TypeDeces: typeChoisi }) });
+    if (d.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, { ID: newId_('NOTIF'), DestinataireId: d.NotificateurId, Type: 'MODIF_NOTIF', RefId: d.ID,
+      Message: 'Votre ASCQ ' + nomAscq + ' a corrigé le type du décès notifié (' + (d.Nom || '') + ') : ' + (TYPES_DECES_[d.TypeDeces] || d.TypeDeces) + ' → ' + TYPES_DECES_[typeChoisi] + '.', Lu: false, DateCreation: nowStr_() });
+  }
+  updateRowById_(SHEETS.DECES, d.ID, chDeces);
   marquerNotificationsLuesPourRef_(actor.ID, d.ID);
   const village = avecNomVillage_([d])[0].VillageNom;
   const msg = `Décès de ${d.Nom || 'personne non nommée'} (village ${village}) ${confirme ? 'confirmé' : 'non confirmé'} par ${nomAscq}` + (commentaire ? ' - ' + commentaire : '');
-  const resumeDeces = confirme ? resumeAlerteValidee_('DECES', null, Object.assign({}, d, { ConfirmeParNom: nomAscq, DateConfirmation: nowStr_(), CommentaireConfirmation: commentaire }), contexteGeo_()) : null;
+  const resumeDeces = confirme ? resumeAlerteValidee_('DECES', null, Object.assign({}, d, chDeces), contexteGeo_()) : null;
   (confirme || !validationAscqActive_() ? chainAbove_(actor) : []).forEach(sup => appendRow_(SHEETS.NOTIFICATIONS, resumeDeces
     ? { ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'ALERTE_VALIDEE', RefId: d.ID, Message: messageAlerteValidee_(resumeDeces), Lu: false, DateCreation: nowStr_() }
     : { ID: newId_('NOTIF'), DestinataireId: sup.ID, Type: 'DECES_DECISION', RefId: d.ID, Message: msg, Lu: false, DateCreation: nowStr_() }));
@@ -1589,6 +1599,33 @@ function notificationRcDuPerimetre_(actor, p) {
   const ligne = listScoped_(feuille, actor).find(x => x.ID === p.refId);
   if (!ligne) return { error: 'Notification introuvable dans votre périmètre.' };
   return { type: type, feuille: feuille, ligne: ligne };
+}
+
+// Types d'alerte et de décès proposés au relais communautaire (copie des listes de l'application).
+const TYPES_ALERTE_ = ['1. Rougeole', '2. Choléra', '3. Méningite', '4. PFA', '5. FHV Lassa', '6. FHV Ebola', '7. Fièvre jaune', '8. Dengue', '9. Anthrax', '10. Shigellose',
+  '11. Grippes aviaires', '12. Rage', '13. COVID-19', '14. Mpox', '15. Morsure de chien', '16. Morsure de serpent', '17. Morsure d\'autre animaux', '18. Animaux malades', '19. Animaux morts', '20. Autre événement inhabituel'];
+const TYPES_DECES_ = { 1: 'Décès maternel', 2: 'Décès de bébé (0-28 jours)', 3: 'Décès d\'enfant de 1 mois à 1 an', 4: 'Décès d\'enfant de 1 à 5 ans', 5: 'Décès de personne de plus de 5 ans' };
+function sansAccent_(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+// Fait correspondre l'affection retenue par l'ASCQ (fiche) à un type d'alerte ; sinon « 20. Autre événement inhabituel » + précision.
+function typeAlerteDepuisLibelle_(lib) {
+  const l = sansAccent_(lib);
+  const t = TYPES_ALERTE_.slice(0, 19).find(x => { const n = sansAccent_(x.replace(/^\d+\.\s*/, '')); return n === l || (l.length > 3 && (n.indexOf(l) !== -1 || l.indexOf(n) !== -1)); });
+  return t ? { TypeAlerte: t, AutrePreciser: '' } : { TypeAlerte: TYPES_ALERTE_[19], AutrePreciser: String(lib || '').slice(0, 120) };
+}
+// L'ASCQ a le dernier mot sur l'affection : le type d'alerte du relais est corrigé (trace + information du relais) pour que tous les niveaux voient la bonne affection.
+function requalifierAlerte_(actor, ref, donnees) {
+  const lib = String(donnees && (donnees.maladie === 'Autre' ? donnees.maladieAutre : donnees.maladie) || '').trim();
+  if (!lib || !ref) return;
+  const cible = typeAlerteDepuisLibelle_(lib);
+  if (cible.TypeAlerte === ref.TypeAlerte && String(cible.AutrePreciser || '') === String(ref.AutrePreciser || '')) return;
+  const ch = { TypeAlerte: cible.TypeAlerte, AutrePreciser: cible.AutrePreciser, TypeAlerteInitial: ref.TypeAlerteInitial || ref.TypeAlerte, ModifieParAscq: 'Oui', DateModification: nowStr_() };
+  updateRowById_(SHEETS.ALERTES, ref.ID, ch);
+  const nomAscq = (actor.Prenom + ' ' + actor.Nom).trim();
+  appendRow_(SHEETS.JOURNAL_MODIFS, { ID: newId_('MOD'), Date: nowStr_(), Action: 'MODIFICATION', RefType: 'ALERTE', RefId: ref.ID, AuteurId: actor.ID, AuteurNom: nomAscq,
+    Motif: 'Affection redéfinie à la validation (fiche de notification)', Avant: JSON.stringify({ TypeAlerte: ref.TypeAlerte, AutrePreciser: ref.AutrePreciser || '' }), Apres: JSON.stringify({ TypeAlerte: cible.TypeAlerte, AutrePreciser: cible.AutrePreciser }) });
+  if (ref.NotificateurId) appendRow_(SHEETS.NOTIFICATIONS, { ID: newId_('NOTIF'), DestinataireId: ref.NotificateurId, Type: 'MODIF_NOTIF', RefId: ref.ID,
+    Message: 'Votre ASCQ ' + nomAscq + ' a précisé l\'affection de votre alerte (' + (ref.Nom || '') + ') : ' + String(ref.TypeAlerte || '') + ' → ' + cible.TypeAlerte + (cible.AutrePreciser ? ' (' + cible.AutrePreciser + ')' : '') + '.', Lu: false, DateCreation: nowStr_() });
+  Object.assign(ref, ch);
 }
 
 function modifierNotificationRc_(actor, p) {
@@ -1669,6 +1706,7 @@ function submitInvestigation_(actor, p) {
   if (ref) ['Departement', 'ZoneSanitaire', 'CommuneId', 'ArrondissementId', 'VillageId'].forEach(k => { if (!obj[k] && ref[k]) obj[k] = ref[k]; });
   appendRow_(SHEETS.INVESTIGATIONS, obj);
   updateRowById_(targetSheet, p.refId, { Statut: 'Investigué', InvestigationId: obj.ID });
+  if (ficheRes && refType === 'ALERTE') requalifierAlerte_(actor, ref, p.fiche.donnees);
   // L'alerte est traitée : la notification correspondante n'est plus « non lue » pour l'ASCQ.
   marquerNotificationsLuesPourRef_(actor.ID, p.refId);
   const chain = chainAbove_(actor); // [PF, RCSE, DEPARTEMENT, NATIONAL]
@@ -4703,7 +4741,11 @@ function listFichesNotif_(actor) {
       return o;
     })
     .sort((a, b) => String(b.DateSaisie).localeCompare(String(a.DateSaisie)));
-  return { ok: true, fiches: fiches };
+  // Signature enregistrée dans « Mon compte » de chaque notificateur (une seule fois par compte) : elle est imprimée sur la fiche PDF.
+  const signatures = {};
+  const auteurs = new Set(fiches.map(f => String(f.CreeParId)));
+  readSheet_(SHEETS.USERS).forEach(u => { if (auteurs.has(String(u.ID))) { const sg = sigDe_(u); if (sg) signatures[String(u.ID)] = sg; } });
+  return { ok: true, fiches: fiches, signatures: signatures };
 }
 
 function deleteFicheNotif_(actor, p) {

@@ -30,6 +30,7 @@
   // Type de fiche affiché : maladie (fiche générique 1_BJ) ou l'une des fiches décès (3_BJ, 4_BJ, 02_BJ).
   // `validation` : fiche demandée à l'ASCQ pour VALIDER une alerte / confirmer un décès du relais communautaire.
   let typeCourant = 'maladie', formS = null, validation = null;
+  let signatures = {};   // signature (PNG de « Mon compte ») de chaque notificateur, pour le PDF
   const TYPES_LIB = { maladie: 'Maladie sous surveillance (fiche générique 1_BJ)', deces_maternel: 'Décès maternel (fiche 3_BJ)', deces_neonatal: 'Décès néonatal (fiche 4_BJ)', autres_deces: 'Autres décès (fiche 02_BJ)' };
   let mesArrs = [], mesVillages = [], anneeSynthese = '';  // arrondissements / villages du périmètre du compte
 
@@ -37,7 +38,10 @@
   const E = escHtml;
   const nomSigne = i => 'sg' + i;
   const clientId = () => 'fn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-  function lireDonnees(f) { try { const d = JSON.parse(f.Donnees || '{}'); const o = d && typeof d === 'object' ? d : {}; o.typeFiche = o.typeFiche || f.TypeFiche || 'maladie'; o.__creePar = f.CreeParNom || ''; return o; } catch (e) { return { typeFiche: f.TypeFiche || 'maladie' }; } }
+  function lireDonnees(f) { try { const d = JSON.parse(f.Donnees || '{}'); const o = d && typeof d === 'object' ? d : {}; o.typeFiche = o.typeFiche || f.TypeFiche || 'maladie'; o.__creePar = f.CreeParNom || '';
+    // Signature de CELUI QUI A NOTIFIÉ (jamais celle du compte qui consulte ou corrige) ; fiche en attente d'envoi = compte courant.
+    o.__signature = signatures[f.CreeParId] || ((!f.CreeParId || f.CreeParId === ctx.user.ID) ? (ctx.user.Signature || '') : '');
+    return o; } catch (e) { return { typeFiche: f.TypeFiche || 'maladie' }; } }
   const coche = v => v ? '☒' : '☐';
 
   // ---------------- champs du formulaire ----------------
@@ -299,7 +303,7 @@
   }
 
   // Téléchargement PDF : une page A4 par fiche, canevas officiel rempli en bleu (écriture manuscrite), partie laboratoire vierge.
-  function telechargerPdf(liste) {
+  async function telechargerPdf(liste) {
     if (!liste.length) { toast('Aucune fiche à exporter.', true); return; }
     if (!window.FicheNotifPdf) { toast('Export PDF indisponible : rechargez la page.', true); return; }
     try {
@@ -308,14 +312,15 @@
       const nom = liste.length === 1
         ? 'Fiche_notification_' + [nettoyer(donnees[0].maladie === 'Autre' ? donnees[0].maladieAutre : donnees[0].maladie), nettoyer(donnees[0].nomPatient), donnees[0].semaine ? 'S' + donnees[0].semaine + '-' + (donnees[0].annee || '') : ''].filter(Boolean).join('_') + '.pdf'
         : 'Fiches_notification_' + liste.length + '_cas.pdf';
+      await window.FicheNotifPdf.preparer(donnees);
       window.FicheNotifPdf.telecharger(donnees, nom);
     } catch (e) { toast('Export PDF impossible : ' + e.message, true); }
   }
 
   // Aperçu écran du PDF (même rendu que le fichier téléchargé) avec Télécharger / Imprimer.
-  function pagesCanvas(liste, largeur, dpr) { return window.FicheNotifPdf.canvases(liste.map(f => lireDonnees(f)), largeur, dpr); }
+  async function pagesCanvas(liste, largeur, dpr) { const donnees = liste.map(f => lireDonnees(f)); await window.FicheNotifPdf.preparer(donnees); return window.FicheNotifPdf.canvases(donnees, largeur, dpr); }
 
-  function apercuPdf(liste) {
+  async function apercuPdf(liste) {
     if (!liste.length) { toast('Aucune fiche à afficher.', true); return; }
     if (!window.FicheNotifPdf) { toast('Aperçu PDF indisponible : rechargez la page.', true); return; }
     const ov = document.createElement('div');
@@ -327,7 +332,7 @@
       <div id="fnPvPages"></div></div>`;
     document.body.appendChild(ov);
     const zone = ov.querySelector('#fnPvPages');
-    try { pagesCanvas(liste, liste.length > 3 ? 700 : 860, liste.length > 3 ? 1 : 0).forEach(c => { c.style.border = '1px solid #ccc'; c.style.marginTop = '10px'; zone.appendChild(c); }); }
+    try { (await pagesCanvas(liste, liste.length > 3 ? 700 : 860, liste.length > 3 ? 1 : 0)).forEach(c => { c.style.border = '1px solid #ccc'; c.style.marginTop = '10px'; zone.appendChild(c); }); }
     catch (e) { zone.textContent = 'Aperçu impossible : ' + e.message; }
     ov.querySelector('#fnPvDl').onclick = () => telechargerPdf(liste);
     ov.querySelector('#fnPvPr').onclick = () => imprimerPages(liste);
@@ -336,7 +341,7 @@
   }
 
   // Impression directe de la fiche remplie (même rendu que le PDF) : pages image insérées dans la page puis window.print().
-  function imprimerPages(liste) {
+  async function imprimerPages(liste) {
     if (!liste.length) { toast('Aucune fiche à imprimer.', true); return; }
     if (!window.FicheNotifPdf) { toast('Impression indisponible : rechargez la page.', true); return; }
     if (!document.getElementById('fnPrintCss')) {
@@ -346,7 +351,7 @@
     }
     const ancien = document.getElementById('fnPrintZone'); if (ancien) ancien.remove();
     const z = document.createElement('div'); z.id = 'fnPrintZone';
-    try { pagesCanvas(liste, 1240, 1).forEach(c => { const im = new Image(); im.src = c.toDataURL('image/png'); z.appendChild(im); }); }
+    try { (await pagesCanvas(liste, 1240, 1)).forEach(c => { const im = new Image(); im.src = c.toDataURL('image/png'); z.appendChild(im); }); }
     catch (e) { toast('Impression impossible : ' + e.message, true); return; }
     document.body.appendChild(z);
     const fin = () => { z.remove(); window.removeEventListener('afterprint', fin); };
@@ -460,7 +465,7 @@
 
   async function charger() {
     await chargerEnAttente();
-    try { const r = await Api.call('listFichesNotif', {}); fiches = r.fiches || []; }
+    try { const r = await Api.call('listFichesNotif', {}); fiches = r.fiches || []; signatures = r.signatures || {}; }
     catch (e) { fiches = []; if (!enAttente.length) { document.getElementById('fnListe').innerHTML = '<div class="empty-state">' + E(e.horsLigne ? 'Hors connexion : la liste des fiches déjà envoyées sera disponible après une ouverture avec connexion. Vous pouvez néanmoins saisir de nouvelles fiches.' : 'Erreur de chargement : ' + e.message) + '</div>'; return; } }
     dessinerListe();
     dessinerSynthese();
@@ -590,7 +595,7 @@
     const b = document.getElementById('fnValidBandeau'), sel = document.getElementById('fnType'); if (!b) return;
     if (!validation) { b.style.display = 'none'; b.innerHTML = ''; if (sel) sel.disabled = false; return; }
     b.style.display = '';
-    b.innerHTML = '<strong>✅ ' + E(validation.titre || 'Validation en cours') + '</strong><p class="petit" style="margin:4px 0 8px">Remplissez la fiche officielle ci-dessous. <strong>La validation n\'est prise en compte, et rien ne remonte à la plateforme, qu\'une fois la fiche complète envoyée.</strong></p>' +
+    b.innerHTML = '<strong>✅ ' + E(validation.titre || 'Validation en cours') + '</strong><p class="petit" style="margin:4px 0 8px">' + E(validation.consigne || 'Remplissez la fiche officielle ci-dessous.') + ' <strong>La validation n\'est prise en compte, et rien ne remonte à la plateforme, qu\'une fois la fiche complète envoyée.</strong></p>' +
       '<button type="button" class="btn-secondary" id="fnValidAnnuler" style="font-size:.8rem;padding:6px 12px">Annuler la validation</button>';
     if (sel) sel.disabled = true;
     document.getElementById('fnValidAnnuler').onclick = () => {
@@ -620,9 +625,9 @@
       gpsLon: l.GPSLon, gpsLat: l.GPSLat });
   }
   // Pré-remplissage de la fiche décès (type selon le décès notifié par le RC : maternel, néonatal, autre).
-  function prefillDeces(l) {
+  function prefillDeces(l, typeChoisi) {
     l = l || {};
-    const type = FicheSchemas.typeDeDeces(l.TypeDeces), sexe = (l.Sexe === 'M' || l.Sexe === 'F') ? l.Sexe : '';
+    const type = FicheSchemas.typeDeDeces(typeChoisi || l.TypeDeces), sexe = (l.Sexe === 'M' || l.Sexe === 'F') ? l.Sexe : '';
     const LIEU_RC = { 1: '6', 2: '6', 3: '8', 4: '7', 5: '8', 6: '8' };   // lieux du relais → codes de la fiche officielle
     const o = { village: l.VillageNom, adresseParent: l.Adresse, dateNaissance: isoDate(l.DateNaissance), dateDeces: isoDate(l.DateDeces), lieuDeces: LIEU_RC[l.LieuDeces] || '', arrondissementId: arrDuCas(l) };
     if (type === 'deces_neonatal') Object.assign(o, { nomEnfant: l.Nom, nomMere: l.NomParent, tel: l.TelephoneParent, ageJours: l.AgeJours, sexeEnfant: sexe === 'M' ? '1' : sexe === 'F' ? '2' : '' });

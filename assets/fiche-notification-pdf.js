@@ -41,7 +41,7 @@
   function dessinerFiche(doc, d) {
     d = d || {};
     var p = doc.page(), M = 24, W = p.l - 2 * M, R = M + W, T = 7.2, ROW = 15.6;
-    var rnd = prng(hash(JSON.stringify(d)));
+    var rnd = prng(hash(JSON.stringify(d, function (k, v) { return (k === '__sigImg' || k === '__signature') ? undefined : v; })));
     var x = M, y = 0;
 
     // --- étiquettes imprimées (noir) ---
@@ -62,13 +62,12 @@
     }
     // Notificateur = le compte qui notifie (enregistré dans l'application) ; à défaut, l'auteur de la fiche.
     var notif = { nom: texte(d.notifNom || d.__creePar), qualif: texte(d.notifQualif), tel: texte(d.notifTel) };
-    // Signature : le nom du notificateur, en grand, penché, avec un paraphe (signature stylisée à partir du compte).
+    // Signature : l'IMAGE de la signature enregistrée dans « Mon compte » du notificateur (placée au-dessus du trait).
+    // Sans signature enregistrée, l'emplacement reste vide pour une signature à la main.
     function signer(x0, w) {
-      if (!notif.nom) return;
-      var t = 13; while (t > 7 && largeur(notif.nom, t) > w - 8) t -= 0.5;
-      var tw = Math.min(largeur(notif.nom, t), w - 6);
-      p.texte(x0 + 3, y - 1.4 + (rnd() - 0.5) * 0.6, notif.nom, { taille: t, oblique: true, couleur: BLEU, angle: 3 + rnd() * 2 });
-      p.ligne(x0 + 2, y + 2.8, x0 + 8 + tw, y - 2.6, { couleur: BLEU, epaisseur: 0.9, arrondi: true });
+      var im = d.__sigImg; if (!im || !im.rgb) return;
+      var hMax = 25, wMax = Math.max(20, w - 6), k = Math.min(hMax / im.h, wMax / im.l), lw = im.l * k, lh = im.h * k;
+      p.image(im, x0 + 3, y + 1.2 - lh, lw, lh);
     }
     function croix(bx, by, s) {
       var j = function () { return (rnd() - 0.5) * 0.9; };
@@ -181,7 +180,7 @@
     lab('Evolution :'); cb(d.evolution === 'Vivant', 'Vivant'); cb(d.evolution === 'Décédé', 'Décédé'); cb(d.evolution === 'Inconnu', 'Inconnu', { apres: 0 }); suite();
     lab('Statut vaccinal :'); cb(d.vaccinal === 'Vacciné', 'Vacciné'); cb(d.vaccinal === 'Non vacciné', 'Non vacciné', { apres: 14 });
     lab('Si oui , nombre de doses'); slots([texte(d.nbDoses)], [20], { apres: 12 }); dateC('Date dernière dose :', d.dateDerniereDose, { apres: 0 }); suite();
-    lab('Classification Finale :', { apres: 5 }); CLASSIF.forEach(function (cl, i) { cb(d.classification === cl, cl, { apres: i === CLASSIF.length - 1 ? 0 : 6, taille: 6.9 }); }); suite();
+    lab('Classification Finale :', { apres: 5 }); CLASSIF.forEach(function (cl, i) { cb(d.classification === cl, cl, { apres: i === CLASSIF.length - 1 ? 0 : 6, taille: 6.9 }); }); suite(ROW + 9);
     lab('Nom du Notificateur :'); fld(118, notif.nom); lab('Tél :'); fld(66, notif.tel); lab('Qualification :'); fld(62, notif.qualif); lab('Signature :'); var xsig = x; fld(R - x, '', { apres: 0 }); signer(xsig, R - xsig); suite(ROW + 1);
 
     // ===== Prélèvement =====
@@ -233,7 +232,7 @@
   function dessinerSchema(doc, d) {
     var S = global.FicheSchemas.get(d.typeFiche);
     var p = doc.page(), M = 24, W = p.l - 2 * M, R = M + W, T = 7.0, ROW = S.compact ? 12.9 : 14.6;
-    var rnd = prng(hash(JSON.stringify(d)));
+    var rnd = prng(hash(JSON.stringify(d, function (k, v) { return (k === '__sigImg' || k === '__signature') ? undefined : v; })));
     var x = M, y = 0;
     function lab(s, o) { o = o || {}; var w = p.texte(x, y, s, { taille: o.taille || T, gras: o.gras, couleur: NOIR }); x += w + (o.apres === undefined ? 2.5 : o.apres); return w; }
     function main(x0, y0, s, max, taille, centre) {
@@ -265,11 +264,9 @@
     // Notificateur = le compte qui notifie ; signature stylisée à partir de son nom (voir la fiche générique).
     var notif = { nom: texte(d.notifNom || d.__creePar), qualif: texte(d.notifQualif), tel: texte(d.notifTel) };
     function signer(x0, w) {
-      if (!notif.nom) return;
-      var t = 13; while (t > 7 && largeur(notif.nom, t) > w - 8) t -= 0.5;
-      var tw = Math.min(largeur(notif.nom, t), w - 6);
-      p.texte(x0 + 3, y - 1.4 + (rnd() - 0.5) * 0.6, notif.nom, { taille: t, oblique: true, couleur: BLEU, angle: 3 + rnd() * 2 });
-      p.ligne(x0 + 2, y + 2.8, x0 + 8 + tw, y - 2.6, { couleur: BLEU, epaisseur: 0.9, arrondi: true });
+      var im = d.__sigImg; if (!im || !im.rgb) return;
+      var hMax = 25, wMax = Math.max(20, w - 6), k = Math.min(hMax / im.h, wMax / im.l), lw = im.l * k, lh = im.h * k;
+      p.image(im, x0 + 3, y + 1.2 - lh, lw, lh);
     }
     var largSlots = function (n, w) { return 2 + w.reduce(function (a, b) { return a + b; }, 0) + n * 3.4; };
     function suite(h) { x = M; y += h === undefined ? ROW : h; }
@@ -441,13 +438,38 @@
       if (sec.style === 'enquete') { y += 1; }
     });
     // ===== pied de fiche : notificateur (nom, qualification, téléphone) et signature, remplis depuis le compte =====
-    y += 10; x = M; lab(S.signature, { apres: 5 }); fld(R - x, notif.nom + (notif.qualif ? ' \u2014 ' + notif.qualif : ''), { apres: 0 }); suite(ROW + 3);
+    y += 10; x = M; lab(S.signature, { apres: 5 }); fld(R - x, notif.nom + (notif.qualif ? ' \u2014 ' + notif.qualif : ''), { apres: 0 }); suite(ROW + 10);
     lab('Téléphone :'); fld(130, notif.tel, { apres: 14 }); lab('Signature :'); var xsg = x; fld(R - x, '', { apres: 0 }); signer(xsg, R - xsg);
     if (global.__FN_DEBUG) console.log(S.code + ' : bas de fiche y=' + y.toFixed(1) + ' / ' + p.h);
     return p;
   }
 
   function dessiner(doc, d) { return (d && d.typeFiche && d.typeFiche !== 'maladie' && global.FicheSchemas && global.FicheSchemas.get(d.typeFiche)) ? dessinerSchema(doc, d) : dessinerFiche(doc, d); }
+
+  // Décode la signature (PNG enregistré dans « Mon compte ») de chaque fiche en image RGB sur fond blanc, pour le PDF.
+  var __sigCache = {};
+  function decoderSignature(url) {
+    if (!url || typeof document === 'undefined') return Promise.resolve(null);
+    if (__sigCache[url]) return __sigCache[url];
+    return (__sigCache[url] = new Promise(function (res) {
+      var im = new Image();
+      im.onload = function () {
+        try {
+          var sc = Math.min(1, 520 / im.width), w = Math.max(1, Math.round(im.width * sc)), h = Math.max(1, Math.round(im.height * sc));
+          var c = document.createElement('canvas'); c.width = w; c.height = h; var g = c.getContext('2d');
+          g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+          var px = g.getImageData(0, 0, w, h).data, rgb = new Uint8Array(w * h * 3);
+          for (var i = 0, j = 0; i < px.length; i += 4, j += 3) { rgb[j] = px[i]; rgb[j + 1] = px[i + 1]; rgb[j + 2] = px[i + 2]; }
+          res({ l: w, h: h, rgb: rgb });
+        } catch (e) { res(null); }
+      };
+      im.onerror = function () { res(null); };
+      im.src = url;
+    }));
+  }
+  function preparer(liste) {
+    return Promise.all((liste || []).map(function (d) { return decoderSignature(d && d.__signature).then(function (img) { if (d) d.__sigImg = img; }); }));
+  }
 
   function construire(liste, opts) {
     var doc = new global.PdfMini({ titre: (opts && opts.titre) || 'Fiche de notification' });
@@ -476,6 +498,13 @@
         g.save(); g.translate(parseFloat(m[8]) * k, (page.h - parseFloat(m[9])) * k); g.rotate(-ang);
         g.font = (m[1] === 'F3' ? 'italic ' : '') + (m[1] === 'F2' ? 'bold ' : '') + (parseFloat(m[2]) * k) + 'px Helvetica, Arial, sans-serif';
         g.fillStyle = rvb(m[3]); g.textBaseline = 'alphabetic'; g.fillText(decoder(m[10]), 0, 0); g.restore();
+      } else if (/^q [\d.]+ 0 0 [\d.]+ -?[\d.]+ -?[\d.]+ cm \/Im\d+ Do Q$/.test(op)) {
+        m = /^q ([\d.]+) 0 0 ([\d.]+) (-?[\d.]+) (-?[\d.]+) cm \/Im(\d+) Do Q$/.exec(op);
+        var img = page.images[parseInt(m[5], 10) - 1]; if (!img || !img.rgb) return;
+        if (!img._cv) { var t = document.createElement('canvas'); t.width = img.l; t.height = img.h; var tg = t.getContext('2d'), id = tg.createImageData(img.l, img.h);
+          for (var i = 0, j = 0; j < img.rgb.length; i += 4, j += 3) { id.data[i] = img.rgb[j]; id.data[i + 1] = img.rgb[j + 1]; id.data[i + 2] = img.rgb[j + 2]; id.data[i + 3] = 255; }
+          tg.putImageData(id, 0, 0); img._cv = t; }
+        g.drawImage(img._cv, parseFloat(m[3]) * k, (page.h - parseFloat(m[4]) - parseFloat(m[2])) * k, parseFloat(m[1]) * k, parseFloat(m[2]) * k);
       } else if (/ re (f|S|B)$/.test(op)) {
         var fond = /([\d.]+ [\d.]+ [\d.]+) rg/.exec(op), trait = /([\d.]+ [\d.]+ [\d.]+) RG ([\d.]+) w/.exec(op), r = /(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) re/.exec(op);
         if (!r) return;
@@ -493,6 +522,6 @@
   }
   function canvases(liste, largeurCss, dprFixe) { return construire(liste).pages.map(function (pg) { return canvasPage(pg, largeurCss || 800, dprFixe); }); }
 
-  global.FicheNotifPdf = { construire: construire, telecharger: telecharger, canvases: canvases };
+  global.FicheNotifPdf = { construire: construire, telecharger: telecharger, canvases: canvases, preparer: preparer };
   if (typeof module !== 'undefined' && module.exports) module.exports = global.FicheNotifPdf;
 })(typeof window !== 'undefined' ? window : globalThis);

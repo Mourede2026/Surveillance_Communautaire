@@ -33,6 +33,25 @@
       </div>${plus}${decision}${actions || ''}${gestion}</div>`;
   }
 
+
+  // Fenêtre : choix du type de décès exact (le relais communautaire peut se tromper) → détermine la fiche à remplir.
+  function choisirTypeDeces(ligne) {
+    return new Promise(resolve => {
+      const T = NotifRc.typesDeces, fiche = { 1: 'fiche 3_BJ — décès maternel', 2: 'fiche 4_BJ — décès néonatal', 3: 'fiche 02_BJ — autres décès', 4: 'fiche 02_BJ — autres décès', 5: 'fiche 02_BJ — autres décès' };
+      const ov = document.createElement('div'); ov.className = 'modal-overlay';
+      ov.innerHTML = `<div class="modal-box" style="max-width:540px;background:#fff;color:#000">
+        <h3 style="margin:0 0 6px">Confirmer le décès de ${escHtml(ligne.Nom || 'la personne notifiée')}</h3>
+        <p class="petit" style="margin:0 0 10px">Le relais communautaire a notifié : <strong>${escHtml(T[ligne.TypeDeces] || ligne.TypeDeces || '—')}</strong>. Il a pu se tromper : choisissez le <strong>type exact</strong>. La fiche de notification correspondante s\'ouvrira ensuite.</p>
+        ${[1, 2, 3, 4, 5].map(k => `<label style="display:block;margin:6px 0"><input type="radio" name="tdc" value="${k}" ${String(ligne.TypeDeces) === String(k) ? 'checked' : ''}> ${escHtml(T[k])} <span class="petit">→ ${fiche[k]}</span></label>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button type="button" id="tdcOk">Continuer vers la fiche</button><button type="button" class="btn-secondary" id="tdcNon">Annuler</button></div></div>`;
+      document.body.appendChild(ov);
+      const fin = v => { ov.remove(); resolve(v); };
+      ov.querySelector('#tdcOk').onclick = () => { const c = ov.querySelector('input[name=tdc]:checked'); fin(c ? c.value : null); };
+      ov.querySelector('#tdcNon').onclick = () => fin(null);
+      ov.addEventListener('click', e => { if (e.target === ov) fin(null); });
+    });
+  }
+
   window.loadDecesAConfirmer = async function () {
     const el = document.getElementById('decesAConfirmerZone');
     el.innerHTML = 'Chargement…';
@@ -62,14 +81,18 @@
     let commentaire = '';
     if (decision === 'confirmer') {
       const ligne = (window.__decesParId || {})[id];
-      if (!window.FicheNotif || !ligne) { toast('Fiche de notification indisponible : rechargez la page.', true); return; }
-      if (!confirm('Confirmer ce décès ?\n\nVous allez remplir la fiche de notification correspondante (décès maternel, néonatal ou autre décès). Le décès n\'est confirmé — et compté dans le rapport hebdomadaire — qu\'une fois la fiche envoyée. Cette décision est définitive.')) return;
-      const pre = FicheNotif.prefillDeces(ligne);
-      FicheNotif.demarrerValidation({
-        type: pre.type, titre: 'Confirmation du décès de ' + (ligne.Nom || 'la personne notifiée') + ' — fiche de notification à remplir', prefill: pre.valeurs,
-        finaliser: (fiche) => Api.call('confirmerDeces', { id, decision: 'confirmer', commentaire: '', fiche }),
-        messageSucces: 'Décès confirmé : la fiche de notification est envoyée et le décès sera compté dans le rapport hebdomadaire.',
-        apres: () => { window.loadDecesAConfirmer(); if (typeof loadDashboard === 'function') loadDashboard(); }
+      if (!window.FicheNotif || !ligne || !window.NotifRc) { toast('Fiche de notification indisponible : rechargez la page.', true); return; }
+      // Le relais a pu se tromper de type : l'ASCQ choisit le type exact AVANT de remplir la fiche correspondante.
+      choisirTypeDeces(ligne).then(typeChoisi => {
+        if (!typeChoisi) return;
+        const pre = FicheNotif.prefillDeces(ligne, typeChoisi);
+        FicheNotif.demarrerValidation({
+          type: pre.type, titre: 'Confirmation du décès de ' + (ligne.Nom || 'la personne notifiée') + ' — ' + NotifRc.typesDeces[typeChoisi], prefill: pre.valeurs,
+          consigne: 'Remplissez la fiche officielle du décès. Elle remplace la saisie du relais : vérifiez et complétez toutes les rubriques.',
+          finaliser: (fiche) => Api.call('confirmerDeces', { id, decision: 'confirmer', typeDeces: typeChoisi, commentaire: '', fiche }),
+          messageSucces: 'Décès confirmé : la fiche de notification est envoyée et le décès sera compté dans le rapport hebdomadaire.',
+          apres: () => { window.loadDecesAConfirmer(); if (typeof loadDashboard === 'function') loadDashboard(); }
+        });
       });
       return;
     } else {
